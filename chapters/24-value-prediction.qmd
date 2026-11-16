@@ -1,0 +1,27 @@
+# Value Prediction: ROAS, Retention, and Ad Revenue {#sec-value-prediction}
+
+Models for goals beyond the install.
+
+## LTV labels
+
+<!-- Outline: D7 and D30 purchases -->
+
+## Sparse, long-tailed revenue
+
+<!-- Outline: hurdle models and Tweedie losses -->
+
+## D1 retention models
+
+<!-- TODO: draft this section -->
+
+## Ad revenue ROAS for hypercasual games
+
+<!-- TODO: draft this section -->
+
+## Combining install and value predictions in a bid
+
+<!-- TODO: draft this section -->
+
+## Evaluating value models
+
+<!-- TODO: draft this section -->

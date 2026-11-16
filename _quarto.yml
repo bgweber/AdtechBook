@@ -1,0 +1,127 @@
+project:
+  type: book
+  output-dir: _book
+
+# Code cells are executed once locally and the results are committed in
+# _freeze/. CI reuses those results, so GPU chapters never need a GPU in CI.
+execute:
+  freeze: auto
+
+book:
+  title: "Machine Learning in Mobile AdTech"
+  author: "Ben Weber"
+  date: last-modified
+  output-file: "ml-in-mobile-adtech"
+  site-url: https://bgweber.github.io/AdtechBook/
+  repo-url: https://github.com/bgweber/AdtechBook
+  search: true
+  chapters:
+    - index.qmd
+    - preface.qmd
+    - part: "The Mobile Programmatic Ecosystem"
+      chapters:
+        - chapters/01-introduction.qmd
+        - chapters/02-the-rtb-ecosystem.qmd
+        - chapters/03-inside-a-demand-side-platform.qmd
+        - chapters/04-campaigns-goals-and-creatives.qmd
+        - chapters/05-data-sources-and-labels.qmd
+    - part: "The Bid Path"
+      chapters:
+        - chapters/06-parsing-bid-requests.qmd
+        - chapters/07-eligibility-and-candidate-selection.qmd
+        - chapters/08-features-and-tensors.qmd
+        - chapters/09-from-predictions-to-bids.qmd
+    - part: "The Model Workflow"
+      chapters:
+        - chapters/10-building-training-datasets.qmd
+        - chapters/11-training-pipelines.qmd
+        - chapters/12-offline-evaluation-and-model-iteration.qmd
+        - chapters/13-model-validation-and-publishing.qmd
+    - part: "Serving and Launching Models"
+      chapters:
+        - chapters/14-model-serving-options.qmd
+        - chapters/15-in-process-inference-in-go.qmd
+        - chapters/16-technical-specs.qmd
+        - chapters/17-shadow-mode-and-canaries.qmd
+        - chapters/18-ab-testing-in-an-auction.qmd
+    - part: "Operating Models in Production"
+      chapters:
+        - chapters/19-monitoring-and-parity.qmd
+        - chapters/20-fallbacks-playbooks-and-on-call.qmd
+        - chapters/21-root-cause-analysis.qmd
+    - part: "From Simple to State of the Art"
+      chapters:
+        - chapters/22-conversion-prediction.qmd
+        - chapters/23-sequences-and-transformers.qmd
+        - chapters/24-value-prediction.qmd
+        - chapters/25-win-rate-and-bid-shading.qmd
+        - chapters/26-campaign-selection.qmd
+        - chapters/27-creative-selection.qmd
+        - chapters/28-pacing-and-budget-control.qmd
+    - part: "Looking Ahead"
+      chapters:
+        - chapters/29-ios-skan-and-signal-loss.qmd
+        - chapters/30-building-the-ml-team.qmd
+        - chapters/31-conclusion.qmd
+  appendices:
+    - appendices/a-glossary.qmd
+    - appendices/b-openrtb-fields.qmd
+    - appendices/c-templates.qmd
+    - appendices/d-further-reading.qmd
+  sidebar:
+    style: docked
+    tools:
+      - icon: cart
+        href: https://amazon.com   # TODO: replace with the KDP listing URL
+        text: "Buy Print & Kindle on Amazon"
+  page-footer:
+    center: |
+      Free online edition. [Buy the Print & Kindle editions on Amazon](https://amazon.com)
+
+lang: en
+
+format:
+  # --- Free web edition (GitHub Pages) ---------------------------------
+  html:
+    theme: cosmo
+    highlight-style: github
+    code-copy: true
+    toc: true
+    number-sections: true
+
+  # --- Amazon KDP 7" x 10" black-and-white paperback interior ----------
+  pdf:
+    documentclass: scrbook
+    classoption:
+      - twoside
+      - open=right
+      - cleardoublepage=empty
+    pdf-engine: xelatex
+    geometry:
+      - paperwidth=7in
+      - paperheight=10in
+      - inner=0.875in
+      - outer=0.625in
+      - top=0.75in
+      - bottom=0.75in
+      - bindingoffset=0in
+      - headheight=14pt
+    highlight-style: monochrome
+    colorlinks: false
+    links-as-notes: true        # print readers see URLs as footnotes
+    toc: true
+    number-sections: true
+    fig-dpi: 300
+    fig-width: 5.5              # text block width: 7in - 0.875in - 0.625in
+    keep-tex: true
+    include-in-header: styles/preamble.tex
+
+  # --- Amazon KDP Kindle eBook (reflowable EPUB 3) ----------------------
+  epub:
+    toc: true
+    epub-cover-image: images/cover.jpg
+    css: styles/epub.css
+    highlight-style: monochrome
+    # MathML keeps equations as text. If a Kindle device renders them
+    # badly, switch to images with: html-math-method: webtex
+    html-math-method: mathml

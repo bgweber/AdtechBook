@@ -1,0 +1,36 @@
+# Welcome {.unnumbered}
+
+::: {.content-visible when-format="html:js"}
+This is the free online edition of *Machine Learning in Mobile AdTech*, a
+hands-on guide to training and serving the models behind a mobile Demand
+Side Platform (DSP), with Python training code and Go serving code.
+:::
+
+::: {.content-visible unless-format="html:js"}
+*Machine Learning in Mobile AdTech* is a hands-on guide to training and
+serving the models behind a mobile Demand Side Platform (DSP), with Python
+training code and Go serving code. A free online edition is available at
+<https://bgweber.github.io/AdtechBook/>.
+:::
+
+::: {.content-visible when-format="html:js"}
+::: {.callout-tip}
+## Read free, or buy a copy
+
+You can read the whole book here at no cost. If you find it useful, the
+**paperback** and **Kindle** editions are available on
+[Amazon](https://amazon.com). Buying a copy supports the work.
+:::
+:::
+
+## How to use this book
+
+Each chapter pairs an explanation of a model with code you can run. All code
+lives in the [GitHub repository](https://github.com/bgweber/AdtechBook),
+so you can clone it and follow along.
+
+## Requirements
+
+Training, validation and publishing examples use Python; the bidder and
+serving examples use Go. Chapters that train neural networks run faster on an
+NVIDIA GPU, but every example also runs on CPU and fits in 4 GB of GPU memory.

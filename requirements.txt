@@ -1,0 +1,7 @@
+# Packages needed to render the book in CI (CPU only).
+# GPU chapters are rendered locally and their output committed in _freeze/,
+# so PyTorch with CUDA is not needed here.
+jupyter
+numpy
+pandas
+matplotlib

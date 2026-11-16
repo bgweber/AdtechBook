@@ -1,0 +1,37 @@
+# Quarto build output (_freeze/ is committed on purpose)
+/_book/
+/.quarto/
+*_files/
+/*.tex
+/*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Data and model files produced by examples
+/data/
+*.pt
+*.pth
+*.ckpt
+
+# Private notes and drafts (never committed)
+/private/
+
+# Claude Code notes, skills, settings and prompts stay private.
+# The book source (everything else) is public.
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+/prompt.md
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+**/*.quarto_ipynb

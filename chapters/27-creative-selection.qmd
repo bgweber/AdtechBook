@@ -1,0 +1,27 @@
+# Creative Selection {#sec-creative-selection}
+
+From simple bandits to content embeddings.
+
+## Context-free bandits with offline weights
+
+<!-- TODO: draft this section -->
+
+## Linear contextual bandits
+
+<!-- TODO: draft this section -->
+
+## Deep contextual bandits and two-tower creative models
+
+<!-- TODO: draft this section -->
+
+## Content embeddings and foundation models for new creatives
+
+<!-- TODO: draft this section -->
+
+## Exploration cost, delayed rewards, and creative fatigue
+
+<!-- TODO: draft this section -->
+
+## Logged exploration and offline policy evaluation
+
+<!-- TODO: draft this section -->

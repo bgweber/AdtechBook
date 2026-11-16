@@ -1,0 +1,35 @@
+# Introduction {#sec-introduction}
+
+Motivates the book and sets the takeaway: after reading it, an MLE should be able to join an ad tech startup and deliver a new model workflow inside a DSP, from training and publishing through to serving, either by writing a spec for the bidder team or building it themselves.
+
+## How I got into ad tech
+
+<!-- Outline: work history from games to ad tech, and the employers I worked at -->
+
+## Why ML in ad tech is different
+
+<!-- Outline: latency, scale, money on every prediction, sparse and delayed labels -->
+
+## Applied science in a DSP
+
+<!-- Outline: owning a model from training to serving -->
+
+## Scope
+
+<!-- Outline: user acquisition for F2P mobile games, CPI and ROAS goals, Android-first with a universal model per platform -->
+
+## What is out of scope
+
+<!-- Outline: scaling infrastructure to 1M+ QPS, Kubernetes, adm markup -->
+
+## The running example
+
+<!-- Outline: a reference DSP in Go and a training stack in Python, with a public or synthetic dataset -->
+
+## Cloud and on-prem
+
+<!-- Outline: how GCP and open-source options are presented side by side -->
+
+## A map of the book
+
+<!-- TODO: draft this section -->

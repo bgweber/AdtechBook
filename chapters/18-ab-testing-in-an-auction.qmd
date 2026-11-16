@@ -1,0 +1,35 @@
+# A/B Testing in an Auction {#sec-ab-testing-in-an-auction}
+
+Designing experiments that give trustworthy results in a DSP.
+
+## Randomization units
+
+<!-- Outline: device, request, and campaign -->
+
+## Interference
+
+<!-- Outline: budget sharing and auction effects between variants -->
+
+## Budget-split designs
+
+<!-- TODO: draft this section -->
+
+## Metrics
+
+<!-- Outline: CPI, IPM, ROAS, win rate, and spend -->
+
+## Significance testing and variance reduction
+
+<!-- TODO: draft this section -->
+
+## Heterogeneous results
+
+<!-- Outline: picking a winner when only some campaigns improve -->
+
+## When to stop an experiment early
+
+<!-- TODO: draft this section -->
+
+## Building an experiment framework and readouts
+
+<!-- TODO: draft this section -->

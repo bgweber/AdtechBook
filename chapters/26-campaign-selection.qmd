@@ -1,0 +1,27 @@
+# Campaign Selection with Two-Tower Models {#sec-campaign-selection}
+
+Ranking campaigns to build the candidate set.
+
+## Campaign selection as retrieval
+
+<!-- TODO: draft this section -->
+
+## Two-tower models for devices and campaigns
+
+<!-- TODO: draft this section -->
+
+## In-batch negatives and popularity correction
+
+<!-- TODO: draft this section -->
+
+## Predicting price to prune the candidate set
+
+<!-- TODO: draft this section -->
+
+## Embedding lookups in the Go bidder
+
+<!-- TODO: draft this section -->
+
+## Cold start for new campaigns using app metadata
+
+<!-- TODO: draft this section -->

@@ -1,0 +1,27 @@
+# Training Pipelines {#sec-training-pipelines}
+
+Daily training at scale, from data preparation through to a model artifact.
+
+## Training a baseline conversion model end to end in Python
+
+<!-- TODO: draft this section -->
+
+## CPU vs. GPU training, and renting vs. buying GPUs
+
+<!-- TODO: draft this section -->
+
+## Orchestration
+
+<!-- Outline: Prefect and Airflow vs. Vertex AI Pipelines and Cloud Composer -->
+
+## Experiment tracking and the model registry with MLflow
+
+<!-- TODO: draft this section -->
+
+## Retraining cadence
+
+<!-- Outline: hourly, daily, and weekly models -->
+
+## Handling pipeline failures and partial data
+
+<!-- TODO: draft this section -->

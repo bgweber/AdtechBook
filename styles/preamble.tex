@@ -1,0 +1,84 @@
+% =====================================================================
+% KDP 7" x 10" black-and-white print styling (included in the PDF header)
+% Keep these values in sync with _quarto.yml.
+% =====================================================================
+\newcommand{\BookTitle}{Machine Learning in Mobile AdTech}
+\newcommand{\BookAuthor}{Ben Weber}
+\newcommand{\BookYear}{2026}
+
+% ---------------------------------------------------------------------
+% Mirrored running headers (KOMA-Script)
+%   verso (even, left page):  page number (outer) ... book title (inner)
+%   recto (odd, right page):  chapter title (inner) ... page number (outer)
+% Chapter-opening pages show only the page number in the outer footer.
+% ---------------------------------------------------------------------
+\usepackage{scrlayer-scrpage}
+\automark[section]{chapter}
+\clearpairofpagestyles
+\ohead{\pagemark}
+\rehead{\small\textsc{\BookTitle}}
+\lohead{\small\leftmark}
+\ofoot[\pagemark]{}
+\setkomafont{pageheadfoot}{\normalfont\small}
+\setkomafont{pagenumber}{\normalfont\small}
+\renewcommand*{\chapterpagestyle}{plain.scrheadings}
+
+% ---------------------------------------------------------------------
+% Table of contents: room for two-digit chapter numbers ("10.", "10.1.")
+% ---------------------------------------------------------------------
+\RedeclareSectionCommand[tocnumwidth=2.2em]{chapter}
+\RedeclareSectionCommand[tocindent=2.2em,tocnumwidth=3em]{section}
+
+% ---------------------------------------------------------------------
+% Code blocks: white background, thin black rule, no gray fill.
+% Long lines wrap instead of running into the margin.
+% Applied at \begin{document} so it overrides Quarto's own definitions.
+% ---------------------------------------------------------------------
+\usepackage{framed}
+\makeatletter
+\AtBeginDocument{%
+  \date{}% no build date on the print title page
+  \pagestyle{scrheadings}%
+  \hypersetup{pdfborder={0 0 0}}%
+  \setlength{\FrameRule}{0.4pt}%
+  \setlength{\FrameSep}{5pt}%
+  \ifdefined\Shaded
+    \renewenvironment{Shaded}{\begin{framed}}{\end{framed}}%
+  \fi
+  \@ifpackageloaded{fvextra}{\fvset{breaklines=true,breakanywhere=true}}{}%
+  % Callout boxes in black and gray instead of color.
+  \definecolor{quarto-callout-color}{HTML}{000000}%
+  \definecolor{quarto-callout-note-color}{HTML}{000000}%
+  \definecolor{quarto-callout-tip-color}{HTML}{000000}%
+  \definecolor{quarto-callout-important-color}{HTML}{000000}%
+  \definecolor{quarto-callout-warning-color}{HTML}{000000}%
+  \definecolor{quarto-callout-caution-color}{HTML}{000000}%
+  \definecolor{quarto-callout-color-frame}{HTML}{000000}%
+  \definecolor{quarto-callout-note-color-frame}{HTML}{000000}%
+  \definecolor{quarto-callout-tip-color-frame}{HTML}{000000}%
+  \definecolor{quarto-callout-important-color-frame}{HTML}{000000}%
+  \definecolor{quarto-callout-warning-color-frame}{HTML}{000000}%
+  \definecolor{quarto-callout-caution-color-frame}{HTML}{000000}%
+}
+\makeatother
+
+% ---------------------------------------------------------------------
+% Copyright page: printed on the back of the title page (KOMA titleback).
+% ---------------------------------------------------------------------
+\lowertitleback{%
+  \footnotesize
+  \textbf{\BookTitle}\\[0.5em]
+  Copyright \textcopyright{} \BookYear{} \BookAuthor. All rights reserved.\\[0.5em]
+  No part of this book may be reproduced in any form without written
+  permission from the author, except for brief quotations in reviews.
+  Code examples are available at
+  \texttt{https://github.com/bgweber/AdtechBook}.\\[0.5em]
+  While every precaution has been taken in preparing this book, the author
+  assumes no responsibility for errors or omissions, or for damages
+  resulting from the use of the information it contains.\\[0.5em]
+  ISBN: 000-0-00-000000-0 \quad % TODO: paperback ISBN from KDP
+  \\[0.5em]
+  First edition, \BookYear.\\
+  A free online edition is available at
+  \texttt{https://bgweber.github.io/AdtechBook/}.
+}

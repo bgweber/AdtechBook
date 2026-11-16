@@ -1,0 +1,27 @@
+# Model Validation and Publishing {#sec-model-validation-and-publishing}
+
+The gates a model passes before it reaches the bidder.
+
+## Validation checks
+
+<!-- Outline: metric thresholds, comparison with the prior run, and prediction distributions -->
+
+## Checks on weights and embeddings, including untrained entries
+
+<!-- TODO: draft this section -->
+
+## Exporting to ONNX and verifying parity with the training framework
+
+<!-- TODO: draft this section -->
+
+## Packaging artifacts
+
+<!-- Outline: model, vocabularies, feature spec, and version IDs -->
+
+## Publishing to a model registry and a shared store
+
+<!-- TODO: draft this section -->
+
+## Automated vs. manual approval
+
+<!-- TODO: draft this section -->

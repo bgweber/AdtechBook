@@ -1,0 +1,31 @@
+# Conversion Prediction: From Logistic Regression to Deep Models {#sec-conversion-prediction}
+
+The evolution of click and install models, and how to migrate between stages.
+
+## Logistic regression with hashed one-hots and feature crosses
+
+<!-- TODO: draft this section -->
+
+## Tree models and factorization machines
+
+<!-- TODO: draft this section -->
+
+## Embeddings, DeepFM, and DCNv2
+
+<!-- TODO: draft this section -->
+
+## Multi-task funnels
+
+<!-- Outline: click, install after click, and install after view -->
+
+## One universal model per platform
+
+<!-- TODO: draft this section -->
+
+## Calibration for bidding
+
+<!-- TODO: draft this section -->
+
+## Running a migration from a classic model to a DNN
+
+<!-- TODO: draft this section -->

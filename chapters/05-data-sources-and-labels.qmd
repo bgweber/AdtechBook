@@ -1,0 +1,43 @@
+# Data Sources and Labels {#sec-data-sources-and-labels}
+
+The data a DSP works with, how labels are created, and what the DSP is allowed to do with it.
+
+## Bid requests and the bid stream
+
+<!-- TODO: draft this section -->
+
+## Bid, win, loss, impression, and click logs
+
+<!-- TODO: draft this section -->
+
+## MMP postbacks
+
+<!-- Outline: installs and in-app events -->
+
+## Attribution windows, last touch, and click vs. view-through paths
+
+<!-- TODO: draft this section -->
+
+## Attributed vs. non-attributed data
+
+<!-- TODO: draft this section -->
+
+## Data from SDKs, exchanges, and mediation in vertically integrated companies
+
+<!-- TODO: draft this section -->
+
+## Device profiles
+
+<!-- Outline: what they store and how they are updated -->
+
+## Label delay and when a training example is ready
+
+<!-- TODO: draft this section -->
+
+## Data rights, pooled models, opt-outs, and privacy rules
+
+<!-- TODO: draft this section -->
+
+## Fraud and invalid traffic, briefly
+
+<!-- TODO: draft this section -->

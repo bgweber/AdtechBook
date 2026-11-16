@@ -1,0 +1,31 @@
+# Inside a Demand Side Platform {#sec-inside-a-demand-side-platform}
+
+The components of a DSP and where ML fits, with the full life of a bid request shown end to end.
+
+## DSP architecture
+
+<!-- Outline: bidder, campaign management, tracking and event collection, data pipelines, and ML services -->
+
+## The bid request lifecycle
+
+<!-- Outline: parse, profile lookup, eligibility, candidate selection, creative selection, prediction, pricing, pacing, choosing a winner, response -->
+
+## Latency budgets
+
+<!-- Outline: where 100 to 120 ms actually goes -->
+
+## Three decisions ML drives
+
+<!-- Outline: what to show, whether to bid, and how much to bid -->
+
+## Event notifications
+
+<!-- Outline: win, loss, impression, click, and MMP postbacks -->
+
+## ML services in a DSP
+
+<!-- Outline: conversion, value, win rate, ranking, creative, and pacing models -->
+
+## How the rest of the book builds each component
+
+<!-- TODO: draft this section -->

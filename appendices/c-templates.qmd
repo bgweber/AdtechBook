@@ -1,0 +1,3 @@
+# Templates: Model Specs, Experiment Readouts, and Playbooks {#sec-templates}
+
+<!-- TODO: draft -->

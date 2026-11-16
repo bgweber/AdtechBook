@@ -1,0 +1,31 @@
+# Building Training Datasets {#sec-building-training-datasets}
+
+Building training datasets from logs at billions of rows, without leakage.
+
+## Joining impressions to clicks, installs, and in-app events
+
+<!-- TODO: draft this section -->
+
+## Point-in-time correctness and as-of joins
+
+<!-- TODO: draft this section -->
+
+## Logged features vs. recomputed features
+
+<!-- TODO: draft this section -->
+
+## Negative downsampling and keeping track of sampling rates
+
+<!-- TODO: draft this section -->
+
+## Data formats for training
+
+<!-- Outline: Parquet and tensor formats -->
+
+## PySpark on Dataproc or Databricks vs. Spark and HDFS on-prem
+
+<!-- TODO: draft this section -->
+
+## Delayed labels and when to cut off training windows
+
+<!-- TODO: draft this section -->

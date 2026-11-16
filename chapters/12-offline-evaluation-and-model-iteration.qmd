@@ -1,0 +1,31 @@
+# Offline Evaluation and Model Iteration {#sec-offline-evaluation-and-model-iteration}
+
+Testing changes to a model offline before anything goes live, from small tweaks to new model frameworks.
+
+## Metrics
+
+<!-- Outline: log loss, normalized entropy, AUC, AUC within campaign, and calibration -->
+
+## Out-of-time evaluation and segment breakdowns
+
+<!-- TODO: draft this section -->
+
+## The ladder of model changes
+
+- Hyperparameter changes
+- Adding a feature from the device profile
+- Adding a versioned feature, such as a precomputed device embedding
+- New feature shapes, such as moving from many-hot to sequence tensors
+- New model frameworks, such as a DeepFM to DNN migration
+
+## What each type of change requires in the serving path
+
+<!-- TODO: draft this section -->
+
+## Replaying logged traffic to estimate bid and spend impact
+
+<!-- TODO: draft this section -->
+
+## Model stability across training runs
+
+<!-- TODO: draft this section -->

@@ -1,0 +1,31 @@
+# Model Serving Options {#sec-model-serving-options}
+
+The options for running models in a DSP and the tradeoffs between them.
+
+## Embedded vs. endpoint serving
+
+<!-- TODO: draft this section -->
+
+## Library formats vs. portable formats such as ONNX
+
+<!-- TODO: draft this section -->
+
+## Managed endpoints
+
+<!-- Outline: Vertex AI -->
+
+## Self-hosted endpoints
+
+<!-- Outline: Triton and FastAPI -->
+
+## GPUs for serving
+
+<!-- Outline: when large candidate sets or large models justify them -->
+
+## Precomputed outputs
+
+<!-- Outline: batch scoring embeddings with ONNX in PySpark and storing them for lookups -->
+
+## Cost, latency, and operational overhead
+
+<!-- TODO: draft this section -->
