@@ -1,60 +1,191 @@
 # Preface {.unnumbered}
 
-Who this book is for, what it assumes, and how it relates to *Data Science in Production* (2020). The book is a spiritual successor, focused on one domain: training and serving ML models for a mobile DSP doing user acquisition.
+A large share of the modern internet economy runs on advertising. Meta alone reported \$196 billion in advertising revenue for 2025, nearly all of its \$201 billion in total revenue.[^meta] Search, social, video, and streaming all depend on ads to pay for products that people use for free. And a growing part of this ad economy runs on mobile devices. App marketers spent an estimated \$109 billion on app marketing in 2025, with \$78 billion of it going to user acquisition: paying to get new users to install an app.[^appsflyer]
 
-## Who this book is for
+The companies that power this market have become some of the most valuable businesses in tech. AppLovin, a mobile ad tech company that many people outside the industry have never heard of, has had a market capitalization well above \$100 billion for much of the past two years.[^applovin] Its business, and the businesses of the many smaller platforms that compete with it, comes down to a simple loop. An app wants new users. A publisher has an ad slot to fill. An auction runs in under a hundred milliseconds. And machine learning models decide who to show an ad to, which ad to show, and how much to pay for it.
 
-<!-- Outline: data scientists and MLEs joining an ad tech startup, and ad tech engineers moving into ML -->
+This book provides a look under the hood at how that loop works. It walks through the machine learning systems that power a mobile demand side platform (DSP), from the data that feeds the models, to training and validating them, to serving them in a bidder that responds to millions of requests per second. It is written for practitioners who want to understand not just the models, but the systems around them.
+
+[^meta]: Meta Platforms, "Meta Reports Fourth Quarter and Full Year 2025 Results," January 28, 2026.
+[^appsflyer]: AppsFlyer, "State of App Marketing," 2025 edition.
+[^applovin]: Market capitalization varies daily. AppLovin traded above \$200 billion at points in 2025 and above \$100 billion through most of 2026.
+
+<!-- TODO: refresh the figures above before publishing. -->
+
+## Why Mobile Ad Tech
+
+I approach this book from a career that started in gaming and moved into ad tech. I worked on free-to-play (F2P) games on PC and console at Sony Online Entertainment and Microsoft Studios, and then on mobile games and apps at Electronic Arts, Twitch, and Zynga. Over that time, F2P took over the mobile games market. Most top-grossing mobile games are free to download and earn money through in-app purchases and ads, which means that their growth depends on acquiring players who will eventually spend more than they cost to acquire.
+
+Ad tech provides the mechanism that makes this work. A game studio pays to acquire users, and if the users it acquires generate more revenue than the cost of acquiring them, the studio can keep buying users at a profit. This is a powerful flywheel, and it is why games have been among the largest buyers of mobile advertising for more than a decade. It is also why many mobile DSPs got their start working with game advertisers. Games have clear goals, measurable payers, and budgets to match. DSPs that learned to deliver performance for games at scale then expanded to other verticals, showing that the same machinery works for shopping, streaming, finance, and other categories.
+
+The mix of advertisers keeps changing. Today, many DSPs are growing by working with prediction markets and sports betting apps, and the categories with the most money to spend will keep shifting over time. A DSP that is built around one vertical has to keep evolving to keep up with the market. The ML systems are a big part of what makes this possible: a well-built conversion model or campaign selection system can learn a new vertical much faster than a team can hand-tune rules for it.
+
+This book focuses on the demand side of programmatic ad tech, which is where I have the most experience. Most of the examples are about acquiring users for F2P mobile games, with campaigns that target cost per install (CPI) and return on ad spend (ROAS) goals. We will also briefly cover ML tasks on the exchange and supply side, such as floor price optimization, mediation, and detecting low-quality or fraudulent traffic, so that you have a picture of the full ecosystem that a DSP operates within.
+
+## Who This Book Is For
+
+This book is written for a similar audience as my prior book, *Data Science in Production*. It is for data science and machine learning students and practitioners who want to learn what is involved in building advertising systems and how ML is used in practice in this domain. If you have trained models in notebooks and want to understand what it takes to run them in a live system that spends real money every second, this book is for you.
+
+There are three groups of readers that I had in mind while writing:
+
+- **ML practitioners from other domains** who are joining an ad tech company, or considering it, and need to get up to speed on the real-time bidding (RTB) ecosystem quickly.
+- **Data scientists moving into MLE and MLOps roles** who want to get hands-on with production systems, and want to go from concept, to notebook, to prototype, to production.
+- **Ad tech engineers moving into ML** who know the bidder well and want to understand the modeling side of the system.
+
+## What You Will Learn
+
+You will learn about state of the art machine learning in bidding systems, but you will also come away with a broad understanding of the mobile programmatic ecosystem. We will cover the details of how real-time auctions work, the OpenRTB protocol that exchanges and bidders use to communicate, mobile measurement partners (MMPs) that attribute installs and in-app events back to ads, and how a DSP integrates with ad exchanges.
+
+The book does not stop at the models. For each ML system that we discuss, we provide hands-on examples of how to make it a reality inside a DSP: parsing bid requests, fetching device profiles, building tensors for a model, turning predictions into a bid price, and logging what the model saw so that you can debug it later. The ML topics follow a progression from simple and validated approaches to state of the art, for each of the main decisions that a DSP makes:
+
+- **Conversion prediction:** from logistic regression, to tree models and factorization machines, to deep neural networks and transformer architectures.
+- **Campaign and creative selection:** from rules and bandits, to two-tower models and content embeddings.
+- **Win rate and pricing:** from heuristics to model-based bid shading.
+- **Pacing:** from heuristics, to PID controllers, to reinforcement learning.
+
+We also cover the work that happens around the models: building training datasets, offline evaluation, validation and publishing, serving options, experimentation on live campaigns, monitoring, and handling incidents.
+
+The goal of this book is for you to be able to join an ad tech startup and implement a new ML system end to end. That means either building it yourself, or having enough knowledge to write a technical spec and partner with an engineering team, or a team of agents, to wire up the system.
 
 ## Prerequisites
 
-<!-- Outline: Python, basic ML, some exposure to a systems language -->
+This book assumes that you are comfortable with Python and have some experience training machine learning models with libraries such as scikit-learn or PyTorch. You do not need prior experience in ad tech. Part I introduces the ecosystem from the ground up.
 
-## Book contents
+The DSP code examples are written in Go. You do not need to be a Go expert to follow along, but some familiarity with a compiled language will help. If you are new to Go, the examples are written to be readable by Python developers, and the recommended reading section below includes a good starting point.
 
-<!-- Outline: a short summary per part -->
+Experience with SQL, Spark, and a cloud platform such as GCP is helpful but not required. We present both cloud and on-prem options throughout the book.
 
-## Technology choices
+## How This Book Is Organized
 
-<!-- Outline: Python for training, validation, and publishing; Go for DSP code; GCP and on-prem options throughout -->
+The book is divided into seven parts:
 
-## Code examples and the companion repository
+- **Part I: The Mobile Programmatic Ecosystem** introduces RTB, the components of a DSP, how campaigns and goals are structured, and the data that a DSP works with.
+- **Part II: The Bid Path** walks through the life of a bid request in a Go bidder, from parsing the request to computing a bid.
+- **Part III: The Model Workflow** covers building training datasets, training pipelines, offline evaluation, and validating and publishing models.
+- **Part IV: Serving and Launching Models** covers serving options, in-process inference in Go, writing technical specs, and launching models with shadow mode, canaries, and A/B tests.
+- **Part V: Operating Models in Production** covers monitoring, training-serving parity, fallbacks, on-call, and root-cause analysis.
+- **Part VI: From Simple to State of the Art** revisits each ML decision in the DSP and walks through the progression of approaches for conversion, value, win rate, campaign selection, creative selection, and pacing.
+- **Part VII: Looking Ahead** covers iOS and signal loss, building an ML team at a DSP, and where the field is heading.
 
-<!-- TODO: draft this section -->
+If you already know ad tech, you can skip ahead to Part III. If you know ML well but are new to ad tech, start with Part I. The online version of the book is designed so that chapters can be read on their own, with links back to the background they depend on.
 
-## Recommended reading (my picks)
+<!-- TODO: update this section if the part order changes (see the discussion about moving Part VI earlier). -->
 
-- *Designing Machine Learning Systems* (Chip Huyen, 2022)
-- *AI Engineering: Building Applications with Foundation Models* (Chip Huyen, 2025)
-- *Data Science in Production* (Ben Weber, 2020)
-- *Designing Data-Intensive Applications* (Martin Kleppmann)
+## My Journey in Ad Tech
 
-## Related work
+I worked in the games industry for about ten years, on console and then mobile titles, before getting into ad tech. Along the way I worked on subscription renewals at Sony Online Entertainment, game economy balancing at Microsoft Studios, matchmaking at Electronic Arts, experimentation at Twitch, and user acquisition and lifetime value (LTV) modeling at Zynga. Each of these roles taught me something that turned out to be useful in mobile ad tech: how players spend, how to run trustworthy experiments, and how to predict the value of a user before they have spent anything.
 
-- Computational advertising
-  - *Display Advertising with Real-Time Bidding (RTB) and Behavioural Targeting* (Wang, Zhang, and Yuan, 2017), open access
-  - *Computational Advertising: Market and Technologies for Internet Commercial Monetization* (Liu and Wang, 2nd ed., 2020)
-  - *Computational Advertising: Techniques for Targeting Relevant Ads* (Dave and Varma, 2014)
-  - *A Practical Guide to Budget Pacing Algorithms in Digital Advertising* (arXiv, 2025)
-- Programmatic advertising primers
-  - *Introduction to Programmatic Advertising* (Kosorin, 2nd ed., 2022)
-  - *The AdTech Book* (Clearcode), free online
-- Recommender systems
-  - *Deep Learning Recommender Systems* (Wang, Pu, and Wang, 2025)
-  - *Building Recommendation Systems in Python and JAX* (Bischof and Yee, 2023)
-- ML in production and operations
-  - *Machine Learning Design Patterns* (Lakshmanan, Robinson, and Munn, 2020)
-  - *Reliable Machine Learning* (Chen, Murphy, Parisa, Sculley, and Underwood, 2022)
-  - *Site Reliability Engineering* (Beyer, Jones, Petoff, and Murphy, 2016), free online
-- Experimentation
-  - *Trustworthy Online Controlled Experiments* (Kohavi, Tang, and Xu, 2020)
-- Go
-  - *Learning Go* (Jon Bodner, 2nd ed., 2024)
+I had great mentors along the way, including Laura Naviaux Sturr at Daybreak Games, Alex Tremblay at Zynga, and Doug Loyer at Chartboost. Much of how I think about building data products comes from working with them.
 
-## How this book differs from related work
+My first hands-on experience with ad tech was building an in-house DSP at Zynga. It started as an R&D project and was part of a broader effort to get Zynga invested in ad tech, which ultimately led to Zynga's acquisition of Chartboost. I moved internally to Chartboost, where I led efforts to scale hypercasual games on the platform, and then led the migration from large logistic regression models to deep learning models built with the TensorFlow ecosystem.
 
-<!-- Outline: mobile in-app user acquisition, the buy side end to end, Go and Python code, operations, and current deep learning methods -->
+I then joined Aarki (now RZR) as an ML engineering leader to build the next generation of its bidder. We launched deep learning models for conversion and win rate prediction, exported them to ONNX, and served them with the ONNX Runtime in Rust.[^aarki1] [^aarki2]
 
-## Acknowledgements
+[^aarki1]: Aarki blog, part 1 of 2: <https://www.aarki.com/insights/aarkis-bidding-brain-evolution-part-1-deep-learning-for-mobile-growth/>
+[^aarki2]: Aarki blog, part 2 of 2: <https://www.aarki.com/insights/aarkis-bidding-brain-evolution-part-2-scaling-with-gpus-at-billion-row-scale/>
 
-<!-- TODO: draft this section -->
+In my current role, I am applying retrieval methods from big tech to build new models in the fintech domain, which shares many of the same challenges as ad tech: sparse and delayed labels, high-cardinality features, and decisions that carry real financial consequences.
+
+I want to be candid about one more thing. Working in ad tech can be chaotic and challenging. Bidders are always live, always spending money, and always responding to a market that changes by the hour. Things can go wrong, and they often do: a bad model deploy, a feature that is computed differently in training and serving, an upstream data source that silently changes. When something breaks, it breaks at millions of requests per second, and the ML team needs to be able to respond at any hour.
+
+I won't hash out the specific incidents from my own tenure in this book. Instead, I will share what I have learned about incident management, building good guardrails for ML systems, and setting up the monitoring, fallbacks, and playbooks that let a team respond quickly and calmly. ML work in mobile ad tech can be highly rewarding, but it can also be stressful and lead to burnout. If you work in this space, be aware of your mental health, set boundaries around on-call, and build systems that let you sleep at night.
+
+## Code Examples and Conventions
+
+The code examples in this book use two languages:
+
+- **Python** for model training, validation, and publishing, with PySpark where the data is too large for a single machine.
+- **Go** for the DSP and serving examples, including the bidder, feature encoding, and in-process model inference.
+
+We present both cloud and on-prem options throughout the book. For managed services, the examples use Google Cloud Platform (GCP). For self-hosted infrastructure, we use open source tools that you can run on your own hardware. We do not cover Kubernetes or the infrastructure work needed to scale a bidder to millions of requests per second, which is its own book.
+
+All of the code is available in the book's GitHub repository, along with a synthetic data generator so that you can run the examples without access to real bid stream data. The code in the repository is tested on every change, and the snippets in the book are pulled directly from it.
+
+The book is available in two editions. The online edition is free, in full color, and includes interactive figures where possible. The print edition is in black and white, and figures are designed to be readable in grayscale. Some long lines of code are wrapped in the print edition to fit the page.
+
+<!-- TODO: add the repo URL, license details, and any typographic conventions once the Quarto setup is final. -->
+
+## Recommended Reading
+
+These are books that I recommend for learning more about machine learning, AI, and building production systems. They complement this book well, and I return to them often:
+
+- ***Designing Machine Learning Systems*** by Chip Huyen.[^dmls] The best overview of the full lifecycle of ML systems in production, from data engineering to deployment and monitoring.
+- ***AI Engineering: Building Applications with Foundation Models*** by Chip Huyen.[^aieng] A practical guide to building with foundation models, and useful context for how AI tools are changing the way that ML teams work.
+- ***Data Science in Production*** by Ben Weber.[^dsp] My 2020 book on scaling models with web endpoints, serverless functions, containers, workflow tools, and batch and streaming pipelines. This book is a spiritual successor to it, with a focus on one domain.
+- ***Designing Data-Intensive Applications*** by Martin Kleppmann.[^ddia] The standard reference on the data systems that ML platforms are built on: storage, replication, batch and stream processing, and the tradeoffs between them.
+
+[^dmls]: Chip Huyen, *Designing Machine Learning Systems*, O'Reilly Media, 2022.
+[^aieng]: Chip Huyen, *AI Engineering: Building Applications with Foundation Models*, O'Reilly Media, 2025.
+[^dsp]: Ben Weber, *Data Science in Production: Building Scalable Model Pipelines with Python*, 2020.
+[^ddia]: Martin Kleppmann, *Designing Data-Intensive Applications*, O'Reilly Media.
+
+## Related Work
+
+This book is narrower and more hands-on than most of the existing literature on ad tech and machine learning. If you want to go deeper, the following books, surveys, and papers cover similar ground. I have focused this list on conversion prediction, bidding, selection, and pacing, which are the core topics of this book, rather than on recommendation and retrieval.
+
+**Books and monographs on computational advertising**
+
+- *Display Advertising with Real-Time Bidding (RTB) and Behavioural Targeting* by Jun Wang, Weinan Zhang, and Shuai Yuan.[^rtbmono] A research-oriented monograph covering user response prediction, bid landscape forecasting, bidding algorithms, and fraud detection. It is available as open access.
+- *Computational Advertising: Market and Technologies for Internet Commercial Monetization* by Peng Liu and Chao Wang.[^liuwang] A broad overview of the online advertising market and the technologies behind it.
+- *Computational Advertising: Techniques for Targeting Relevant Ads* by Kushal Dave and Vasudeva Varma.[^davevarma] A shorter survey focused on ad relevance and targeting.
+
+**Primers on programmatic advertising**
+
+- *Introduction to Programmatic Advertising* by Dominik Kosorin.[^kosorin] A concise introduction for people who are new to programmatic.
+- *The AdTech Book* by Clearcode.[^clearcode] A free online guide to the ad tech ecosystem and its components.
+
+**Surveys on conversion prediction, bidding, and pacing**
+
+- "Deep Learning for Click-Through Rate Estimation" by Weinan Zhang, Jiarui Qin, Wei Guo, Ruiming Tang, and Xiuqiang He.[^ctrsurvey] A survey of deep CTR models.
+- "Open Benchmarking for Click-Through Rate Prediction" by Jieming Zhu et al.[^ctrbench] A reproducible benchmark of CTR models that is useful for comparing architectures.
+- "Auto-bidding and Auctions in Online Advertising: A Survey."[^autobid] An overview of automated bidding and the auction theory behind it.
+- "A Field Guide for Pacing Budget and ROS Constraints" by Santiago Balseiro et al.[^pacingguide] A practical treatment of pacing under budget and return constraints.
+- *A Practical Guide to Budget Pacing Algorithms in Digital Advertising.*[^pacingbook] A short, engineer-focused introduction to pacing algorithms.
+
+**Practitioner papers**
+
+- "Ad Click Prediction: a View from the Trenches" by H. Brendan McMahan et al.[^trenches] Lessons from Google's large-scale logistic regression models.
+- "Practical Lessons from Predicting Clicks on Ads at Facebook" by Xinran He et al.[^fbctr] Tree-based feature transforms, calibration, and data freshness.
+- "Modeling Delayed Feedback in Display Advertising" by Olivier Chapelle.[^delayed] The problem of conversions that arrive long after the ad was shown.
+
+**Experimentation and operations**
+
+- *Trustworthy Online Controlled Experiments* by Ron Kohavi, Diane Tang, and Ya Xu.[^kohavi] The standard reference on A/B testing.
+- *Reliable Machine Learning* by Cathy Chen, Niall Richard Murphy, Kranti Parisa, D. Sculley, and Todd Underwood.[^reliableml] Applying site reliability engineering practices to ML systems.
+
+[^rtbmono]: Jun Wang, Weinan Zhang, and Shuai Yuan, "Display Advertising with Real-Time Bidding (RTB) and Behavioural Targeting," *Foundations and Trends in Information Retrieval*, 2017. Open access: <https://arxiv.org/abs/1610.03013>
+[^liuwang]: Peng Liu and Chao Wang, *Computational Advertising: Market and Technologies for Internet Commercial Monetization*, 2nd edition, CRC Press, 2020.
+[^davevarma]: Kushal Dave and Vasudeva Varma, *Computational Advertising: Techniques for Targeting Relevant Ads*, now publishers, 2014.
+[^kosorin]: Dominik Kosorin, *Introduction to Programmatic Advertising*, 2nd edition, 2022.
+[^clearcode]: Clearcode, *The AdTech Book*, <https://adtechbook.clearcode.cc/>
+[^ctrsurvey]: Weinan Zhang, Jiarui Qin, Wei Guo, Ruiming Tang, and Xiuqiang He, "Deep Learning for Click-Through Rate Estimation," IJCAI, 2021.
+[^ctrbench]: Jieming Zhu et al., "Open Benchmarking for Click-Through Rate Prediction," CIKM, 2021.
+[^autobid]: "Auto-bidding and Auctions in Online Advertising: A Survey," arXiv, 2024, <https://arxiv.org/abs/2408.07685>
+[^pacingguide]: Santiago Balseiro et al., "A Field Guide for Pacing Budget and ROS Constraints," ICML, 2024, <https://arxiv.org/abs/2302.08530>
+[^pacingbook]: *A Practical Guide to Budget Pacing Algorithms in Digital Advertising*, arXiv, 2025, <https://arxiv.org/abs/2503.06942>
+[^trenches]: H. Brendan McMahan et al., "Ad Click Prediction: a View from the Trenches," KDD, 2013.
+[^fbctr]: Xinran He et al., "Practical Lessons from Predicting Clicks on Ads at Facebook," ADKDD, 2014.
+[^delayed]: Olivier Chapelle, "Modeling Delayed Feedback in Display Advertising," KDD, 2014.
+[^kohavi]: Ron Kohavi, Diane Tang, and Ya Xu, *Trustworthy Online Controlled Experiments*, Cambridge University Press, 2020.
+[^reliableml]: Cathy Chen, Niall Richard Murphy, Kranti Parisa, D. Sculley, and Todd Underwood, *Reliable Machine Learning*, O'Reilly Media, 2022.
+
+<!-- TODO: verify authors, editions, years, and venues for every footnote before publishing. Fill in missing authors for the autobid and pacingbook entries, and the edition and year for ddia. -->
+
+## A Note on AI
+
+Most of the text in this book was generated by Claude, Anthropic's AI model, working with me. I want to be transparent about how that worked.
+
+The process relied on heavy prompting, brainstorming, and refinement. I set the direction for the book: the topics, the structure, the technical choices, and the points I wanted to make in each section. Claude and I discussed the outline over many sessions before any chapters were drafted. Claude then drafted text from my notes and prompts, and I reviewed, corrected, and refined it until it said what I wanted to say. The technical decisions, the opinions, and the experiences in this book are mine.
+
+To ground the content and match my voice, Claude used my prior writing as reference material. That included my two earlier books, *Data Science for Startups* and *Data Science in Production*, and the blog posts that I wrote on ML in ad tech after 2020, covering topics such as click prediction, serving deep learning models, ML incidents, on-prem pipelines, and transformers for user acquisition. This writing shaped both what the book covers and how it reads. No model was trained on this material; it was provided as context while drafting.
+
+AI use in technical work is becoming more common, and I expect most readers of this book will use AI tools in their own work. I encourage you to use them with this book too. Here is a homework assignment: once you have read a chapter, point an AI agent at the book's GitHub repository and have it review the code. Then work with the agent to draft an architecture document for implementing the system described in that chapter in your own environment, the same kind of technical spec that we discuss in Chapter 16. Writing that document, and checking where the agent gets things wrong, is one of the best ways to make sure you understand the material.
+
+## Feedback
+
+The online edition of this book is a living document. If you find an error, have a question, or want to suggest a topic, please open an issue on the book's GitHub repository.
+
+```{=latex}
+% Arabic page numbers start at Part I (see styles/preamble.tex).
+\realmainmatter
+```

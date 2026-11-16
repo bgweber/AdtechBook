@@ -1,35 +1,243 @@
 # Introduction {#sec-introduction}
 
-Motivates the book and sets the takeaway: after reading it, an MLE should be able to join an ad tech startup and deliver a new model workflow inside a DSP, from training and publishing through to serving, either by writing a spec for the bidder team or building it themselves.
+Every time someone opens a free mobile game and an ad appears between levels, an auction has just taken place. In a fraction of a second, an exchange asked many bidders whether they wanted to show an ad to that user, and machine learning models decided which ad to show and how much to pay for it. This happens billions of times per day, and it is how most mobile games and apps find new users.
 
-## How I got into ad tech
+This book is about building the machine learning systems that make those decisions inside a demand side platform (DSP), the system that bids on ad impressions on behalf of advertisers, and the systems around them that turn predictions into bids. In this chapter, we will look at the scale of the mobile advertising market and the companies that compete in it, introduce the key pieces of the ecosystem and the terminology used throughout the book, show how a demand side platform uses model outputs to price an ad impression, and describe what you will be able to build by the end of the book.
 
-<!-- Outline: work history from games to ad tech, and the employers I worked at -->
+## The Scale of Mobile Advertising
 
-## Why ML in ad tech is different
+In the preface, we looked at the scale of advertising across the internet, with Meta alone earning more than \$196 billion from ads in 2025. Mobile apps are a large and growing part of this market. Each year, the mobile measurement company AppsFlyer publishes a performance index that ranks the media sources that app marketers spend on, based on billions of attributed installs. In the 2026 edition, the top-ranked networks globally were AppLovin on iOS gaming, Google Ads on Android gaming and Android non-gaming, and Apple Ads on iOS non-gaming.[^af-index] These tier 1 media sources, along with Meta and TikTok, capture a large share of the money that app developers spend to acquire users.
 
-<!-- Outline: latency, scale, money on every prediction, sparse and delayed labels -->
+AppLovin is the clearest example of how large a mobile-first ad tech company can become. Its full year revenue for 2025 reached \$5.48 billion, up 70% from the prior year, and its adjusted EBITDA margin for the year was 82%.[^applovin-fy25] Those margins are closer to a software company than to a traditional media business, and they reflect how much of the work is done by machine learning rather than by people. AppLovin's market capitalization has been well above \$100 billion for much of the past two years.
 
-## Applied science in a DSP
+AppLovin is not the only company operating at this scale. Liftoff, formed through the 2021 merger of Liftoff and Vungle, went public on the Nasdaq in June 2026, raising \$437 million at a valuation of \$3.83 billion.[^liftoff-ipo] At the time of the offering, Liftoff reported 878 demand-side customers and 167,000 active SDK apps across its network. Moloco, which is still privately held, states that its models make nearly 8 million predictions per second and handle 600 billion bid requests each day.[^moloco-scale] It has also been reported to be preparing for its own public offering.[^moloco-ipo]
 
-<!-- Outline: owning a model from training to serving -->
+[^af-index]: AppsFlyer, "Best mobile ad networks in 2026: The AppsFlyer Performance Index," 2026. The 2026 edition analyzed 27.2 billion installs from nearly 25,000 apps across 57 media sources.
+[^applovin-fy25]: AppLovin, "AppLovin Announces Fourth Quarter and Full Year 2025 Financial Results," February 11, 2026.
+[^liftoff-ipo]: PocketGamer.biz, "Liftoff Mobile prices IPO at \$3.83bn valuation," June 2026.
+[^moloco-scale]: "Korean-run unicorn Moloco wants to tear the garden walls down for peak ad performance," July 2025, via Daum.
+[^moloco-ipo]: As reported by Bloomberg. Moloco has not announced a timeline.
 
-## Scope
+<!-- TODO: refresh company figures before publishing. -->
 
-<!-- Outline: user acquisition for F2P mobile games, CPI and ROAS goals, Android-first with a universal model per platform -->
+## A Vibrant Ecosystem
 
-## What is out of scope
+Beyond the largest platforms, mobile ad tech is a rich ecosystem of companies that compete and partner with each other, and it has been shaped by some of the largest deals in the games industry. Microsoft's \$68.7 billion acquisition of Activision Blizzard, completed in October 2023, was the largest acquisition in the history of video games.[^msft-abk] It brought King, the maker of Candy Crush, into Microsoft, along with Activision Blizzard Media, the group that sells advertising across King's mobile games and other Activision Blizzard titles. Earlier, Zynga acquired Chartboost, a mobile programmatic advertising platform with a demand side platform, a supply side platform, and mediation, for about \$250 million in 2021.[^zynga-cb] Zynga itself was later acquired by Take-Two in a \$12.7 billion deal.[^tt-zynga] Unity merged with ironSource in a \$4.4 billion all-stock deal that closed in November 2022, combining a game engine with a mediation and monetization platform.[^unity-is]
 
-<!-- Outline: scaling infrastructure to 1M+ QPS, Kubernetes, adm markup -->
+There are many other players in this space, including InMobi, Appodeal, Bigabid, and RZR (formerly Aarki), along with dozens of smaller DSPs, exchanges, and ad networks. Some specialize in a region, some in a vertical, and some in a single part of the stack. Most of them rely on machine learning to decide which ads to show and how much to pay for them.
 
-## The running example
+[^msft-abk]: GeekWire, "Microsoft completes landmark Activision Blizzard acquisition," October 13, 2023.
+[^zynga-cb]: Zynga, "Zynga Closes Acquisition of Chartboost," August 5, 2021. Zynga's filings describe Chartboost as including "a demand side platform and supply side platform and mediation capabilities."
+[^tt-zynga]: Game World Observer, "Microsoft completes Activision Blizzard acquisition," October 2023, which notes Take-Two's \$12.7 billion acquisition of Zynga as the second-largest deal in the games industry.
+[^unity-is]: Unity, "Unity and ironSource merge to simplify launching and growing great mobile games," November 2022.
 
-<!-- Outline: a reference DSP in Go and a training stack in Python, with a public or synthetic dataset -->
+## Why Apps Advertise
 
-## Cloud and on-prem
+Mobile advertising serves two goals that sit on opposite sides of the market. Publishers want to **monetize** their apps by showing ads to their users. Advertisers want to **grow** their apps by acquiring new users. Most mobile games do both: they earn revenue by showing ads to their own players, and they spend money on ads in other apps to find new players.
 
-<!-- Outline: how GCP and open-source options are presented side by side -->
+The process of paying to get new users to install an app is called **user acquisition** (UA). An app developer runs UA campaigns with the goal of earning more from the acquired users, through in-app purchases and in-app advertising, than it spent to acquire them. When that math works, UA becomes a growth engine: the developer can keep reinvesting revenue into buying more users, and scale the audience for a game far beyond what organic discovery would deliver. This is one of the ways that entirely new genres of games, such as hypercasual games, were able to grow and thrive.
 
-## A map of the book
+Installs are tracked by a **mobile measurement partner** (MMP), a third party that the advertiser integrates into its app. When a user installs the app, the MMP determines which ad, if any, should get credit for the install, and reports it back to the ad platform. We cover MMPs in more detail later in this chapter.
 
-<!-- TODO: draft this section -->
+For many years, Facebook was the dominant channel for getting app installs. It launched mobile app install ads in October 2012, and they quickly became a core product: by the first quarter of 2013, about 3,800 advertisers had used them to drive more than 25 million installs.[^fb-mai] Since then, the channels for UA have diversified. Large self-attributing networks, often called walled gardens, such as Meta, Google, Apple, and TikTok, are still major channels. But a large share of UA spend now goes through programmatic channels, where software bids on individual ad impressions in real time on behalf of the advertiser.
+
+The system that does this bidding is called a **demand side platform** (DSP). A DSP represents the buyers in the market. It receives requests for ad impressions from ad exchanges, decides which of its advertisers' campaigns to show, predicts how valuable the impression is to that advertiser, and submits a bid. If the bid wins, the DSP serves the ad. This book is about building the ML systems inside a DSP.
+
+[^fb-mai]: AdExchanger, "Facebook Mobile App Install Ads Capture Revenue, Drive Installs," 2013.
+
+## The Three Pillars of Ad Tech
+
+Before we get into real-time bidding, it helps to have a mental model of how the industry is organized. Mobile ad tech can be thought of as three pillars:
+
+- **The demand side:** advertisers and the platforms that buy on their behalf, including DSPs and ad networks. This is where user acquisition happens.
+- **The supply side:** publishers and the platforms that sell their ad inventory, including supply side platforms (SSPs) and mediation platforms. Mediation decides which ad source gets to fill an ad slot in an app.
+- **Exchanges:** the marketplaces in the middle that connect supply and demand, run auctions, and pass requests and bids between the two sides.
+
+@fig-three-pillars shows how the pillars connect. Publisher apps send ad requests to their mediation platform or SSP, which offers the ad slot to one or more exchanges. Each exchange sends bid requests to DSPs and ad networks, which bid on behalf of advertisers. Alongside the auction, the advertiser's MMP attributes installs and in-app events, and sends postbacks to the demand platform that gets credit.
+
+![The three pillars of mobile ad tech. The exchange connects the supply side, which sells ad slots, with the demand side, which buys them on behalf of advertisers. The MMP sits alongside the auction, attributing installs and in-app events and sending postbacks to the demand platforms.](../images/ch01-three-pillars.png){#fig-three-pillars width="100%"}
+
+Ad tech companies often build products for all three pillars. Chartboost, for example, ran a DSP, an SSP, and mediation as one platform. Some companies go even further. AppLovin acquired the MMP Adjust in 2021, giving it a position in measurement as well.[^applovin-adjust] Owning more of the stack gives a company more data and more control over the auction, which is one reason why consolidation has been such a strong force in this industry.
+
+[^applovin-adjust]: AppLovin, Form S-1, 2021. AppLovin acquired Adjust on April 20, 2021, for a stated purchase price of \$980 million.
+
+## Mobile Measurement Partners
+
+MMPs are the source of truth for mobile advertising. Companies such as AppsFlyer, Adjust, Singular, Kochava, and Branch sit between advertisers and the many ad platforms that they buy from. Each ad platform sends the MMP its clicks and impressions, and the MMP decides which platform gets credit for each install, typically using a last-touch model within an attribution window. The MMP then sends a **postback** to the winning platform: a message that says an install, and later an in-app event such as a purchase, was attributed to one of its ads.
+
+For a DSP, MMP postbacks are the labels that its models learn from. They are also how advertisers judge whether a DSP is delivering. If the MMP says that a DSP drove 1,000 installs at the target cost, the advertiser is happy. If the MMP says that it drove 500, it does not matter what the DSP's own logs say. We will spend a lot of time in this book on how postbacks flow back into training data, and on the delays and gaps in that data.
+
+## From Fixed Prices to Machine-Driven Auctions
+
+Getting to programmatic was a journey. Mobile advertising was not always a world of ML models pricing auctions in real time in an open ecosystem. Early mobile ad buying looked more like TV advertising. Inventory was sold through direct deals and private marketplaces (PMPs) at fixed CPMs, the price paid per thousand impressions, and targeting was limited to broad demographics and audience segments. A media buyer decided who to target, and the price was negotiated up front.
+
+The rise of MMPs changed this. Once impressions, clicks, and installs could be tracked at the level of individual events, ad platforms could measure exactly which impressions led to installs and in-app revenue. This unlocked an arms race. Platforms that could use this data to predict which impressions would convert could pay more for the good ones and less for the bad ones, and deliver better results than fixed-price buying. Over time, DSPs got stronger, and the approach of buying at fixed CPMs gave way to targeting and pricing driven by machine learning. Instead of a person choosing segments, the bidder predicts how much value showing an ad for a specific app on a specific device will deliver for the advertiser, and bids accordingly.
+
+The way advertisers set goals evolved along with this. Rather than buying impressions at a fixed price, advertisers now set performance goals, such as a target cost per install (CPI) or a target return on ad spend after seven days (D7 ROAS). The DSP takes on the job of deciding which impressions to buy and how much to pay for each one in order to hit those goals. As long as the DSP delivers against the goals, without sending fraudulent traffic, advertisers are happy to scale up their budgets on the platform.
+
+## Bidding Today
+
+The market is now very competitive. Launching a new DSP is challenging, because a new entrant has to match the performance of platforms that have been refining their models for years. To compete, a DSP needs models that predict with high precision which devices are likely to install which apps. It needs to price bids so that it wins the auctions it wants without overpaying. And it needs to support a variety of ad formats and adapt to competitive strategies that keep changing.
+
+Not all of those strategies are about better prediction. One example from the past decade is **click-shaping**: generating more click claims to the MMP than the ads that were actually engaged with, in order to win credit for installs under last-touch attribution, while staying under the thresholds that would get the traffic flagged as fraud. Practices like this blur the line between optimization and fraud, and they distort the labels that every other platform learns from. This book does not cover how to do it. But it is important to know that the data you train on is shaped by the strategies of every other participant in the market, and that MMPs and advertisers are constantly adjusting their rules in response.
+
+## Games and the Business of Growth
+
+Most large mobile game studios have central publishing teams, and user acquisition is one of their biggest responsibilities. You will often hear the term **growth** used for this work, with UA as one of many growth challenges alongside retention, monetization, and live operations. Mobile ad tech plays a large role in these organizations, and UA budgets are among the largest line items for a mobile game.
+
+Ad tech has also helped to democratize game development. Rollic, a hypercasual publisher that Zynga acquired in 2020, works with independent studios that build games, and decides which ones are good candidates to scale.[^rollic] It provides developers with its Elephant SDK, which supports analytics and A/B testing, and the publisher uses the data to decide which games to put UA budget behind.[^elephant] This model is similar to how Steam and Xbox Live Arcade made it easier for independent developers to publish and distribute games on PC and console. A small team with a promising prototype can find out quickly whether its game can acquire users at a cost that pays off.
+
+But it is a competitive market. Delivering a game and a UA strategy that achieve cost-effective CPIs is a tall ask. There is only so much ad inventory to bid on, and many advertisers compete to show ads to the devices that are most likely to pay off.
+
+Games are also a good training ground for ML in advertising. A game studio typically measures campaigns on more than installs. It cares about whether new players come back the next day, whether they make a purchase in their first week, and whether the revenue from a cohort of players pays back the campaign within a target window. These goals give a DSP a rich set of signals to model, from install rates to day-one retention to seven-day return on ad spend. Hypercasual games add a different flavor: they earn most of their revenue from showing ads rather than from purchases, so the value of a new user depends on how many ads they will watch. We cover these goal types in depth in Chapter 4.
+
+### User Acquisition and Retargeting
+
+This book focuses on user acquisition rather than **retargeting**, where an advertiser pays to re-engage people who have already installed its app. Retargeting is part of a holistic growth strategy, and some platforms specialize in it. RZR, formerly Aarki, ranked second worldwide in iOS gaming remarketing in the 2026 AppsFlyer Performance Index, behind only Meta.[^rzr]
+
+Some of the dynamics of retargeting are different from UA. When retargeting a user, the advertiser often has data about how that user behaved in the app: what they purchased, how far they progressed, and when they stopped playing. That data does not exist when a DSP is trying to find net new installs, where the model has to predict the behavior of a user who has never opened the app. Many of the techniques in this book apply to both, but the examples focus on acquiring new users.
+
+[^rollic]: PocketGamer.biz, "Hypercasual developer Rollic surpasses one billion downloads." Rollic was founded in 2018 and acquired by Zynga in October 2020.
+[^elephant]: PocketGamer.biz, "Rollic, hyper-casual publishing star of 2019, launching its SDK equipped with analytic features powered by AI," 2020.
+[^rzr]: MarTech Edge, "RZR Global Ranks No. 2 in AppsFlyer's iOS Gaming Remarketing Index," October 29, 2026.
+
+## Ad Formats
+
+Mobile ads come in several formats, and the format affects both how users respond and what a DSP needs to predict. @fig-ad-formats shows three common formats, using a fictional match-3 game as the publisher app.
+
+![Common mobile ad formats, shown in a fictional match-3 game. (a) A banner ad shown at the bottom of the game screen. (b) A full-screen interstitial video, with a skip countdown and an install button. (c) A playable ad that lets the user try a short level before installing.](../images/ch01-ad-formats.png){#fig-ad-formats width="100%"}
+
+- **Banners** are small ads shown along the edge of the screen while the user plays. They are cheap and plentiful, but they get little attention and convert at low rates.
+- **Interstitials** are full-screen ads shown at natural breaks, such as between levels. Video interstitials are one of the most common formats for UA, often followed by an **end card** with an install button.
+- **Rewarded videos** are videos that the user chooses to watch in exchange for an in-game reward, such as extra moves or coins. Because the user opts in, rewarded ads tend to get high completion rates.
+- **Playables** are small interactive ads that let the user try a version of the game before installing it. Playables have grown in popularity because they show the user what the game feels like, and they tend to attract users who are more likely to keep playing.
+
+Not every exchange and SDK can render every format. Some support rich playables, some support only video and static images, and the specifications for what an ad can contain differ across supply sources. We discuss how this affects creative selection in later chapters.
+
+## The OpenRTB Protocol
+
+Exchanges and DSPs communicate using a standard called **OpenRTB**, maintained by the IAB Tech Lab. OpenRTB defines the structure of a **bid request**, which the exchange sends to each bidder to describe an ad opportunity, and a **bid response**, which the bidder sends back with its price and the ad to show. The exchange posts bid requests to each connected bidder over HTTP, usually as JSON, although binary formats such as protocol buffers are allowed.[^ortb] Most platforms still run OpenRTB 2.5 or 2.6. For example, AppLovin's MAX in-app bidding exchange runs a unified first-price auction and requires bidders to comply with the OpenRTB 2.5 API.[^max]
+
+A bid request contains everything that a DSP knows about an impression at the moment it decides to bid: the app and placement, the ad formats allowed, the device type and operating system, the country, the device's advertising ID when one is available, and the auction's floor price and time limit. We walk through bid requests field by field in Chapters 2 and 6.
+
+[^ortb]: PPC Land, "OpenRTB," 2026.
+[^max]: AppLovin, "Auction dynamics," MAX demand partner documentation.
+
+## What a DSP Does
+
+Here is the life of a single impression from the DSP's point of view. We keep it light here, and fill in the details in Chapters 2 and 3.
+
+1. **A request arrives.** A user opens a game, and the game's SDK asks its mediation platform to fill an ad slot. An exchange sends a bid request to the DSP and to many other bidders at the same time.
+2. **The DSP decides whether to bid.** It looks up what it knows about the device, filters out campaigns that are not eligible for this request, and predicts how likely the user is to click, install, and spend for each remaining campaign.
+3. **The DSP decides what to show and how much to pay.** It picks the campaign and creative with the highest expected value, converts its predictions into a price, and sends a bid response, all within a time budget measured in milliseconds.
+4. **The exchange runs the auction.** If the DSP's bid wins, the exchange notifies the DSP and the ad is rendered in the app. The ad itself is delivered in the bid response's **ad markup** (the `adm` field), which tells the app's SDK how to render the creative, for example as a VAST video.
+5. **The DSP waits.** Over the following hours and days, the MMP sends postbacks for installs and in-app events. Only then does the DSP learn whether its decision was a good one.
+
+### Device Profiles
+
+A key input to these decisions is the **device profile**: what the DSP knows about a device from its past interactions. A device profile can include which apps the DSP has seen the device using in bid requests, how the device has monetized in apps where the DSP has received postbacks, which ads the DSP has shown the device, and whether the device clicked or installed. These histories are what make it possible to predict that one device is much more likely to install a strategy game than another.
+
+Device profiles depend on having a stable device identifier. On iOS, most users decline tracking under Apple's App Tracking Transparency framework, so DSPs have much less coverage.[^att-optin] On Android, where the advertising ID is still widely available, device profiles can be rich, and this is where sequence models such as transformers can really thrive. We cover device profiles in Chapter 6 and sequence models in Chapter 23.
+
+[^att-optin]: Playwire, "App Advertising Privacy Changes: ATT Consent Management Explained for Publishers," November 2026, citing Adjust benchmark data of an average opt-in rate around 35% in Q2 2025 and 38% in Q1 2026.
+
+## Every Prediction Has a Price
+
+Every prediction in a DSP has a price attached to it. When a model overestimates the chance that a user will install an app, the bidder overpays for the impression. When it underestimates that chance, the bidder loses auctions that it should have won. Small errors that would be harmless in many other ML applications turn into real money when they are repeated across millions of requests per second.
+
+Let's make this concrete. A common metric in mobile UA is **IPM**, installs per thousand impressions. If a campaign shows 1,000 ads and gets 2 installs, its IPM is 2. Suppose an advertiser is willing to pay \$5 per install. If a DSP knew that a set of impressions had an IPM of 1, it could pay up to \$5 per thousand impressions and still deliver installs at the target cost.
+
+Now suppose that the DSP's model predicts an IPM of 2 for those impressions, but the MMP measures an actual IPM of just 1. The DSP thinks it is delivering twice as many installs as it actually is, and it bids accordingly. In a first-price auction, where the winner pays what it bids, the DSP overpays by up to 100%: it pays twice what the impressions are worth to the advertiser. The model may rank impressions perfectly well, putting the best ones at the top, and still lose money, because its predicted probabilities are too high. This is why **calibration**, getting the predicted probabilities right and not just their order, matters as much as ranking in ad tech.
+
+### From Predictions to a Bid
+
+Here is a basic pricing strategy for a campaign with a CPI goal. The DSP predicts the probability that the user clicks on the ad, $p_{click}$, and the probability that the user installs the app after clicking, $p_{install|click}$. The expected value of the impression is the chance of an install times what the advertiser will pay for it, and bids are expressed as a CPM:
+
+$$
+\text{CPM} = \text{target CPI} \times p_{click} \times p_{install|click} \times 1000 \times (1 - \text{margin})
+$$
+
+The margin is the share that the DSP keeps for itself. For example, with a target CPI of \$5, a predicted click rate of 2%, a predicted install rate after click of 5%, and a 20% margin, the expected IPM is $0.02 \times 0.05 \times 1000 = 1$ and the bid is \$4.00.
+
+For a campaign with a ROAS goal, the advertiser cares about revenue rather than installs. Here, the DSP also predicts the revenue that an installed user will generate in the first seven days, and divides it by the target ROAS to get the value of an install:
+
+$$
+\text{CPM} = p_{click} \times p_{install|click} \times \frac{\text{predicted D7 revenue}}{\text{target D7 ROAS}} \times 1000 \times (1 - \text{margin})
+$$
+
+With the same click and install rates, a predicted D7 revenue of \$2.00, a target D7 ROAS of 40%, and a 20% margin, the value of an install is \$5 and the bid is again \$4.00. In Python, both strategies fit in a few lines:
+
+```python
+def cpi_bid(target_cpi, p_click, p_install_given_click, margin=0.2):
+    """CPM bid for a CPI goal: expected installs per 1,000 impressions
+    times what the advertiser will pay per install, minus our margin."""
+    ipm = p_click * p_install_given_click * 1000
+    return target_cpi * ipm * (1 - margin)
+
+def roas_bid(target_roas, p_click, p_install_given_click, d7_revenue,
+             margin=0.2):
+    """CPM bid for a D7 ROAS goal: the value of an install is the
+    predicted 7-day revenue divided by the ROAS target."""
+    ipm = p_click * p_install_given_click * 1000
+    return ipm * (d7_revenue / target_roas) * (1 - margin)
+
+print(f"CPI bid:  ${cpi_bid(5.00, 0.02, 0.05):.2f}")
+print(f"ROAS bid: ${roas_bid(0.40, 0.02, 0.05, 2.00):.2f}")
+```
+
+```
+CPI bid:  $4.00
+ROAS bid: $4.00
+```
+
+The formulas are simple. The hard part is the probabilities. Every term other than the advertiser's target and the margin is a model prediction, and the bid is only as good as those predictions. Much of this book is about how to produce $p_{click}$, $p_{install|click}$, and predicted revenue accurately, at scale, within a few milliseconds. Real bidders add more on top of this, such as adjusting the bid based on the predicted chance of winning the auction, which we cover in Chapter 25.
+
+### CPI and CPM Billing
+
+Two billing models show up throughout the industry. Under **CPI billing**, the advertiser pays the DSP a fixed amount for each attributed install, and the DSP takes on the risk of buying impressions that do not convert. Under **CPM billing**, the advertiser pays for the impressions that the DSP buys, plus a margin. CPI billing was common in the early days of performance advertising, but the industry standard today is CPM billing, with a margin that can be fixed or dynamic. We won't dig into billing strategies in this book, but we include a margin in our pricing calculations throughout.
+
+## Why ML in Ad Tech Is Different
+
+If you have built ML systems in other domains, much of the modeling in this book will look familiar. What makes ad tech different are the constraints around the models, which shape every later chapter:
+
+- **Latency:** the DSP has milliseconds to respond to each bid request, including the time to look up the device profile, score every candidate campaign, and build the response. Models have to fit inside that budget.
+- **Scale:** a DSP can receive millions of bid requests per second, and its logs grow by billions of rows per day. Training pipelines have to keep up with that volume, and serving infrastructure has to handle it without falling over.
+- **Money on every prediction:** as the IPM example shows, calibration matters as much as ranking. A model that is wrong in a consistent direction costs money on every bid.
+- **Sparse and delayed labels:** most impressions never lead to a click, and most clicks never lead to an install. The installs and purchases that do happen are reported by the MMP hours or days later.
+- **Feedback loops:** a DSP only learns from the auctions that it wins. Its models decide which impressions it buys, and those impressions become its training data, so the models shape their own future inputs.
+
+## A Market That Keeps Changing
+
+The mobile ad tech market never stands still. The mix of advertisers shifts over time. Games have been the foundation of mobile UA for more than a decade, and many DSPs got their start working with game advertisers before expanding into shopping, streaming, finance, and other categories. Today, many DSPs are growing by working with prediction markets and sports betting apps. The verticals with the most money to spend will keep changing, and a DSP has to evolve with them. A well-built ML system can learn a new vertical much faster than a team can hand-tune rules for it.
+
+The industry also changes through consolidation, which can unlock flywheels that are hard for smaller players to match. A company that runs an exchange sees far more bid requests than any single DSP, along with the prices that other bidders paid for similar impressions. That data is valuable for pricing: it shows what it takes to win an auction, which a standalone DSP can only learn from its own wins and losses. AppLovin is a good example of how far this can go. After building a large data asset across its mediation platform, exchange, and measurement business, it sold its mobile games business to Tripledot Studios in 2025, for \$400 million in cash and about 20% of Tripledot's equity.[^tripledot] One way to read that sale is that once the advertising platform had data at that scale, owning game studios to feed it became less important.
+
+The rules of the ecosystem change too. Apple's App Tracking Transparency framework, launched with iOS 14.5 in April 2021, requires users to opt in before an app can access the device's advertising ID, and most users decline.[^att] For users who don't opt in, iOS campaigns are measured through Apple's aggregated frameworks, SKAdNetwork and its successor AdAttributionKit, which arrived with iOS 17.4 in March 2024. On Android, Google announced a Privacy Sandbox that was expected to replace the advertising ID, but in October 2025 it retired the Privacy Sandbox technologies, including the Android versions of the Attribution Reporting, Topics, and Protected Audience APIs.[^sandbox] For now, the advertising ID remains the main device identifier on Android. But DSPs should not build as if device identifiers will last forever, and we cover strategies for working with limited signals in Chapter 29.
+
+[^tripledot]: AppLovin, "AppLovin Completes Sale of Mobile Gaming Business to Tripledot Studios," July 2025.
+[^att]: PPC Land, "App Tracking Transparency," 2026.
+[^sandbox]: PPC Land, "Chrome kills most Privacy Sandbox technologies after adoption fails," October 2025. See also Google's announcement, "Update on Plans for Privacy Sandbox Technologies," October 17, 2025.
+
+## What You Will Be Able to Build
+
+The goal of this book is for you to be able to join an ad tech startup and deliver a new model workflow inside a DSP, end to end. That means training, validating, and publishing a model, and then either writing a technical spec that a bidder engineering team can implement, or building the serving code yourself.
+
+The book follows the path that a new model takes. We start by building the bid path that a model runs inside: parsing requests, fetching device profiles, selecting candidates, building features, and turning predictions into bids. We then train, validate, and publish a baseline model, serve it in the bidder, and launch it safely with shadow mode, canaries, and A/B tests. Next, we cover how to operate models in production: monitoring, fallbacks, on-call, and diagnosing problems when a campaign starts to perform worse. Finally, we revisit each decision that a DSP makes, including conversion, value, win rate, campaign selection, creative selection, and pacing, and improve the models from simple and validated approaches to the state of the art.
+
+### The Running Example
+
+Throughout the book, we build a reference DSP. The DSP code, including the bidder, feature encoding, and in-process model inference, is written in Go. The training, validation, and publishing code is written in Python, with PySpark where the data is too large for a single machine. A synthetic data generator produces bid requests, impressions, clicks, and postbacks, so that every example can run without access to real bid stream data.
+
+For each workflow, we present both a managed option on Google Cloud Platform and an open source option that you can run on your own hardware. Many DSPs run their bidders in co-located data centers, close to the exchanges they bid on, and train models wherever GPUs are cheapest. We discuss these tradeoffs as they come up.
+
+### What Is in Scope
+
+This book covers the demand side of mobile programmatic advertising, with a focus on user acquisition for Android, and a universal model approach, where one model serves all campaigns for a platform. It covers the ML parts of the bidder in depth, along with enough of the surrounding engineering to wire them up: parsing requests, building responses, logging, and launching new models safely.
+
+It does not cover the infrastructure work of scaling a bidder to millions of requests per second, such as Kubernetes and deployment automation. It discusses VAST and ad markup at a high level, but does not cover how to build the markup for a bid response. And while it explains the campaign hierarchy that a DSP uses to organize advertisers, apps, campaigns, and creatives, it does not go into the details of ad groups and campaign management tools.
+
+## Conclusion
+
+Mobile ad tech is a large and competitive industry, and machine learning is at the center of it. Every bid that a DSP submits depends on predictions: how likely a user is to click, how likely they are to install, and how much they will spend. Those predictions need to be accurate and well calibrated, because errors turn directly into overpaying or losing auctions. And they need to be made millions of times per second, within a few milliseconds each, in a system that has to be robust to bad data and observable when something goes wrong.
+
+That is what this book is about: building ML systems that deliver $p_{click}$, $p_{install}$, and predicted spend with a high level of accuracy, at the scale and latency of real-time bidding, with the robustness and observability needed to run them in production. In the next chapter, we take a closer look at the real-time bidding ecosystem that these systems operate in: the players on each side of the market, how auctions work, and how measurement closes the loop.

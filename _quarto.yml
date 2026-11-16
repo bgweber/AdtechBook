@@ -9,6 +9,7 @@ execute:
 
 book:
   title: "Machine Learning in Mobile AdTech"
+  subtitle: "Training and Serving Models for a Demand Side Platform"
   author: "Ben Weber"
   date: last-modified
   output-file: "ml-in-mobile-adtech"
@@ -80,14 +81,22 @@ book:
 
 lang: en
 
+# Wraps standalone display equations in a shaded box (gray in print,
+# tinted in the web edition).
+filters:
+  - filters/formula-box.lua
+
 format:
   # --- Free web edition (GitHub Pages) ---------------------------------
   html:
     theme: cosmo
     highlight-style: github
+    css: styles/web.css
     code-copy: true
     toc: true
+    toc-depth: 2
     number-sections: true
+    number-depth: 1
 
   # --- Amazon KDP 7" x 10" black-and-white paperback interior ----------
   pdf:
@@ -96,21 +105,38 @@ format:
       - twoside
       - open=right
       - cleardoublepage=empty
+      - chapterprefix=true
+      - headings=big
     pdf-engine: xelatex
     geometry:
       - paperwidth=7in
       - paperheight=10in
       - inner=0.875in
       - outer=0.625in
-      - top=0.75in
+      - top=0.85in
       - bottom=0.75in
       - bindingoffset=0in
       - headheight=14pt
+      - headsep=0.25in
+      - footskip=0.4in
+    mainfont: "TeX Gyre Pagella"
+    sansfont: "TeX Gyre Heros"
+    monofont: "DejaVu Sans Mono"
+    monofontoptions: [Scale=0.8]
+    fontsize: 10.5pt
+    linestretch: 1.15
     highlight-style: monochrome
+    code-block-bg: "#E0E0E0"    # 12% gray, matching the formula boxes
+    code-block-border-left: "#808080"
+    callout-icon: false
     colorlinks: false
     links-as-notes: true        # print readers see URLs as footnotes
     toc: true
+    toc-depth: 2
+    toc-title: "Table of Contents"
     number-sections: true
+    number-depth: 1
+    fig-pos: "htb"
     fig-dpi: 300
     fig-width: 5.5              # text block width: 7in - 0.875in - 0.625in
     keep-tex: true

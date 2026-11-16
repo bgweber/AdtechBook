@@ -1,50 +1,78 @@
 % =====================================================================
 % KDP 7" x 10" black-and-white print styling (included in the PDF header)
-% Keep these values in sync with _quarto.yml.
+% Keep these values in sync with _quarto.yml. Layout follows O'Reilly
+% conventions: "Chapter N." labels, unnumbered sections, roman-numbered
+% front matter, chapters opening on right-hand pages.
 % =====================================================================
 \newcommand{\BookTitle}{Machine Learning in Mobile AdTech}
 \newcommand{\BookAuthor}{Ben Weber}
 \newcommand{\BookYear}{2026}
 
 % ---------------------------------------------------------------------
-% Mirrored running headers (KOMA-Script)
-%   verso (even, left page):  page number (outer) ... book title (inner)
-%   recto (odd, right page):  chapter title (inner) ... page number (outer)
-% Chapter-opening pages show only the page number in the outer footer.
+% Gray shading for code blocks and formulas. KDP recommends at least a
+% 10% grayscale fill in black-ink books; 12% gray (0.88) is used here.
+% Formulas are boxed by filters/formula-box.lua.
+% ---------------------------------------------------------------------
+\usepackage[most]{tcolorbox}
+\definecolor{formulabg}{gray}{0.88}
+\definecolor{formularule}{gray}{0.5}
+\newtcolorbox{formulabox}{enhanced, breakable=false, colback=formulabg,
+  colframe=formularule, boxrule=0pt, leftrule=2pt, arc=0pt,
+  left=6pt, right=6pt, top=1pt, bottom=1pt,
+  before skip=8pt, after skip=8pt,
+  before upper={\setlength{\abovedisplayskip}{3pt}%
+    \setlength{\belowdisplayskip}{3pt}}}
+
+% ---------------------------------------------------------------------
+% Chapter and part labels: "Chapter 1." above the title. Sections are
+% not numbered.
+% ---------------------------------------------------------------------
+\renewcommand*{\chapterformat}{\chapapp~\thechapter.\enskip}
+\renewcommand*{\partformat}{\partname~\thepart.}
+\setcounter{secnumdepth}{0}
+% Restart footnote numbers in every chapter, including unnumbered ones
+% such as the Welcome page and the Preface.
+\AddToHook{cmd/chapter/before}{\setcounter{footnote}{0}}
+
+% ---------------------------------------------------------------------
+% Running heads (KOMA-Script): chapter title on left pages, section title
+% on right pages, page number on the outside edge. Chapter openers show
+% only a centered page number in the footer.
 % ---------------------------------------------------------------------
 \usepackage{scrlayer-scrpage}
-\automark[section]{chapter}
 \clearpairofpagestyles
+\automark[section]{chapter}
 \ohead{\pagemark}
-\rehead{\small\textsc{\BookTitle}}
-\lohead{\small\leftmark}
-\ofoot[\pagemark]{}
-\setkomafont{pageheadfoot}{\normalfont\small}
+\ihead{\headmark}
+\cfoot[\pagemark]{}
+\renewcommand*{\chaptermarkformat}{\chapapp~\thechapter.\enskip}
+\renewcommand*{\sectionmarkformat}{}
+\setkomafont{pageheadfoot}{\normalfont\small\itshape}
 \setkomafont{pagenumber}{\normalfont\small}
-\renewcommand*{\chapterpagestyle}{plain.scrheadings}
 
 % ---------------------------------------------------------------------
-% Table of contents: room for two-digit chapter numbers ("10.", "10.1.")
+% Table of contents: room for two-digit chapter numbers ("10.")
 % ---------------------------------------------------------------------
 \RedeclareSectionCommand[tocnumwidth=2.2em]{chapter}
-\RedeclareSectionCommand[tocindent=2.2em,tocnumwidth=3em]{section}
 
 % ---------------------------------------------------------------------
-% Code blocks: white background, thin black rule, no gray fill.
-% Long lines wrap instead of running into the margin.
+% Front matter: keep the Welcome page and Preface roman-numbered. Quarto
+% calls \mainmatter before the first page, so it is deferred; preface.qmd
+% ends with \realmainmatter, which starts arabic numbering at Part I.
+% ---------------------------------------------------------------------
+\let\realmainmatter\mainmatter
+\renewcommand*{\mainmatter}{}
+
+% ---------------------------------------------------------------------
 % Applied at \begin{document} so it overrides Quarto's own definitions.
 % ---------------------------------------------------------------------
-\usepackage{framed}
 \makeatletter
 \AtBeginDocument{%
   \date{}% no build date on the print title page
   \pagestyle{scrheadings}%
-  \hypersetup{pdfborder={0 0 0}}%
-  \setlength{\FrameRule}{0.4pt}%
-  \setlength{\FrameSep}{5pt}%
-  \ifdefined\Shaded
-    \renewenvironment{Shaded}{\begin{framed}}{\end{framed}}%
-  \fi
+  \hypersetup{hidelinks}%
+  \definecolor{shadecolor}{gray}{0.88}%
+  % Long code lines wrap instead of running into the margin.
   \@ifpackageloaded{fvextra}{\fvset{breaklines=true,breakanywhere=true}}{}%
   % Callout boxes in black and gray instead of color.
   \definecolor{quarto-callout-color}{HTML}{000000}%
@@ -67,10 +95,11 @@
 % ---------------------------------------------------------------------
 \lowertitleback{%
   \footnotesize
-  \textbf{\BookTitle}\\[0.5em]
-  Copyright \textcopyright{} \BookYear{} \BookAuthor. All rights reserved.\\[0.5em]
-  No part of this book may be reproduced in any form without written
-  permission from the author, except for brief quotations in reviews.
+  \textbf{\BookTitle}\\
+  by \BookAuthor\\[0.5em]
+  Copyright \textcopyright{} \BookYear{} \BookAuthor.\\[0.5em]
+  The text of this book is licensed under [license TBD]. The code samples
+  are licensed under [license TBD]. % TODO: licenses
   Code examples are available at
   \texttt{https://github.com/bgweber/AdtechBook}.\\[0.5em]
   While every precaution has been taken in preparing this book, the author

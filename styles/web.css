@@ -1,0 +1,13 @@
+/* Online edition: full color. Formulas get a tinted box with an accent rule,
+   matching the gray box in print. */
+.formula {
+  background: #eef3fb;
+  border-left: 4px solid #2c6fbb;
+  padding: 0.35rem 1rem;
+  margin: 1.1rem 0;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+.formula p { margin: 0; }
+div.sourceCode { background: #f4f6f8; border-radius: 4px; }
+figure img { max-width: 100%; }
