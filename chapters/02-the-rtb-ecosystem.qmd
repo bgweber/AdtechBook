@@ -1,0 +1,39 @@
+# The RTB Ecosystem {#sec-the-rtb-ecosystem}
+
+An introduction to mobile programmatic advertising for MLEs coming from other domains.
+
+## Advertisers, publishers, and the flow of money
+
+<!-- TODO: draft this section -->
+
+## Supply side
+
+<!-- Outline: publisher apps, ad SDKs, mediation, SSPs, and exchanges -->
+
+## Demand side
+
+<!-- Outline: DSPs, ad networks, and self-serve platforms -->
+
+## Auctions
+
+<!-- Outline: from second price to first price, bid floors, and win notifications -->
+
+## The OpenRTB protocol
+
+<!-- Outline: bid requests and bid responses -->
+
+## Measurement
+
+<!-- Outline: MMPs, attribution, click-through and view-through installs -->
+
+## Device identity
+
+<!-- Outline: GAID, IDFA, IDFV, and consent (a short preview of Chapter 29) -->
+
+## Vertically integrated players
+
+<!-- Outline: when a company also runs mediation or an exchange -->
+
+## The economics of F2P games and why UA spend is so large
+
+<!-- TODO: draft this section -->

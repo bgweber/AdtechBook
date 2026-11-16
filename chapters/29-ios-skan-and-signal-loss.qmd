@@ -1,0 +1,23 @@
+# iOS, SKAN, and Signal Loss {#sec-ios-skan-and-signal-loss}
+
+Strategies for when device IDs aren't available.
+
+## ATT and IDFA consent
+
+<!-- TODO: draft this section -->
+
+## SKAdNetwork and AdAttributionKit
+
+<!-- TODO: draft this section -->
+
+## Modeling with aggregated, delayed postbacks
+
+<!-- TODO: draft this section -->
+
+## Contextual and placement-level signals
+
+<!-- TODO: draft this section -->
+
+## Preparing for a future without device IDs on Android
+
+<!-- TODO: draft this section -->

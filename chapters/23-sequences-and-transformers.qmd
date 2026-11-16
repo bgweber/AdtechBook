@@ -1,0 +1,35 @@
+# Sequences, Transformers, and Pretrained Device Signals {#sec-sequences-and-transformers}
+
+State-of-the-art conversion modeling using device histories and non-attributed data.
+
+## From pooled sets to event sequences
+
+<!-- TODO: draft this section -->
+
+## Self-attention vs. target attention
+
+<!-- TODO: draft this section -->
+
+## Tokenizing events from MMP, the bid stream, and SDKs
+
+<!-- TODO: draft this section -->
+
+## Pretraining on non-attributed data
+
+<!-- TODO: draft this section -->
+
+## Two-tower affinity signals and transformer device states
+
+<!-- TODO: draft this section -->
+
+## Splitting models between offline batch work and the bid path
+
+<!-- TODO: draft this section -->
+
+## A calibration layer on top of deep signals
+
+<!-- TODO: draft this section -->
+
+## Leakage, versioning, and data rights
+
+<!-- TODO: draft this section -->

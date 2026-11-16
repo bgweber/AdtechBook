@@ -1,0 +1,31 @@
+# Pacing and Budget Control {#sec-pacing-and-budget-control}
+
+Spending budgets evenly while hitting campaign goals.
+
+## Why pacing matters
+
+<!-- TODO: draft this section -->
+
+## Throttling vs. bid modification
+
+<!-- TODO: draft this section -->
+
+## Heuristic pacing
+
+<!-- TODO: draft this section -->
+
+## PID controllers
+
+<!-- TODO: draft this section -->
+
+## Reinforcement learning for budget-constrained bidding
+
+<!-- TODO: draft this section -->
+
+## Pacing under ROAS and CPI constraints
+
+<!-- TODO: draft this section -->
+
+## Monitoring pacing
+
+<!-- TODO: draft this section -->

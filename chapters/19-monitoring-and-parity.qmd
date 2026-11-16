@@ -1,0 +1,31 @@
+# Monitoring Models and Training-Serving Parity {#sec-monitoring-and-parity}
+
+Knowing when models are wrong, both moment to moment and over the long term.
+
+## Operational metrics vs. model metrics
+
+<!-- TODO: draft this section -->
+
+## Moment-to-moment health
+
+<!-- Outline: prediction distributions, p50 and p99, and error rates -->
+
+## Long-term health
+
+<!-- Outline: predicted vs. actual conversions and calibration by segment -->
+
+## Drift in data, features, and concepts
+
+<!-- TODO: draft this section -->
+
+## What goes wrong between the training and serving pipelines
+
+<!-- Outline: a catalog of parity failures -->
+
+## Feature parity checks with logged tensors
+
+<!-- TODO: draft this section -->
+
+## Tooling
+
+<!-- Outline: Prometheus, Grafana, ClickHouse, and OpenTelemetry vs. Cloud Monitoring -->

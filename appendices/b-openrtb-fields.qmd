@@ -1,0 +1,3 @@
+# OpenRTB Fields for Machine Learning {#sec-openrtb-fields}
+
+<!-- TODO: draft -->

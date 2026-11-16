@@ -1,0 +1,27 @@
+# Fallbacks, Playbooks, and On-Call {#sec-fallbacks-playbooks-and-on-call}
+
+Recovering quickly when a model goes wrong.
+
+## Fallback models and kill switches
+
+<!-- TODO: draft this section -->
+
+## Manual and automated rollback
+
+<!-- TODO: draft this section -->
+
+## Writing playbooks for model incidents
+
+<!-- TODO: draft this section -->
+
+## On-call responsibilities for ML teams
+
+<!-- TODO: draft this section -->
+
+## Postmortems and turning incidents into guardrails
+
+<!-- TODO: draft this section -->
+
+## Incident case studies
+
+<!-- TODO: draft this section -->

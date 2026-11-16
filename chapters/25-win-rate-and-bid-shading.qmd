@@ -1,0 +1,27 @@
+# Win Rate and Bid Shading {#sec-win-rate-and-bid-shading}
+
+Paying the right price in first-price auctions.
+
+## The bid landscape and win rate curves
+
+<!-- TODO: draft this section -->
+
+## Censored data
+
+<!-- Outline: learning from wins and losses -->
+
+## Bid shading heuristics
+
+<!-- TODO: draft this section -->
+
+## Model-based shading
+
+<!-- TODO: draft this section -->
+
+## Exploring the bid landscape safely
+
+<!-- TODO: draft this section -->
+
+## Floors and the minimum bid to win
+
+<!-- TODO: draft this section -->

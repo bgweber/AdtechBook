@@ -1,0 +1,27 @@
+# Eligibility and Candidate Selection {#sec-eligibility-and-candidate-selection}
+
+Narrowing thousands of campaigns down to a candidate set worth scoring.
+
+## Eligibility filters
+
+<!-- Outline: targeting, budgets, caps, blocklists, and creative compatibility with the placement -->
+
+## Why candidate selection exists
+
+<!-- Outline: the cost of scoring every campaign -->
+
+## Rule-based candidate selection as a baseline
+
+<!-- TODO: draft this section -->
+
+## Embedding lookups for campaign selection
+
+<!-- Outline: a preview of the two-tower model in Chapter 26 -->
+
+## Predicted price as a filter
+
+<!-- Outline: keeping campaigns that can clear the floor -->
+
+## Logging the candidate set for training and debugging
+
+<!-- TODO: draft this section -->

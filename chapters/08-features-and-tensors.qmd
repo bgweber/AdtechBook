@@ -1,0 +1,27 @@
+# Features and Tensors in the Bidder {#sec-features-and-tensors}
+
+Turning a request, profile, and campaign into model inputs, and logging exactly what the model saw.
+
+## Feature types
+
+<!-- Outline: categorical, numeric, many-hot, and sequence -->
+
+## Vocabularies, out-of-vocab handling, and versioning
+
+<!-- TODO: draft this section -->
+
+## Building tensors in Go for DNN models
+
+<!-- TODO: draft this section -->
+
+## Config-driven feature transforms and CEL
+
+<!-- TODO: draft this section -->
+
+## Logging features and tensors at inference time
+
+<!-- TODO: draft this section -->
+
+## The feature spec as the contract between training and serving
+
+<!-- TODO: draft this section -->

@@ -1,0 +1,60 @@
+# Preface {.unnumbered}
+
+Who this book is for, what it assumes, and how it relates to *Data Science in Production* (2020). The book is a spiritual successor, focused on one domain: training and serving ML models for a mobile DSP doing user acquisition.
+
+## Who this book is for
+
+<!-- Outline: data scientists and MLEs joining an ad tech startup, and ad tech engineers moving into ML -->
+
+## Prerequisites
+
+<!-- Outline: Python, basic ML, some exposure to a systems language -->
+
+## Book contents
+
+<!-- Outline: a short summary per part -->
+
+## Technology choices
+
+<!-- Outline: Python for training, validation, and publishing; Go for DSP code; GCP and on-prem options throughout -->
+
+## Code examples and the companion repository
+
+<!-- TODO: draft this section -->
+
+## Recommended reading (my picks)
+
+- *Designing Machine Learning Systems* (Chip Huyen, 2022)
+- *AI Engineering: Building Applications with Foundation Models* (Chip Huyen, 2025)
+- *Data Science in Production* (Ben Weber, 2020)
+- *Designing Data-Intensive Applications* (Martin Kleppmann)
+
+## Related work
+
+- Computational advertising
+  - *Display Advertising with Real-Time Bidding (RTB) and Behavioural Targeting* (Wang, Zhang, and Yuan, 2017), open access
+  - *Computational Advertising: Market and Technologies for Internet Commercial Monetization* (Liu and Wang, 2nd ed., 2020)
+  - *Computational Advertising: Techniques for Targeting Relevant Ads* (Dave and Varma, 2014)
+  - *A Practical Guide to Budget Pacing Algorithms in Digital Advertising* (arXiv, 2025)
+- Programmatic advertising primers
+  - *Introduction to Programmatic Advertising* (Kosorin, 2nd ed., 2022)
+  - *The AdTech Book* (Clearcode), free online
+- Recommender systems
+  - *Deep Learning Recommender Systems* (Wang, Pu, and Wang, 2025)
+  - *Building Recommendation Systems in Python and JAX* (Bischof and Yee, 2023)
+- ML in production and operations
+  - *Machine Learning Design Patterns* (Lakshmanan, Robinson, and Munn, 2020)
+  - *Reliable Machine Learning* (Chen, Murphy, Parisa, Sculley, and Underwood, 2022)
+  - *Site Reliability Engineering* (Beyer, Jones, Petoff, and Murphy, 2016), free online
+- Experimentation
+  - *Trustworthy Online Controlled Experiments* (Kohavi, Tang, and Xu, 2020)
+- Go
+  - *Learning Go* (Jon Bodner, 2nd ed., 2024)
+
+## How this book differs from related work
+
+<!-- Outline: mobile in-app user acquisition, the buy side end to end, Go and Python code, operations, and current deep learning methods -->
+
+## Acknowledgements
+
+<!-- TODO: draft this section -->
