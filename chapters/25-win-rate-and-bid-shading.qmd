@@ -186,6 +186,8 @@ Exploration has a cost, which is small and easy to measure. In the example above
 - **Only optimize within the observed range.** Clamp shaded bids to the range of bids seen in training, since the model is extrapolating outside it.
 - **Keep it running permanently.** Competition changes, and a model trained without fresh variation drifts.
 
+Manual overbids, which we met in @sec-inside-a-demand-side-platform, are the opposite of this. They also change bids for reasons unrelated to the user, but they aren't random, logged as such, or bounded. Bids raised by an overbid look to the win model like ordinary bids, so it learns a win curve that's shifted by whatever the account managers happened to do that week. If your DSP has overbids, log them as a separate field in the bid ledger, and either exclude those bids from win model training or treat the overbid as a feature.
+
 Exploration has a second use. Because the multiplier changes the chance of winning for reasons unrelated to the user, it also measures the effect of winning an impression on conversions. @sec-incrementality-and-uplift uses it as an instrument for measuring uplift.
 
 ## Floors
