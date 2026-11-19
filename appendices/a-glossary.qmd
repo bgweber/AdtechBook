@@ -42,11 +42,19 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Click tracking.** How a click is reported to the MMP, either by sending the device through the MMP's URL (client to server) or by reporting it from the DSP's servers (server to server). See @sec-measurement-and-mmps.
 
+**Cohort.** The group of players acquired in the same period, such as a week, tracked together to measure retention and ROAS over time.
+
+**CPA (cost per action).** What an advertiser pays, or targets paying, for a chosen in-app event, such as a first purchase.
+
 **CPI (cost per install).** What an advertiser pays, or targets paying, for each attributed install.
 
 **CPM (cost per mille).** The price of a thousand impressions. Bids in OpenRTB are expressed as CPMs.
 
 **Creative.** The ad itself, such as a video, a playable, or an end card.
+
+**CTR (click-through rate).** Clicks divided by impressions.
+
+**Cumulative ROAS.** A cohort's revenue to date divided by what it cost to acquire, tracked day by day. See @sec-introduction.
 
 **D7 ROAS.** Return on ad spend after seven days: revenue from installed users in their first week, divided by what the advertiser spent.
 
@@ -88,6 +96,8 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Lift (uplift).** The extra chance of an install that an impression causes: the install rate with the ad minus the rate without it.
 
+**LTV (lifetime value).** The total revenue a player generates over the whole time they play, from purchases and ads. Usually predicted, since it takes months to observe.
+
 **Managed vs. self-serve.** Whether the DSP's own team runs campaigns for advertisers, or advertisers run them themselves through a UI or API.
 
 **Margin.** The DSP's share of what the advertiser pays.
@@ -104,11 +114,15 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Pacing multiplier ($\gamma$).** A factor that raises or lowers bids so that a campaign spends its budget evenly over the day.
 
+**Payback period.** How long a cohort takes to earn back what it cost to acquire.
+
 **Playable.** A small interactive ad that lets the user try a game before installing it.
 
 **Pooled model.** One model trained on results from many advertisers, which lets new campaigns perform well from the start.
 
 **Postback.** A message from the MMP to an ad platform reporting an attributed install or in-app event.
+
+**Retention.** The share of new players who come back on a given day after install, such as day 1 (D1) or day 7 (D7).
 
 **Retargeting.** Paying to re-engage people who already have an app installed, as opposed to user acquisition.
 
