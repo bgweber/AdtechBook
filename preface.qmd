@@ -59,7 +59,7 @@ Experience with SQL, Spark, and a cloud platform such as GCP is helpful but not 
 
 The book is divided into seven parts:
 
-- **Part I: The Mobile Programmatic Ecosystem** introduces RTB, the components of a DSP, how campaigns and goals are structured, and the data that a DSP works with.
+- **Part I: The Mobile Programmatic Ecosystem** is a product-focused tour of mobile ad tech, with no code: how a free game sells an ad slot through an auction, how measurement partners attribute installs and purchases, and what happens inside a DSP, from campaign setup to a single bid worked out by the numbers.
 - **Part II: The Bid Path** walks through the life of a bid request in a Go bidder, from parsing the request to computing a bid.
 - **Part III: The Model Workflow** covers building training datasets, training pipelines, offline evaluation, and validating and publishing models.
 - **Part IV: Serving and Launching Models** covers serving options, in-process inference in Go, writing technical specs, and launching models with shadow mode, canaries, and A/B tests.
@@ -67,7 +67,7 @@ The book is divided into seven parts:
 - **Part VI: From Simple to State of the Art** revisits each ML decision in the DSP and walks through the progression of approaches for conversion, value, win rate, campaign selection, creative selection, and pacing.
 - **Part VII: Looking Ahead** covers iOS and signal loss, building an ML team at a DSP, and where the field is heading.
 
-If you already know ad tech, you can skip ahead to Part III. If you know ML well but are new to ad tech, start with Part I. The online version of the book is designed so that chapters can be read on their own, with links back to the background they depend on.
+If you already know ad tech, you can skip Part I. If you know ML well but are new to ad tech, or you work on the product or business side, start with Part I. The online version of the book is designed so that chapters can be read on their own, with links back to the background they depend on.
 
 <!-- TODO: update this section if the part order changes (see the discussion about moving Part VI earlier). -->
 
@@ -88,7 +88,7 @@ In my current role, I am applying retrieval methods from big tech to build new m
 
 I want to be candid about one more thing. Working in ad tech can be chaotic and challenging. Bidders are always live, always spending money, and always responding to a market that changes by the hour. Things can go wrong, and they often do: a bad model deploy, a feature that is computed differently in training and serving, an upstream data source that silently changes. When something breaks, it breaks at millions of requests per second, and the ML team needs to be able to respond at any hour.
 
-I won't hash out the specific incidents from my own tenure in this book. Instead, I will share what I have learned about incident management, building good guardrails for ML systems, and setting up the monitoring, fallbacks, and playbooks that let a team respond quickly and calmly. ML work in mobile ad tech can be highly rewarding, but it can also be stressful and lead to burnout. If you work in this space, be aware of your mental health, set boundaries around on-call, and build systems that let you sleep at night.
+Beyond a handful of incidents I've already written about publicly, which appear as examples in the operations chapters, I won't hash out the specific incidents from my own tenure in this book. Instead, I will share what I have learned about incident management, building good guardrails for ML systems, and setting up the monitoring, fallbacks, and playbooks that let a team respond quickly and calmly. ML work in mobile ad tech can be highly rewarding, but it can also be stressful and lead to burnout. If you work in this space, be aware of your mental health, set boundaries around on-call, and build systems that let you sleep at night.
 
 ## Code Examples and Conventions
 
@@ -147,6 +147,7 @@ This book is narrower and more hands-on than most of the existing literature on 
 - "Ad Click Prediction: a View from the Trenches" by H. Brendan McMahan et al.[^trenches] Lessons from Google's large-scale logistic regression models.
 - "Practical Lessons from Predicting Clicks on Ads at Facebook" by Xinran He et al.[^fbctr] Tree-based feature transforms, calibration, and data freshness.
 - "Modeling Delayed Feedback in Display Advertising" by Olivier Chapelle.[^delayed] The problem of conversions that arrive long after the ad was shown.
+- "Towards a User Privacy-Aware Mobile Gaming App Installation Prediction Model" by Ido Zehori, Nevo Itzhak, Yuval Shahar, and Mia Dor Schiller.[^bigabid] One of the few papers that studies install prediction from a mobile DSP's point of view, using data from mobile gaming campaigns on Bigabid's DSP.
 
 **Experimentation and operations**
 
@@ -166,6 +167,7 @@ This book is narrower and more hands-on than most of the existing literature on 
 [^trenches]: H. Brendan McMahan et al., "Ad Click Prediction: a View from the Trenches," KDD, 2013.
 [^fbctr]: Xinran He et al., "Practical Lessons from Predicting Clicks on Ads at Facebook," ADKDD, 2014.
 [^delayed]: Olivier Chapelle, "Modeling Delayed Feedback in Display Advertising," KDD, 2014.
+[^bigabid]: Ido Zehori, Nevo Itzhak, Yuval Shahar, and Mia Dor Schiller, "Towards a User Privacy-Aware Mobile Gaming App Installation Prediction Model," 2023, <https://arxiv.org/abs/2302.03332>
 [^kohavi]: Ron Kohavi, Diane Tang, and Ya Xu, *Trustworthy Online Controlled Experiments*, Cambridge University Press, 2020.
 [^reliableml]: Cathy Chen, Niall Richard Murphy, Kranti Parisa, D. Sculley, and Todd Underwood, *Reliable Machine Learning*, O'Reilly Media, 2022.
 
@@ -179,7 +181,7 @@ The process relied on heavy prompting, brainstorming, and refinement. I set the 
 
 To ground the content and match my voice, Claude used my prior writing as reference material. That included my two earlier books, *Data Science for Startups* and *Data Science in Production*, and the blog posts that I wrote on ML in ad tech after 2020, covering topics such as click prediction, serving deep learning models, ML incidents, on-prem pipelines, and transformers for user acquisition. This writing shaped both what the book covers and how it reads. No model was trained on this material; it was provided as context while drafting.
 
-AI use in technical work is becoming more common, and I expect most readers of this book will use AI tools in their own work. I encourage you to use them with this book too. Here is a homework assignment: once you have read a chapter, point an AI agent at the book's GitHub repository and have it review the code. Then work with the agent to draft an architecture document for implementing the system described in that chapter in your own environment, the same kind of technical spec that we discuss in Chapter 16. Writing that document, and checking where the agent gets things wrong, is one of the best ways to make sure you understand the material.
+AI use in technical work is becoming more common, and I expect most readers of this book will use AI tools in their own work. I encourage you to use them with this book too. Here is a homework assignment: once you have read a chapter, point an AI agent at the book's GitHub repository and have it review the code. Then work with the agent to draft an architecture document for implementing the system described in that chapter in your own environment, the same kind of technical spec that we discuss in @sec-technical-specs. Writing that document, and checking where the agent gets things wrong, is one of the best ways to make sure you understand the material.
 
 ## Feedback
 

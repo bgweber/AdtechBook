@@ -30,9 +30,37 @@
 \renewcommand*{\chapterformat}{\chapapp~\thechapter.\enskip}
 \renewcommand*{\partformat}{\partname~\thepart.}
 \setcounter{secnumdepth}{0}
+% Let pages end a line or two short instead of stretching the space around
+% headings to fill every page to the same depth.
+\raggedbottom
+% Keep cross-reference words whole (e.g. "Chapter 2" not "Chap-ter 2").
+\hyphenation{Chapter Chapters Appendix Figure Table}
+% Let a tall figure take up to 85% of a page, so figures stay near the
+% paragraphs that introduce them instead of drifting to later pages.
+\renewcommand{\topfraction}{0.85}
+\renewcommand{\bottomfraction}{0.6}
+\renewcommand{\textfraction}{0.1}
+\renewcommand{\floatpagefraction}{0.75}
 % Restart footnote numbers in every chapter, including unnumbered ones
 % such as the Welcome page and the Preface.
 \AddToHook{cmd/chapter/before}{\setcounter{footnote}{0}}
+
+% Compact spacing, closer to a typical technical book: small gaps above
+% headings, almost none between a heading and its text, and a small gap
+% between paragraphs. (Negative beforeskip suppresses the paragraph indent.)
+\RedeclareSectionCommand[
+  beforeskip=-0.8\baselineskip plus -0.1\baselineskip minus -0.1\baselineskip,
+  afterskip=0.15\baselineskip]{section}
+\RedeclareSectionCommand[
+  beforeskip=-0.6\baselineskip plus -0.1\baselineskip,
+  afterskip=0.1\baselineskip]{subsection}
+\RedeclareSectionCommand[
+  beforeskip=-0.5\baselineskip plus -0.1\baselineskip,
+  afterskip=0.1\baselineskip]{subsubsection}
+% Space around floats (figures) and captions.
+\setlength{\textfloatsep}{10pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\setlength{\intextsep}{8pt plus 2pt minus 2pt}
 
 % ---------------------------------------------------------------------
 % Running heads (KOMA-Script): chapter title on left pages, section title
@@ -53,7 +81,10 @@
 % ---------------------------------------------------------------------
 % Table of contents: room for two-digit chapter numbers ("10.")
 % ---------------------------------------------------------------------
-\RedeclareSectionCommand[tocnumwidth=2.2em]{chapter}
+\RedeclareSectionCommand[tocnumwidth=2.2em,
+  beforeskip=0pt,                % no extra space above "Chapter N."
+  innerskip=0.4\baselineskip,    % small gap between "Chapter N." and the title
+  afterskip=1.2\baselineskip]{chapter} % small gap before the first paragraph
 
 % ---------------------------------------------------------------------
 % Front matter: keep the Welcome page and Preface roman-numbered. Quarto
@@ -72,6 +103,7 @@
   \pagestyle{scrheadings}%
   \hypersetup{hidelinks}%
   \definecolor{shadecolor}{gray}{0.88}%
+  \setlength{\parskip}{3pt plus 1pt minus 1pt}% small gap between paragraphs
   % Long code lines wrap instead of running into the margin.
   \@ifpackageloaded{fvextra}{\fvset{breaklines=true,breakanywhere=true}}{}%
   % Callout boxes in black and gray instead of color.

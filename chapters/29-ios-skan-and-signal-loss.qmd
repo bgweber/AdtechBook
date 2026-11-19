@@ -1,23 +1,25 @@
-# iOS, SKAN, and Signal Loss {#sec-ios-skan-and-signal-loss}
+# iOS and Contextual Signals {#sec-ios-and-contextual-signals}
 
-Strategies for when device IDs aren't available.
+<!-- Bidding and modeling when device IDs are limited: iOS users who opt in
+through ATT, the IDFV, and contextual signals. No SKAdNetwork or
+AdAttributionKit coverage (Ben, 2026-11-17). File name is a placeholder. -->
 
-## ATT and IDFA consent
+## ATT and IDFA Consent
 
-<!-- TODO: draft this section -->
+<!-- Outline: who opts in, what device-level data is available for them, and how that population differs -->
 
-## SKAdNetwork and AdAttributionKit
+## The IDFV
 
-<!-- TODO: draft this section -->
+<!-- Outline: what it links (one developer's apps), cross-promotion, and its limits -->
 
-## Modeling with aggregated, delayed postbacks
+## Contextual and Placement-Level Signals
 
-<!-- TODO: draft this section -->
+<!-- Outline: app, placement, format, time, geo, device model, and session context as features -->
 
-## Contextual and placement-level signals
+## Modeling with Limited Device Signals
 
-<!-- TODO: draft this section -->
+<!-- Outline: models that work without device history, and how to evaluate them -->
 
-## Preparing for a future without device IDs on Android
+## Preparing for a Future Without Device IDs on Android
 
-<!-- TODO: draft this section -->
+<!-- Outline: reducing dependence on the GAID before you have to -->

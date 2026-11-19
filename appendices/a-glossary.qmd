@@ -1,3 +1,117 @@
 # Glossary of Ad Tech Terms {#sec-glossary}
 
-<!-- TODO: draft -->
+This glossary covers the terms introduced in Part I. Where a term is defined in more depth in a chapter, the entry points to it.
+
+**Ad network.** A company that sells ads into apps where its own SDK is installed, often alongside an exchange or DSP of its own.
+
+**Ad opportunity.** One chance to show an ad in an ad slot, which becomes an auction. See @sec-the-auction-lifecycle.
+
+**Ad server.** The system that picks an ad for a placement in an app where a company's own SDK is installed. See @sec-inside-a-demand-side-platform.
+
+**Ad slot (placement).** A place in an app where an ad can be shown, such as a rewarded video for extra moves or an interstitial between levels.
+
+**Advertiser value ($A$).** What an impression is worth to the advertiser per thousand impressions, given the model's predictions and the campaign's goal. See @sec-inside-a-demand-side-platform.
+
+**Advertising ID.** The device identifier used for advertising: the GAID on Android and the IDFA on iOS. See @sec-measurement-and-mmps.
+
+**Attribution.** Deciding which ad, if any, gets credit for an install or in-app event. Done by the MMP, usually with a last-touch rule within an attribution window.
+
+**Attribution window.** How far back the MMP looks for a click or impression to credit for an install, such as 7 days for clicks.
+
+**ATT (App Tracking Transparency).** Apple's framework that requires a user's permission before an app can read the IDFA. Most users decline.
+
+**Bid cap.** The most a campaign will pay for an impression, as a CPM.
+
+**Bid shading.** Bidding below what an impression is worth to win it at a lower price, which makes sense in a first-price auction. See *Shaded bid* and @sec-win-rate-and-bid-shading.
+
+**Bid ledger.** The DSP's record of every bid it makes, with the features, predictions, model versions, and price. See @sec-inside-a-demand-side-platform.
+
+**Bid path.** The steps the bidder takes for each bid request, from parsing the request to sending a response. See @sec-inside-a-demand-side-platform.
+
+**Bid request and bid response.** The OpenRTB messages an exchange sends to describe an ad opportunity, and that a bidder returns with its price and ad. See @sec-the-auction-lifecycle.
+
+**Billing notification.** The exchange's message telling the DSP that an impression it won was actually shown and is billable.
+
+**Calibration.** Getting predicted probabilities right, not just their order. A model that predicts 2% when the true rate is 1% is badly calibrated, even if it ranks impressions well.
+
+**Calibration multiplier ($\kappa$).** A correction applied to bids when a model runs systematically high or low.
+
+**Campaign.** An advertiser's unit of buying, with a goal, a target, a budget, targeting rules, and a set of creatives. See @sec-inside-a-demand-side-platform.
+
+**Clear rate.** The share of auction wins that become billable impressions. See @sec-the-auction-lifecycle.
+
+**Click tracking.** How a click is reported to the MMP, either by sending the device through the MMP's URL (client to server) or by reporting it from the DSP's servers (server to server). See @sec-measurement-and-mmps.
+
+**CPI (cost per install).** What an advertiser pays, or targets paying, for each attributed install.
+
+**CPM (cost per mille).** The price of a thousand impressions. Bids in OpenRTB are expressed as CPMs.
+
+**Creative.** The ad itself, such as a video, a playable, or an end card.
+
+**D7 ROAS.** Return on ad spend after seven days: revenue from installed users in their first week, divided by what the advertiser spent.
+
+**Demand side platform (DSP).** The system that bids on ad impressions on behalf of advertisers. See @sec-inside-a-demand-side-platform.
+
+**Device profile.** What the DSP knows about a device from past interactions, stored in a fast key-value store and read on every bid request.
+
+**Dynamic margin.** A margin that varies from impression to impression, as long as the campaign as a whole meets its target.
+
+**eCPM.** Effective revenue per thousand impressions, the publisher's main yield metric.
+
+**End card.** The screen shown after a video ad, usually with an install button.
+
+**Exchange.** The marketplace that runs auctions between the supply side and bidders.
+
+**Fill rate.** The share of ad opportunities that get filled with an ad.
+
+**First-price auction.** An auction where the winner pays what it bid. Most mobile exchanges use first-price auctions.
+
+**Floor.** The minimum price the exchange will accept for an impression.
+
+**Frequency cap.** A limit on how often the same device can see a campaign's ads.
+
+**IDFV.** The iOS Identifier for Vendors, shared across one developer's apps and available without ATT consent.
+
+**In-app bidding.** Mediation where all demand sources bid on an impression at the same time, replacing the waterfall.
+
+**Internal auction.** The DSP's comparison between its own candidate campaigns for a request, which picks the one campaign that bids.
+
+**IPM.** Installs per thousand impressions.
+
+**Managed vs. self-serve.** Whether the DSP's own team runs campaigns for advertisers, or advertisers run them themselves through a UI or API.
+
+**Margin.** The DSP's share of what the advertiser pays.
+
+**Media value ($v_m$).** What an impression is worth to the DSP after calibration, pacing, margin, and fees. The most the DSP should pay.
+
+**Mediation.** The publisher-side platform and SDK that decides which demand source fills each ad slot.
+
+**MMP (mobile measurement partner).** The third party, such as AppsFlyer or Adjust, that attributes installs and in-app events to ad platforms. See @sec-measurement-and-mmps.
+
+**OpenRTB.** The IAB Tech Lab standard for bid requests and responses.
+
+**Pacing multiplier ($\gamma$).** A factor that raises or lowers bids so that a campaign spends its budget evenly over the day.
+
+**Playable.** A small interactive ad that lets the user try a game before installing it.
+
+**Pooled model.** One model trained on results from many advertisers, which lets new campaigns perform well from the start.
+
+**Postback.** A message from the MMP to an ad platform reporting an attributed install or in-app event.
+
+**Retargeting.** Paying to re-engage people who already have an app installed, as opposed to user acquisition.
+
+**Rewarded video.** A video the user chooses to watch in exchange for an in-game reward.
+
+**Shaded bid.** A bid below the media value, chosen to trade some chance of winning for a lower price in a first-price auction. See @sec-win-rate-and-bid-shading.
+
+**Surplus.** The media value minus the price paid for an impression.
+
+**Trading location.** A regional data center from which an exchange sends bid requests. See @sec-inside-a-demand-side-platform.
+
+**User acquisition (UA).** Paying for ads to get new users to install an app.
+
+**VAST.** The IAB Tech Lab's XML standard for describing video ads.
+
+**Waterfall.** The older form of mediation, where ad networks were called one at a time in order of their historical price.
+
+**Win rate ($W(b)$).** The chance that a bid of $b$ wins the auction.
