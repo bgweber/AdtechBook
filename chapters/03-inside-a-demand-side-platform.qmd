@@ -32,7 +32,7 @@ If I were launching a DSP today, I'd make proving incremental value the core of 
 - **Hold out from day one.** Keep a small, random control group of devices for every advertiser, so that every campaign produces an incrementality measurement as a matter of course.
 - **Report incremental results next to attributed ones.** Show incremental CPI and ROAS alongside the MMP's numbers, so advertisers can see what their budget actually bought.
 - **Build the campaign API before the UI, and validate settings in software.** Every check an account manager does by hand should become a rule, which also keeps bad settings from poisoning training data.
-- **Keep the ML universal.** Per-campaign multipliers and manual overrides don't scale, and they hide problems with the models.
+- **Keep the ML universal.** Per-campaign multipliers and manual overrides, such as the overbids we'll see below, don't scale, and they hide problems with the models.
 
 Holdouts cost something: some impressions that would have won aren't shown, and incremental numbers always look worse than attributed ones. But advertisers who run their own holdout tests will find that out anyway, and being the platform that tells them first builds the trust that turns a test budget into a large one.
 
@@ -94,6 +94,12 @@ Advertisers organize their spend in a hierarchy: an **advertiser** has one or mo
 - **Creatives** are the ads themselves, which we cover below.
 
 Most of these settings are rules: filters, constraints, and plumbing. The goal and target are the only settings that turn into a price, and every price depends on model predictions.
+
+### Manual Levers and Overbids
+
+Campaign management usually also has levers that aren't in the advertiser's brief. The most common is an **overbid**: a multiplier that an account manager applies to raise a campaign's bids above what its goal and the models say an impression is worth, usually to hit a spend target, such as a new campaign that's ramping up slowly or a committed monthly budget.
+
+Some manual control is necessary, because a DSP has to be able to deliver the spend it promised. But forcing the DSP to override its own goals and pricing to get there is usually a bad idea. An overbid pays more than the models think an impression is worth, so it hurts the advertiser's results. It also distorts the data the models learn from, since wins bought at inflated prices teach the win rate and calibration models the wrong lessons, and it hides model problems behind a layer of manual adjustments. It's also hard to unwind: removing an overbid drops spend, so the lever tends to stay on, and more get added over time. In my experience, legacy systems accumulate too many of these levers, and it becomes a system that's hard to get out of. The pacing multiplier, which we'll see shortly, is the automated and bounded version of the same idea, and it's where spend control belongs.
 
 ## Goals and What They Require the DSP to Predict
 

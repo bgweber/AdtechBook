@@ -112,6 +112,8 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Organic install.** An install that didn't come from any ad, such as one from a store search or a recommendation.
 
+**Overbid.** A manual multiplier that raises a campaign's bids above what its goal and the models say an impression is worth, usually to hit a spend target. Common in legacy systems, and hard to unwind. See @sec-inside-a-demand-side-platform.
+
 **Pacing multiplier ($\gamma$).** A factor that raises or lowers bids so that a campaign spends its budget evenly over the day.
 
 **Payback period.** How long a cohort takes to earn back what it cost to acquire.
