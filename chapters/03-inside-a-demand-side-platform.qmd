@@ -31,6 +31,16 @@ If I were launching a new DSP in 2026, I'd start managed, but build as if it wer
 
 The ML system doesn't change much between the two. What changes is how robust it has to be to unusual campaign settings, and how much a human is there to notice when something goes wrong.
 
+### Leading With Incremental Value
+
+Whether it's managed or self-serve, a new DSP needs a reason for advertisers to try it. In a market where everyone reports attributed CPI and ROAS, the strongest reason is proof that the DSP causes installs that wouldn't have happened otherwise, as we argued in @sec-introduction. If I were launching a DSP today, I'd make this the core of the product:
+
+- **Hold out from day one.** Keep a small, random control group of devices for every advertiser, using ghost bids, so that every campaign produces an incrementality measurement as a matter of course.
+- **Report incremental results next to attributed ones.** Show incremental CPI and incremental ROAS alongside the MMP's numbers, so advertisers can see what their budget actually bought.
+- **Price on lift where you can.** Once the holdouts have produced enough data, use it to train models that estimate the lift from each impression, and bid on that.
+
+This costs something. A holdout means some impressions that would have won aren't shown, and incremental numbers are always worse than attributed ones, because they leave out the credit a DSP collects for installs it didn't cause. But advertisers who run their own holdout tests will find that out anyway. Being the platform that tells them first builds the kind of trust that turns a test budget into a large one.
+
 ### DSPs and Ad Servers
 
 In this book, we treat the DSP as a mostly standalone system that bids on exchanges and gets its outcomes from MMPs. That's the cleanest way to learn it, and it's how most independent DSPs are built. But as we saw in @sec-the-auction-lifecycle, many companies in mobile ad tech are vertically integrated, with an SDK, a mediation platform or exchange, and a DSP under one roof.
@@ -115,6 +125,7 @@ The goal type decides which predictions the DSP needs. @tbl-c03-goals lists the 
 | D7 ROAS | In-app purchase revenue in the first 7 days, at a target return on ad spend | Install rate and predicted 7-day revenue per install |
 | D1 retention | Installs that come back the next day | Install rate and the chance of a day-1 return |
 | Ad ROAS | Ad revenue in the first days after install, common for hypercasual games | Install rate and predicted ad revenue per install |
+| Incremental CPI | Installs that wouldn't have happened without the ad, at a target cost | Install rate with the ad and without it, and the difference between them (the lift) |
 
 : Common goal types in mobile UA, and the predictions each one requires. Every goal needs an install rate model. Deeper goals add a model for what happens after the install. {#tbl-c03-goals}
 
@@ -132,8 +143,7 @@ We saw how predictions become a bid for CPI and ROAS goals in @sec-introduction.
 - **Surplus.** The media value minus the price paid. In a first-price auction, the surplus is what's left for the DSP after paying for a win, so the bid that maximizes expected surplus balances the win rate against the price.
 - **Clear rate.** The share of wins that become billable impressions, from @sec-the-auction-lifecycle.
 - **Internal auction.** The comparison between the DSP's own candidate campaigns for a request, which picks the one campaign that bids. It's internal because the exchange never sees the losing campaigns.
-
-Some DSPs also price on **incrementality**, paying for installs that wouldn't have happened without the ad, rather than every attributed install. We cover that in @sec-incrementality-and-uplift.
+- **Lift.** The extra chance of an install that an impression causes: the install rate with the ad minus the install rate without it. Pricing on lift, rather than on the attributed install rate, is how a DSP bids on incremental value. We build this up in @sec-incrementality-and-uplift.
 
 ## Creatives
 
@@ -224,6 +234,7 @@ Each step of the bid path supports one of these decisions, and the steps that ar
 - **Creative models** choose what to show for a campaign.
 - **Pacing controllers** keep each campaign on budget, using forecasts from the win rate model.
 - **Pretrained device signals**, such as embeddings stored in the profile, feed into the other models.
+- **Uplift models** estimate how much an impression changes the chance of an install, rather than the chance itself, using data from ghost bid holdouts.
 
 A new DSP doesn't need all of these on day one. A single conversion model, a fixed shading factor per exchange, a simple pacing rule, and every eligible campaign scored in full will get a DSP bidding. We start with conversion models in Part II, and the rest of the book adds the others one at a time, in roughly the order that they start to matter.
 
@@ -251,11 +262,13 @@ Let's put the pieces of Part I together, with one bid. A player in Gem Garden fi
 
 Suppose the DSP wins 100,000 impressions like this one over the day, and the exchange clears all of them. In a first-price auction, the DSP pays what it bid, so its media cost is \$284. Under CPM billing with a 20% margin, Cozy Games is billed \$355, and the DSP keeps \$71. The model expected 100 installs, but because it runs 10% high, about 90 come in, each spending \$2.00 in the first week as predicted. That's \$180 of revenue on \$355 of spend, a D7 ROAS of about 51%, comfortably above the 40% target, at a CPI of about \$3.94.
 
-Three things are worth noticing. First, the campaign beat its target because of calibration and shading: the calibration multiplier corrected the model's overconfidence, and shading kept the price below the media value. Without $\kappa$, the DSP would have paid for 100 installs and received 90. Second, beating the target isn't free money. It's a signal that the DSP could bid higher and win more of the impressions it's losing, which is what the advertiser really wants, since a campaign that hits its ROAS target at a larger scale is worth more to them than one that beats it on a small budget. Balancing those two is the job of the pacing and shading models. Third, nothing here was known for certain at bid time. The click rate, the install rate, the revenue, the calibration, and the win rate were all predictions, and the realized ROAS only became known a week later, through MMP postbacks. Every model in this book is about getting one of those numbers right.
+Four things are worth noticing. First, the campaign beat its target because of calibration and shading: the calibration multiplier corrected the model's overconfidence, and shading kept the price below the media value. Without $\kappa$, the DSP would have paid for 100 installs and received 90. Second, beating the target isn't free money. It's a signal that the DSP could bid higher and win more of the impressions it's losing, which is what the advertiser really wants, since a campaign that hits its ROAS target at a larger scale is worth more to them than one that beats it on a small budget. Balancing those two is the job of the pacing and shading models. Third, the 51% is an attributed number. Suppose the DSP's ghost bid holdout shows that a third of those 90 installs would have happened anyway. Only 60 installs were incremental, so the incremental CPI is about \$5.92, and the incremental D7 ROAS is \$120 on \$355, about 34%, below the advertiser's target. A campaign that looked like a success on the MMP's report missed its goal once you account for the installs it didn't cause. That's the gap a DSP built around incremental value would close, by bidding on the lift for each impression instead of the attributed install rate.
+
+Fourth, nothing here was known for certain at bid time. The click rate, the install rate, the revenue, the calibration, and the win rate were all predictions, and the realized ROAS only became known a week later, through MMP postbacks. Every model in this book is about getting one of those numbers right.
 
 ## Conclusion
 
-In this chapter, we looked inside the DSP. We saw how a DSP makes money through its margin, how billing has moved from CPI to CPM with a disclosed margin, and why a new DSP should start managed but build for self-serve. We walked through the systems that make up a DSP, and why running in more than one trading location makes all of them harder. We set up a campaign for Cozy Farm Tycoon, mapped each goal type to the predictions it needs, and defined the pricing vocabulary the rest of the book uses. We followed a bid request through the ten steps of the bid path, with a latency budget measured in milliseconds, and mapped each step to the models behind it. And we worked one bid for Cozy Farm Tycoon through from predictions to price to realized ROAS.
+In this chapter, we looked inside the DSP. We saw how a DSP makes money through its margin, how billing has moved from CPI to CPM with a disclosed margin, and why a new DSP should start managed but build for self-serve. We walked through the systems that make up a DSP, and why running in more than one trading location makes all of them harder. We set up a campaign for Cozy Farm Tycoon, mapped each goal type to the predictions it needs, and defined the pricing vocabulary the rest of the book uses. We followed a bid request through the ten steps of the bid path, with a latency budget measured in milliseconds, and mapped each step to the models behind it. We worked one bid for Cozy Farm Tycoon through from predictions to price to realized ROAS, and saw how the same campaign can look like a success on attributed numbers and miss its goal on incremental ones. And we made the case that a new DSP should lead with incremental value, using ghost bid holdouts from day one.
 
 That completes our tour of how mobile ad tech works. In Part II, we'll get hands-on. We'll start with the data and labels that come out of the funnel, and build the first model a DSP needs: a conversion model that predicts installs from features that are available at bid time.
 

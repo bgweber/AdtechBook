@@ -22,9 +22,9 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Bid cap.** The most a campaign will pay for an impression, as a CPM.
 
-**Bid shading.** Bidding below what an impression is worth to win it at a lower price, which makes sense in a first-price auction. See *Shaded bid* and @sec-win-rate-and-bid-shading.
-
 **Bid ledger.** The DSP's record of every bid it makes, with the features, predictions, model versions, and price. See @sec-inside-a-demand-side-platform.
+
+**Bid shading.** Bidding below what an impression is worth to win it at a lower price, which makes sense in a first-price auction. See *Shaded bid* and @sec-win-rate-and-bid-shading.
 
 **Bid path.** The steps the bidder takes for each bid request, from parsing the request to sending a response. See @sec-inside-a-demand-side-platform.
 
@@ -70,13 +70,23 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Frequency cap.** A limit on how often the same device can see a campaign's ads.
 
+**Ghost bid.** A bid the DSP computes but doesn't send, for a device in a random control group. Comparing the control group with devices that saw ads measures the lift. See @sec-incrementality-and-uplift.
+
+**Holdout test.** An experiment where a random group of devices doesn't see the ads, so the difference in installs between groups shows what the ads caused.
+
 **IDFV.** The iOS Identifier for Vendors, shared across one developer's apps and available without ATT consent.
 
 **In-app bidding.** Mediation where all demand sources bid on an impression at the same time, replacing the waterfall.
 
+**Incremental CPI (iCPI).** Spend divided by the installs that wouldn't have happened without the ads.
+
+**Incrementality.** The installs, or revenue, that an ad actually caused, as opposed to those it was credited with. See @sec-introduction and @sec-incrementality-and-uplift.
+
 **Internal auction.** The DSP's comparison between its own candidate campaigns for a request, which picks the one campaign that bids.
 
 **IPM.** Installs per thousand impressions.
+
+**Lift (uplift).** The extra chance of an install that an impression causes: the install rate with the ad minus the rate without it.
 
 **Managed vs. self-serve.** Whether the DSP's own team runs campaigns for advertisers, or advertisers run them themselves through a UI or API.
 
@@ -89,6 +99,8 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 **MMP (mobile measurement partner).** The third party, such as AppsFlyer or Adjust, that attributes installs and in-app events to ad platforms. See @sec-measurement-and-mmps.
 
 **OpenRTB.** The IAB Tech Lab standard for bid requests and responses.
+
+**Organic install.** An install that didn't come from any ad, such as one from a store search or a recommendation.
 
 **Pacing multiplier ($\gamma$).** A factor that raises or lowers bids so that a campaign spends its budget evenly over the day.
 
