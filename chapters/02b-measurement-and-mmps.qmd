@@ -59,6 +59,14 @@ A few properties of postbacks shape everything we do with them later in the book
 - **Non-attributed data:** some advertisers also share postbacks for installs that were attributed to other channels, or that were organic. This data can help with modeling, but it's not universal, and the rules for how a DSP may use it are set by the advertiser.
 - **Fraud rejections:** MMPs may reject installs that look fraudulent, and some send a separate postback when they do.
 
+## Attribution Is Not Incrementality
+
+Last-touch attribution answers one question well: which platform touched this player last before the install? It doesn't answer the question an advertiser cares about most: did the ad cause the install? An install attributed to a DSP can happen in three ways. The ad caused it. The player would have installed anyway, through a store search, a friend, or a chart placement. Or the player would have installed through another paid channel, and the DSP's ad happened to come last. The MMP credits all three to the DSP. Click-shaping, which we saw earlier in this chapter, is the extreme case of collecting credit without causing anything.
+
+To measure the difference, an advertiser needs an experiment. The most common is a **holdout test**: a random group of devices doesn't see the ads, and the advertiser compares how many players in each group install. Some advertisers run geographic tests instead, turning spend off in some regions and comparing them with the rest. Either way, the difference between the groups is the **lift**, the installs the ads actually caused.
+
+A DSP can run these experiments itself. The trick, which we cover in @sec-incrementality-and-uplift, is the **ghost bid**: the DSP runs its full bid path for every device, but for a randomly chosen control group, it records the bid it would have made instead of sending it. Because both groups go through the same targeting and pricing, comparing their install rates shows how many installs the DSP's ads really caused. A DSP that runs ghost bids can report incremental results to its advertisers alongside the MMP's attributed numbers, and that's a strong position to sell from.
+
 ## Post-Install Events
 
 Installs are only the first conversion. For most game advertisers, what matters is what players do after they install: whether they come back the next day (D1 retention), whether they reach a milestone in the game, and whether they spend money. Advertisers with a return on ad spend (ROAS) goal care most about revenue, either from in-app purchases or, for hypercasual games, from the ads that the player watches.

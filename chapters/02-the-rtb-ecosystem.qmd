@@ -65,6 +65,8 @@ On the other side of the auction are the buyers. For a mobile user acquisition (
 - **Self-attributing networks (SANs):** the large walled gardens, such as Meta and Google, which run their own ad platforms and report their own attribution to MMPs, rather than letting the MMP match their clicks. They mostly buy inside their own properties, although some also bid on third-party inventory.
 - **Vertically integrated players:** companies that run mediation, an exchange, and a DSP or ad network under one roof. AppLovin, which runs the MAX mediation platform and its own demand, and Unity, which runs LevelPlay and its own exchange, are examples. These companies can see both sides of the auction, which gives their demand businesses a data advantage that independent DSPs don't have.
 
+All of these buyers are chasing the same devices. A player who spends money in several farming games is a valuable impression for Cozy Farm Tycoon, and every DSP and network that has learned the same signals bids for it. The price of that impression rises, and the winner is often buying a player who was likely to install a farming game soon anyway. This is the congestion we described in @sec-introduction. Winning these auctions moves credit between platforms more than it creates new players, and it's one reason a DSP that can find players other platforms overlook, or change the minds of players who weren't going to install, has a real edge.
+
 For an independent DSP, the practical consequence is that you're often bidding inside an auction run by a company that also competes with you. That's not necessarily unfair, but it means you should treat each exchange's rules, fees, and reporting as part of the environment your models operate in.
 
 ## Onboarding onto an Exchange

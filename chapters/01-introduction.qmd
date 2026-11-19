@@ -80,6 +80,18 @@ The way advertisers set goals evolved along with this. Rather than buying impres
 
 The market is now very competitive. Launching a new DSP is challenging, because a new entrant has to match the performance of platforms that have been refining their models for years. To compete, a DSP needs models that predict with high precision which devices are likely to install which apps. It needs to price bids so that it wins the auctions it wants without overpaying. And it needs to support a variety of ad formats and adapt to competitive strategies that keep changing.
 
+## Credit Versus Impact
+
+There's a catch in how this market keeps score. A typical game advertiser buys from Meta, Google, Apple, TikTok, a few ad networks, and a few DSPs, all at once. The same player might see ads from several of them in a week, and might have installed the game anyway, after a store search, a friend's recommendation, or a spot on the top charts. Under last-touch attribution, the whole install goes to whichever platform touched the player last. That rewards being last, not being useful.
+
+This makes the system congested. Every platform learns the same lesson from its data: the devices most likely to install are the ones that are already close to installing, such as heavy players of similar games. So every platform bids for the same devices, the price of reaching them goes up, and much of the money spent moves credit between platforms rather than creating new players. A DSP can look excellent in the MMP's reports while adding very little.
+
+The alternative is to measure **incrementality**: the installs that wouldn't have happened without the ad. If I were starting a DSP today, incremental value is the offering I would build the product around. It's harder to copy than a slightly better attribution model, it's what an advertiser's budget is really paying for, and as more advertisers run holdout tests that pause spend and measure what changes, platforms that only collect credit lose their budgets.
+
+Here's the idea in its simplest form: **bid on the lift, not the likelihood**. Take two devices. Device A is a heavy player of farming games, with a 5% chance of installing Cozy Farm Tycoon if it sees our ad, and a 4% chance if it doesn't. Device B mostly plays puzzle games, with a 2% chance of installing if it sees our ad, and 0.5% if it doesn't. A model trained on attributed installs prefers device A, because 5% is more than 2%. But our ad only adds 1 point for device A, and 1.5 points for device B. Bidding on the lift sends the budget to device B, where the ad actually changes what happens.
+
+The hard part is that you never see both outcomes for the same device. A DSP has to estimate the "without our ad" number from randomized holdouts, and we'll see how in later chapters, including a technique called ghost bids in @sec-incrementality-and-uplift. Part I sets up the problem. Each of the next three chapters adds a piece: why the auction is crowded, why attribution can't tell credit from impact, and how a DSP can price and report on incremental value.
+
 ## Games and the Business of Growth
 
 Most large mobile game studios have central publishing teams, and user acquisition is one of their biggest responsibilities. You will often hear the term **growth** used for this work, with UA as one of many growth challenges alongside retention, monetization, and live operations. Mobile ad tech plays a large role in these organizations, and UA budgets are among the largest line items for a mobile game.
@@ -219,6 +231,6 @@ It doesn't cover the infrastructure work of scaling a bidder to millions of requ
 
 ## Conclusion
 
-Mobile ad tech is a large and competitive industry, and machine learning is at the center of it. Every bid that a DSP submits depends on predictions: how likely a user is to click, how likely they are to install, and how much they will spend. Those predictions need to be accurate and well calibrated, because errors turn directly into overpaying or losing auctions. And they need to be made millions of times per second, within a few milliseconds each, in a system that has to be robust to bad data and observable when something goes wrong.
+Mobile ad tech is a large and competitive industry, and machine learning is at the center of it. Every bid that a DSP submits depends on predictions: how likely a user is to click, how likely they are to install, and how much they will spend. And in a crowded market, the predictions that matter most are about what the ad changes, not just what the user would do anyway. Those predictions need to be accurate and well calibrated, because errors turn directly into overpaying or losing auctions. And they need to be made millions of times per second, within a few milliseconds each, in a system that has to be robust to bad data and observable when something goes wrong.
 
 That is what this book is about: building ML systems that deliver $p_{click}$, $p_{install}$, and predicted spend with a high level of accuracy, at the scale and latency of real-time bidding, with the robustness and observability needed to run them in production. In the next chapter, we follow an ad opportunity in Gem Garden from the ad slot to the auction, and see how a DSP wins it, and why winning doesn't always mean the ad is shown.
