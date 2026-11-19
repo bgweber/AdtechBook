@@ -19,21 +19,22 @@ book:
   chapters:
     - index.qmd
     - preface.qmd
-    - part: "The Mobile Programmatic Ecosystem"
+    - part: parts/part-1-ecosystem.qmd
       chapters:
         - chapters/01-introduction.qmd
         - chapters/02-the-rtb-ecosystem.qmd
+        - chapters/02b-measurement-and-mmps.qmd
         - chapters/03-inside-a-demand-side-platform.qmd
-        - chapters/04-campaigns-goals-and-creatives.qmd
-        - chapters/05-data-sources-and-labels.qmd
     - part: "The Bid Path"
       chapters:
+        - chapters/05-data-sources-and-labels.qmd
         - chapters/06-parsing-bid-requests.qmd
         - chapters/07-eligibility-and-candidate-selection.qmd
         - chapters/08-features-and-tensors.qmd
         - chapters/09-from-predictions-to-bids.qmd
     - part: "The Model Workflow"
       chapters:
+        - chapters/09b-feature-logging-and-feature-stores.qmd
         - chapters/10-building-training-datasets.qmd
         - chapters/11-training-pipelines.qmd
         - chapters/12-offline-evaluation-and-model-iteration.qmd
@@ -55,6 +56,7 @@ book:
         - chapters/22-conversion-prediction.qmd
         - chapters/23-sequences-and-transformers.qmd
         - chapters/24-value-prediction.qmd
+        - chapters/24b-incrementality-and-uplift.qmd
         - chapters/25-win-rate-and-bid-shading.qmd
         - chapters/26-campaign-selection.qmd
         - chapters/27-creative-selection.qmd
@@ -106,7 +108,7 @@ format:
       - open=right
       - cleardoublepage=empty
       - chapterprefix=true
-      - headings=big
+      - headings=normal
     pdf-engine: xelatex
     geometry:
       - paperwidth=7in
@@ -124,7 +126,7 @@ format:
     monofont: "DejaVu Sans Mono"
     monofontoptions: [Scale=0.8]
     fontsize: 10.5pt
-    linestretch: 1.15
+    linestretch: 1.05
     highlight-style: monochrome
     code-block-bg: "#E0E0E0"    # 12% gray, matching the formula boxes
     code-block-border-left: "#808080"

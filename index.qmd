@@ -9,8 +9,9 @@ Side Platform (DSP), with Python training code and Go serving code.
 ::: {.content-visible unless-format="html:js"}
 *Machine Learning in Mobile AdTech* is a hands-on guide to training and
 serving the models behind a mobile Demand Side Platform (DSP), with Python
-training code and Go serving code. A free online edition is available at
-<https://bgweber.github.io/AdtechBook/>.
+training code and Go serving code. A free online edition is available at:
+
+<https://bgweber.github.io/AdtechBook/>
 :::
 
 ::: {.content-visible when-format="html:js"}

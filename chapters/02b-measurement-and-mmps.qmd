@@ -1,0 +1,108 @@
+# Measurement and MMPs {#sec-measurement-and-mmps}
+
+Winning an impression is only the start. An advertiser doesn't pay a DSP to show ads. It pays for installs, for players who come back the next day, and for players who spend money. None of those outcomes are visible in the auction. They happen later, inside the advertiser's app, and the DSP only learns about them because a third party tells it.
+
+That third party is the **mobile measurement partner** (MMP). In the previous chapter, we followed an ad opportunity from a publisher's game to a cleared impression. In this chapter, we follow the second half of the funnel, from impression to attributed install and purchase. In this chapter, we'll introduce the MMPs that nearly every app advertiser uses, explain how a click is tracked and how an install is attributed to the channel that delivered the ad, follow session and purchase events as they flow back to the DSP, and close with the identifiers that tie the whole funnel together.
+
+## From Impression to Install
+
+Let's pick up where the last chapter left off. A player in our match-3 game, Gem Garden, finishes a level, and a rewarded video for a farming game, Cozy Farm Tycoon, starts playing. The exchange calls the DSP's billing notice URL, and the DSP logs an impression. From here, a few things can happen:
+
+1. The player watches the video and closes it. Nothing else happens.
+2. The player taps the install button. The DSP records a click and sends the player to the Google Play store page for Cozy Farm Tycoon.
+3. The player installs the game, now or a few days later, and opens it.
+4. Over the following days and weeks, the player opens the game again, finishes the tutorial, and maybe makes a purchase.
+
+Steps 3 and 4 happen inside the advertiser's app, not in an auction. The DSP has no direct way of seeing them. The advertiser, meanwhile, buys ads from many channels at once: a few DSPs, several ad networks, Meta, Google, and others. When the player installs Cozy Farm Tycoon, someone has to decide which of those channels deserves credit. That's the job of an MMP.
+
+## Mobile Measurement Partners
+
+An MMP is a company that measures where an app's users come from. The best-known MMPs are AppsFlyer, Adjust, Singular, Kochava, Branch, and Tenjin. Nearly every app that buys user acquisition at scale uses one of them, which makes MMPs a neutral meeting point between advertisers and the ad platforms they buy from. As we saw in @sec-introduction, the MMP is the source of truth: if a DSP's logs disagree with the MMP's reports, the advertiser goes with the MMP.
+
+An MMP works through an SDK that the advertiser embeds in its app. When the app is opened for the first time, the SDK reports the install to the MMP, along with the device's identifiers and other information. Later, the SDK reports in-app events, such as sessions, level completions, and purchases. On the other side, each ad platform sends the MMP its clicks and, for some channels, its impressions. The MMP then matches each install to the ad engagements that might have caused it.
+
+The default rule is **last-touch attribution**: the install is credited to the most recent click within an **attribution window**, the period after an engagement during which an install can still be credited to it. If there's no qualifying click, the install can be credited to the most recent impression within a shorter window, which is called a **view-through** install. A click-through install always takes priority over a view-through install. For example, AppsFlyer's defaults are a 7-day window for click-through attribution and a 24-hour window for view-through attribution, and advertisers can configure both.[^c2b-af-windows] The large walled gardens work differently. Self-attributing networks such as Meta and Google don't send the MMP every click. Instead, the MMP asks them whether they claim an install, and they report back based on their own attribution rules.
+
+The MMP market has gone through the same consolidation as the rest of ad tech, and it has raised the same questions about neutrality. In 2021, AppLovin, which also sells ads, acquired Adjust, one of the two largest MMPs, in a deal reported at around \$1 billion. Competitors were quick to question whether Adjust could stay independent. For example, Kochava's CEO argued that measurement, like a referee, must be independent, and that AppLovin's ownership removed Adjust's independence.[^c2b-adjust-deal] Some advertisers raised similar concerns about attribution bias, and MMPs now publish guides for advertisers who want to switch providers, including AppsFlyer's guide for migrating from Adjust.[^c2b-migrate] In June 2026, AppsFlyer, generally considered the largest MMP, took the opposite approach: it raised investment from four ad platforms at once (Moloco, Google, Meta, and Unity), structured so that no single investor could influence its attribution logic.[^c2b-af-investment]
+
+For a DSP, the takeaway is practical. Your labels come from a small number of MMPs, some of which are owned by or funded by your competitors. You'll need to integrate with all of the major MMPs, follow each one's rules, and watch for changes in how they attribute installs, because a change in attribution logic changes your training data overnight.
+
+[^c2b-af-windows]: AppsFlyer, "Attribution lookback windows," AppsFlyer support documentation.
+[^c2b-adjust-deal]: AdExchanger, "AppLovin To Buy Mobile Measurement Startup Adjust," February 2021. The deal was announced on February 3, 2021 and closed in April 2021.
+[^c2b-migrate]: AppsFlyer, "Migrate from Adjust to AppsFlyer," AppsFlyer support documentation. Adjust publishes a similar guide for advertisers moving to Adjust.
+[^c2b-af-investment]: AppsFlyer, "AppsFlyer announces investment from Moloco, Google, Meta, and Unity," press release, June 22, 2026; PPC Land, "Google, Meta, Moloco and Unity buy into AppsFlyer to keep measurement neutral," June 2026.
+
+## Click Tracking
+
+Since most installs are attributed to clicks, how a DSP reports its clicks to the MMP matters a lot. There are two common approaches, shown in @fig-ch2b-click-tracking.
+
+![Two ways to track a click. (a) Client-to-server: the device opens an MMP click URL, which records the click and redirects the device to the app store. (b) Server-to-server: the DSP sends the device straight to the app store, and reports the click to the MMP with a separate server call.](../images/ch02b-click-tracking.png){#fig-ch2b-click-tracking width="100%"}
+
+With **client-to-server** click tracking, the ad's click-through URL points at the MMP. When the player taps the ad, the device opens an MMP tracking link, which includes the DSP's click ID, campaign, and the device's advertising ID. The MMP records the click and redirects the device to the app store. This is simple and hard to dispute, because the MMP sees the device make the request. The downside is latency: the redirect adds a hop before the store opens, and every hop is a chance for the player to give up.
+
+With **server-to-server** (S2S) click tracking, the DSP sends the device straight to the app store, and separately reports the click to the MMP from its own servers. The player gets to the store faster, and the DSP has more control over the experience. But the MMP has to trust the DSP's report, because it never sees the device. This opens the door to **click-shaping**: reporting more clicks to the MMP than the ads that were really engaged with, in order to win credit for installs under last-touch attribution, while staying under the thresholds that would get the traffic flagged as fraud. Practices like this blur the line between optimization and fraud, and they distort the labels that every other platform learns from. This book doesn't cover how to do it, but it's worth knowing that the data you train on is shaped by the strategies of every other player in the market. MMPs and advertisers watch for this with fraud rules, such as flagging sources with very low click-to-install rates or implausible click-to-install times, and some limit which partners can use server-to-server tracking.
+
+Both approaches depend on the same thing: a device ID. When a click carries the device's advertising ID (GAID on Android, or IDFA on iOS when the user has opted in through ATT), the MMP can match the install to the click deterministically, because the same ID appears in the DSP's click and in the install that the MMP's SDK reports. On iOS, the IDFV extends this to a narrower case: because it's shared across apps from the same developer, it can tie an ad shown in one of a developer's apps to an install of another, as in cross-promotion. Device-level attribution is the case this book focuses on. Apple's aggregated attribution frameworks for users without a device ID are outside its scope.
+
+## Install Attribution and Postbacks
+
+When the player opens Cozy Farm Tycoon for the first time, the MMP's SDK reports the install. The MMP looks back over the clicks and impressions it has received for that device, applies its attribution rules, and credits the install to one channel. It then sends an **install postback** to that channel: an HTTP request to an endpoint that the DSP configured, with the details of the install. @fig-ch2b-install shows this flow.
+
+![From impression to attributed install. The player taps the ad, installs the game from the store, and opens it. The MMP's SDK reports the install, the MMP matches it to the DSP's click, and sends an install postback to the DSP, which joins it back to its impression logs.](../images/ch02b-install.png){#fig-ch2b-install width="100%"}
+
+An install postback typically includes the app, the device's advertising ID, the time of the click and the install, whether the install was click-through or view-through, and the DSP's own identifiers that were passed through the click URL, such as the click ID, campaign, and creative. The DSP uses these identifiers to join the postback back to the impression and auction that led to it. This join is what turns an install into a training label for a specific bid request.
+
+A few properties of postbacks shape everything we do with them later in the book:
+
+- **Delay:** installs can happen days after the click, and in-app purchases weeks later. A training example isn't complete until its attribution window has closed.
+- **Only the winner hears about it:** a DSP gets an attributed postback only when the MMP credits the install to that DSP. If the player clicked the DSP's ad and then installed after clicking a Meta ad, the DSP sees a click with no install, even though its ad played a part.
+- **Non-attributed data:** some advertisers also share postbacks for installs that were attributed to other channels, or that were organic. This data can help with modeling, but it's not universal, and the rules for how a DSP may use it are set by the advertiser.
+- **Fraud rejections:** MMPs may reject installs that look fraudulent, and some send a separate postback when they do.
+
+## Post-Install Events
+
+Installs are only the first conversion. For most game advertisers, what matters is what players do after they install: whether they come back the next day (D1 retention), whether they reach a milestone in the game, and whether they spend money. Advertisers with a return on ad spend (ROAS) goal care most about revenue, either from in-app purchases or, for hypercasual games, from the ads that the player watches.
+
+These events flow through the same path as installs. The advertiser's app reports events to the MMP's SDK, or its servers report them to the MMP's API. The MMP attributes each event to the same channel that won the install, and sends **in-app event postbacks** to that DSP. @fig-ch2b-events shows this flow, along with the step that turns raw events into something a model can use.
+
+![Post-install events. The advertiser's app reports sessions, milestones, and purchases to its MMP, which sends in-app event postbacks to the DSP that won the install. Because event names and revenue fields differ by advertiser, the DSP runs a standardization pipeline that maps them into a common set of events before they become training labels.](../images/ch02b-events.png){#fig-ch2b-events width="100%"}
+
+This is where things get messy. Event names aren't standardized. One advertiser reports a purchase as `af_purchase`, another as `iap_purchase`, and a third as `buy_gems_pack_3`. Some send revenue in US dollars, some in local currency, and some send prices that already include or exclude the app store's cut. Some advertisers send dozens of custom events, such as `tutorial_complete`, `level_10`, or `vip_tier_2`, and want the DSP to optimize for one of them. Others send duplicate events, test events, or events with missing values.
+
+A DSP can't train models on this as it arrives. In practice, you need a data pipeline that standardizes events for your models: mapping each advertiser's event names to a small set of canonical events (install, session, purchase, ad revenue, and custom goal events), converting revenue to a common currency, deduplicating, and dropping events that fail validation. The mappings change over time as advertisers update their apps, so the pipeline needs monitoring of its own. We'll build this pipeline in the data chapters. For now, the point is that the labels your models train on are only as clean as this step makes them.
+
+## Identity and Consent
+
+Everything in this chapter depends on being able to recognize the same device at each step: in the bid request, in the click, at install, and in later events. On mobile, that role is played by the **advertising ID**:
+
+- **GAID** (Google Advertising ID) on Android, which is available unless the user opts out. Google's Privacy Sandbox for Android, which was meant to replace it, was retired in October 2025, so the GAID remains the main identifier on Android.
+- **IDFA** (Identifier for Advertisers) on iOS, which an app can only read if the user grants permission through Apple's App Tracking Transparency (ATT) prompt. Most users decline.
+- **IDFV** (Identifier for Vendors) on iOS, which is the same across apps from the same developer, but different across developers. It doesn't require ATT consent, which makes it useful for attribution between a developer's own apps, but it can't link activity across developers.
+
+Bid requests also carry privacy and consent signals that a DSP must respect. The `lmt` field signals that the user has limited ad tracking. The `regs` object signals whether the request is covered by children's privacy rules under COPPA, and whether GDPR applies, in which case a consent string describes what the user agreed to. These signals determine both whether the DSP can bid and what it may store about the device.
+
+## Data Rights and Privacy
+
+Being able to join the funnel doesn't mean a DSP may use every piece of it however it likes. Who owns the data, and what the DSP is allowed to do with it, is as much a product and legal question as a technical one. This isn't legal advice, and the rules differ by country and by contract, but a few questions come up at every DSP:
+
+- **Whose data is it?** The postbacks a DSP receives describe the advertiser's users, and the advertiser's contract with the DSP usually says how they can be used. Most DSPs train **pooled models**, one model learning from every advertiser's results, because that's what lets a new campaign perform well from day one. Advertisers generally accept this, but some large advertisers ask that their data only be used for their own campaigns, and the DSP's terms need to say clearly what's allowed.
+- **What has the user agreed to?** The consent signals in the bid request, such as a GDPR consent string or a limited ad tracking flag, decide whether the DSP can bid at all, and what it can store about the device. When a user resets or zeros out their advertising ID, their history under the old ID should no longer be linked to them.
+- **Who is protected by special rules?** Apps directed at children, and requests flagged under COPPA, can't be used for behavioral targeting, and their data shouldn't feed device profiles.
+- **How long is data kept, and can it be deleted?** Privacy laws give users the right to have their data deleted. A DSP needs to be able to remove a device from its profiles and, eventually, from its training data.
+
+For ML teams, these rules show up as filters and retention policies in the data pipelines, and as features that some campaigns can use and others can't. It's much easier to build them in from the start than to retrofit them after a contract or a regulator asks.
+
+## Putting It Together
+
+We now have all of the pieces of the funnel. @fig-ch2b-joined shows how they connect. The auction ID ties a bid request to its bid, win, and billing notifications. The DSP's click ID, passed through the MMP's click URL, ties a click to an impression. The MMP's postbacks carry the click ID back, which ties an install to the auction that led to it. And the device's advertising ID ties later events, and the device's history across many auctions, to the same user.
+
+![The joined funnel. Each step is linked to the next by an identifier: the auction ID from request to impression, the click ID from impression to install, and the advertising ID across everything. On Android, every step can be joined at the device level. On iOS, devices that opted in through ATT can be, and the IDFV links devices across a single developer's apps.](../images/ch02b-joined.png){#fig-ch2b-joined width="100%"}
+
+This leads to the key takeaway of these two chapters. With a device ID (GAID on Android, or on iOS, the IDFA when the user opts in or the IDFV within a developer's own apps), a DSP can follow every auction opportunity, every bid that wins an auction, every win that becomes a cleared impression, every impression that results in an attributed install, and every install that leads to a monetizing user, through its exchange and MMP integrations. On Android, this means that auction-level and impression-level data can be tied all the way through to clicks, installs, and spenders. That's an unusually complete view of cause and effect, and it's what makes ML in mobile ad tech so effective.
+
+## Conclusion
+
+In this chapter, we followed the second half of the funnel, from a cleared impression to an attributed install and a paying user. We introduced the MMPs that advertisers rely on and the consolidation questions they face, compared client-to-server and server-to-server click tracking, and walked through how installs are attributed and reported back to a DSP through postbacks. We saw why post-install events need a standardization pipeline before they can become labels, how device IDs tie the whole funnel together, and what a DSP is allowed to do with the data.
+
+With these two chapters, we've seen where every piece of a DSP's data comes from. In the next chapter, we'll look inside the DSP itself, and see how it turns a bid request into a decision about what to show and how much to pay.
+
