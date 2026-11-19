@@ -59,7 +59,7 @@ Experience with SQL, Spark, and a cloud platform such as GCP is helpful but not 
 
 The book is divided into seven parts:
 
-- **Part I: The Mobile Programmatic Ecosystem** is a product-focused tour of mobile ad tech, with no code: how a free game sells an ad slot through an auction, how measurement partners attribute installs and purchases, and what happens inside a DSP, from campaign setup to a single bid worked out by the numbers.
+- **Part I: The Mobile Programmatic Ecosystem** is a tour of how mobile ad tech works, with no code, that sets up the ML problems in the rest of the book: how a free game sells an ad slot through an auction, how measurement partners attribute installs and purchases, and what happens inside a DSP, from campaign setup to a single bid worked out by the numbers.
 - **Part II: The Bid Path** walks through the life of a bid request in a Go bidder, from parsing the request to computing a bid.
 - **Part III: The Model Workflow** covers building training datasets, training pipelines, offline evaluation, and validating and publishing models.
 - **Part IV: Serving and Launching Models** covers serving options, in-process inference in Go, writing technical specs, and launching models with shadow mode, canaries, and A/B tests.
@@ -67,7 +67,7 @@ The book is divided into seven parts:
 - **Part VI: From Simple to State of the Art** revisits each ML decision in the DSP and walks through the progression of approaches for conversion, value, win rate, campaign selection, creative selection, and pacing.
 - **Part VII: Looking Ahead** covers iOS and signal loss, building an ML team at a DSP, and where the field is heading.
 
-If you already know ad tech, you can skip Part I. If you know ML well but are new to ad tech, or you work on the product or business side, start with Part I. The online version of the book is designed so that chapters can be read on their own, with links back to the background they depend on.
+If you already know ad tech, you can skip Part I. If you know ML well but are new to ad tech, start with Part I. It's also readable without an ML background, if you want to share it with colleagues. The online version of the book is designed so that chapters can be read on their own, with links back to the background they depend on.
 
 <!-- TODO: update this section if the part order changes (see the discussion about moving Part VI earlier). -->
 

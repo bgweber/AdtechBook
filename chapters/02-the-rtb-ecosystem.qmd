@@ -120,7 +120,7 @@ For modeling, the distinction matters a lot. A model that learns from wins inste
 
 ## OpenRTB, Field by Field
 
-Here's a simplified bid request for a rewarded video in Gem Garden, in OpenRTB 2.5 style JSON. Real requests are larger and include many exchange-specific fields, but the core structure looks like this:
+Here's a simplified bid request for a rewarded video in Gem Garden, in OpenRTB 2.5 style JSON. If you're not an engineer, feel free to skim the code and read the list of fields that follows it. Real requests are larger and include many exchange-specific fields, but the core structure looks like this:
 
 ```json
 {
