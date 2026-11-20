@@ -1,0 +1,5 @@
+# A State-of-the-Art DSP {.unnumbered}
+
+The competitive DSP holds its own, but the leading platforms describe something different: deep models, sequence models over device histories, and pretraining on data far beyond their own wins. In this part, the run stage, we build those models, serve them in a few milliseconds, bring every pricing term into one equation, and replace hand-tuned decisions with learned ones.
+
+Two designs run through the part. In the first, deep signals feed LightGBM, which makes the bid decision. This is the state of practice, and our default. In the second, a small deep ranker runs online on precomputed embeddings, with LightGBM calibrating on top. This is the state of the art. Every model in this part is introduced with what it costs to train and serve and what it buys, and the designs draw on what Meta, Moloco, and others have published, framed as what could be under the hood rather than a claim about any one company's system.

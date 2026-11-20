@@ -1,0 +1,179 @@
+# Pipelines, Validation, and Publishing {#sec-pipelines-validation-and-publishing}
+
+The crawl DSP had one model and one daily script. The walk DSP has a click model, two install models, a value model, and a win model, each with its own data, cutoffs, and schedule, and some of them depend on each other's outputs. A script that ran fine for one model becomes a tangle of cron jobs that fail in ways nobody notices until a model is a week stale, or worse, until a bad model reaches the bidder because the step that should have stopped it was skipped.
+
+This chapter is about the machinery between a training dataset and a model the bidder can trust: scheduling, tracking, validating, registering, and publishing models, safely and reproducibly. Much of it looks like software engineering rather than ML, and it's where many ML teams lose the most time. Several of the incidents in the migration I've written about weren't caused by bad modeling ideas, but by a model reaching production that should have been stopped.
+
+In this chapter, we will choose an orchestrator, track experiments, and set up a model registry with champion and challenger aliases. We then separate publishing from activation, keep model behavior separate from environment wiring, treat training queries as code, and handle failures and partial data. We cover validation checks, packaging, approval, and the gates before a canary, and close with testing, CI/CD, and reproducible training for ML code.
+
+## Orchestration
+
+An **orchestrator** runs the steps of a pipeline in order, on a schedule or a trigger, retries what fails, and records what ran. For a DSP, a typical walk pipeline for one model has five steps: build the dataset, validate it, train, validate the model, and register it. Several models share the first step, and some depend on another model's outputs.
+
+The crawl DSP's cron job does none of this. It doesn't know that the install model's dataset depends on yesterday's postbacks being complete, it doesn't retry, and when it fails, nothing notices. The first sign of trouble is usually a stale model.
+
+The orchestration problem often shows up first around shared resources. On one team I worked on with on-prem servers, data preparation ran on a Spark cluster and training ran on separate GPU machines. We started with a lightweight web app on the GPU machines that the data preparation jobs called when a dataset was ready. That worked at first, but as the number of models grew, training jobs competed for the same GPUs and exhausted the resources. Moving to a workflow orchestrator, Prefect in that case, fixed it.[^c18-outofcloud]
+
+## Choosing an Orchestrator: Airflow, Prefect, Kubeflow, Vertex AI Pipelines, and Ray
+
+There are many options, and they're good at different things:
+
+| Tool | What it's good at | Operating cost | Fit |
+|------|-------------------|----------------|-----|
+| Airflow (Cloud Composer on GCP) | General scheduling of daily and hourly pipelines that mix Spark, training, and checks | Moderate self-hosted; low managed | Open source and GCP |
+| Prefect | The same, with a Python-first API and flexible deployment | Low to moderate | Open source, runs well on-prem |
+| Kubeflow Pipelines | ML pipelines on Kubernetes, each step a container, with artifacts tracked between steps | High self-hosted | Teams already running Kubernetes |
+| Vertex AI Pipelines | Managed Kubeflow Pipelines on GCP | Low | GCP; definitions carry over to Kubeflow |
+| Databricks Workflows | Scheduling where data prep and training already run on Databricks | Low | Databricks shops |
+| Ray | Distributed training and hyperparameter tuning, not scheduling | Moderate | A complement to a scheduler |
+
+: Orchestration options for DSP pipelines. {#tbl-c18-orchestrators tbl-colwidths="[24,36,18,22]"}
+
+Airflow and Prefect both run well on-premise, and managed versions such as Cloud Composer remove most of the operational work.[^c18-onprem] Kubeflow Pipelines is powerful, but running Kubeflow yourself is a lot of work, and Vertex AI Pipelines gives you the same pipeline definitions without it, with a path back to self-hosted Kubeflow if you later move on-prem.
+
+For a small DSP team, my recommendation is Airflow or Prefect for scheduling, plus managed training jobs for anything that needs GPUs, before taking on the operation of Kubeflow. The tool matters less than a few rules for how pipelines are triggered and resolved:
+
+- **Two orchestrators are fine; two resolvers are not.** Teams often end up with scheduled runs from one system and ad hoc runs from CI. Both should submit through one tool that resolves parameters, looks up the current champion, and renders queries, so the two paths can't drift apart.
+- **Trigger on data readiness, not the clock.** A daily run should wait for its upstream data to be published, such as yesterday's postbacks marked complete, rather than firing at 6:00 and training on half a day.
+- **Resolve run identity per run.** Each run needs its own ID and output paths, resolved when it starts. A scheduler that resolves them once, when the schedule is created, writes every run to the same paths and overwrites artifacts that earlier model versions point to.
+
+<!-- CODE: the walk pipeline (build dataset, validate, train, validate, register) in one orchestrator, with notes on what changes in the others. -->
+
+## Experiment Tracking
+
+Every training run, scheduled or ad hoc, logs its parameters, metrics, dataset version, and code version to an experiment tracker, such as MLflow (open source, self-hosted or managed) or Vertex AI Experiments. The point is that any model can be traced back to the data and code that built it, and any two runs can be compared without anyone's notebook. It also keeps a record of what was tried and didn't work, which saves a team from trying it again.
+
+## The Model Registry and Champion Models
+
+In crawl, the champion was a pointer file. A **model registry** replaces it with one place that records every model version, its lineage, its validation results, and which version is serving.
+
+The two common options are MLflow Model Registry, open source and self-hosted on-prem or managed in Databricks, and Vertex AI Model Registry on GCP. Both support the same core idea: **aliases**. Each model type has a champion alias, and optionally a challenger alias, pointing at registered versions. The bidder resolves the champion alias when it loads a model, rather than a hard-coded version, so promoting a challenger or rolling back is a change to the alias, recorded with who made it and why.
+
+Each registered version records its lineage:
+
+- The training dataset version, from @sec-building-training-datasets.
+- The code commit and container image.
+- The feature specification, vocabulary versions, and the FeatureVector schema version.
+- The versions of any upstream models or embeddings it depends on.
+- Its evaluation and validation results.
+
+A few rules keep the registry trustworthy:
+
+- **Registering is not deploying.** Only versions that passed validation can be promoted, and the canary in @sec-shadow-mode-canaries-and-ab-tests decides whether a challenger becomes champion.
+- **Keep champions for each model type,** such as click, install after click, install after view, value, and win, and for each level of the fallback ladder in @sec-operating-a-competitive-dsp, so every fallback points at a registered version too.
+- **Retain enough history** to roll back and to reproduce old results, and clean up the rest on a schedule.
+
+## Environments, Publishing, and Activation
+
+Most DSPs run at least two environments, such as experiments and production, and the rules for how models move between them prevent a lot of trouble:
+
+- **Code is promoted between environments; models are not.** Each environment builds its own images and trains its own models from a commit on the main branch. Only code crosses between environments. A model trained by hand in the experiments environment never gets copied into production.
+- **Publishing is separate from activating.** A merge to the main branch builds and publishes an immutable artifact, and changes nothing that's running. A separate, reviewed step activates it.
+- **The registry alias is the activation, and the model names its own code.** Each registered version records the commit it was trained with, so the alias points to weights that identify the pipeline and feature code that must score them. Two pointers moved by hand in different places, one for the weights and one for the scoring code, will eventually disagree. One pointer can't.
+- **Bootstrap new environments deliberately.** In a new environment, no version holds the champion alias yet, so anything that resolves the champion fails. Have the first registered version take both the challenger and champion aliases, and every later version register as challenger only.
+- **Two tiers of access.** People build and run by hand in the experiments environment. Production builds and runs only from CI, with service identities rather than personal credentials, and no person has write access to production registries.
+
+## Model Spec vs. Environment Wiring
+
+Everything that changes a model's behavior belongs in a **model spec**: the architecture and hyperparameters, the feature encoding and masking, the targets, the evaluation, and the source tables. The model spec is identical across environments.
+
+Everything else is **wiring**, in environment files: projects, datasets, buckets, regions, and service accounts. The environment files have a closed set of keys, checked in CI, so that environment configuration can't change model behavior, and every environment has to define the same keys. No resource identifiers are hard-coded in code, SQL, workflow definitions, or build files. They're all parameters, resolved from the environment files.
+
+The payoff is that "the model is different in production" stops being a possible explanation for anything. If the spec is the same, the model is the same, and differences come from data.
+
+## Training Queries Are Code
+
+Training datasets are usually built by SQL queries against the warehouse. Editing a query doesn't feel like a deploy, but it changes what every future model trains on. Treat queries like code: keep them in the repository, review changes, and hash each rendered query, with its parameters filled in. Record the hash in the model spec, and assert it at runtime, so a run that renders a different query than the one the spec was reviewed with fails rather than training quietly on different data.
+
+## Handling Pipeline Failures and Partial Data
+
+Pipelines fail, and most failures are about data, not code: a partition that arrived late, a source that delivered half a day, or a postback feed that stopped for six hours. The checks from @sec-building-training-datasets decide whether a run should proceed. When one fails, the pipeline:
+
+- **Skips the run** and keeps the current champion, rather than training on partial data.
+- **Retries on data readiness,** so a late partition leads to a late run, not a missed one.
+- **Alerts the owner of the input,** and records the skipped run, so a model that's been stale for three days is visible on the dashboards.
+
+A model that's a day older than planned is almost always better than one trained on a bad day of data.
+
+## Validation Checks
+
+Before a model is registered as a challenger, it passes a set of checks. In crawl, these were a few lines in the training script. In walk, they're a step in the pipeline, with thresholds per model type:
+
+- **Metric thresholds:** normalized entropy, AUC within campaigns, and calibration within bounds.
+- **A comparison with the champion** on the same evaluation data, with a limit on how much worse any metric or important segment can be.
+- **Prediction distributions:** the mean and spread of predictions in line with the champion's, with no collapse to a constant.
+- **Feature coverage:** the features the model depends on most were present in the training data at their usual rates.
+
+The constant prediction incident from @sec-operating-the-first-dsp is the reason for the comparison with the champion. A retrain produced a click model that predicted 25% for every request, with an AUC of 0.5. It happened in about 2% of training runs, and the guardrail was exactly this: thresholds on validation metrics, plus a comparison of the new and prior models' outputs on the same data.[^c18-incidents]
+
+## Packaging and Publishing Artifacts
+
+A published model is a **bundle**, as in @sec-shipping-the-first-model, extended for walk: the model file in its serving format (ONNX for LightGBM in the reference DSP), the preprocessing specification, vocabularies, fitted statistics, calibration tables, the downsampling rate, golden vectors, and the metadata that links it to its registry version. The bundle is written once to a shared store, such as a versioned bucket, and never modified. Write everything a version needs next to its artifacts before the alias moves, so a resolved champion is always complete.
+
+## Automated vs. Manual Approval
+
+Not every change needs a person. A reasonable split for walk:
+
+- **Automatic:** routine retrains of existing model types, with no change to the spec, that pass validation. These register as challengers and enter the canary on their own.
+- **Manual:** anything that changes the spec, such as new features, new hyperparameters, or a new model form, plus the first version of any new model type. A person reviews the evaluation and approves the canary.
+- **Always manual:** promotion to full traffic for changes from the second group, and any retry after an automated rollback.
+
+## Gates Before the Canary
+
+Some failures shouldn't reach even 1% of traffic. Another incident from the same migration: we used warmup files to speed up model rollouts on our in-house TensorFlow Serving cluster, and a model whose tensor definitions didn't match its warmup file brought model serving to a halt until we rolled back. The fix was a pre-deploy check that started a local instance of the serving stack in the training pipeline and sent it sample requests, followed later by a proper staging environment.[^c18-incidents] The general lesson is to load and score every new bundle in an environment that matches production before the canary starts. The golden vectors from @sec-logging-at-bid-time are part of the same gate.
+
+## Testing and CI/CD for ML Code
+
+The testing from @sec-shipping-the-first-model grows into a pyramid:
+
+- **Unit tests** for feature code in Go and Python, with the edge cases that cause incidents.
+- **Golden-file parity tests** between the Python training path and the Go serving path, for every model type.
+- **Pipeline integration tests** that run the whole pipeline on a small sampled dataset, end to end, on every change to pipeline code.
+- **End-to-end tests in staging,** with the same bidder build, the same model loading path, and replayed bid requests.
+
+The staging environment is worth its cost. Every new model type and serving change goes there first, scored on replayed traffic, before it reaches production. The warmup file incident in the previous section is the kind of failure it exists to catch.
+
+With these in place, CI covers the training pipeline and CD covers models: a model that passes validation and staging tests is registered and becomes eligible for the canary without manual steps, for the changes that are allowed to be automatic.
+
+Two more practices catch problems before they're expensive:
+
+- **Cheap static checks before expensive runs.** Checks that need no cloud credentials can catch, before anything is submitted, pipeline parameters that don't match the submit tool, training commands that would fail only after a GPU is provisioned, invalid accelerator and machine pairings, unused spec keys, label and masking rules, and hard-coded identifiers. A check that runs in seconds in CI saves a failed job that would have waited an hour for a GPU.
+- **A check never observed failing is not known to work.** Every check ships with a test case that makes it fail. And when a new kind of file or step is added to the pipeline, review which checks cover it, because gaps usually appear where a new surface was added, not in the logic of existing checks.
+
+Code review crosses the boundary too. Data scientists review pull requests on the serving code, and engineers review training code, so a change to how a feature is computed on one side gets noticed by someone who knows the other.[^c18-incidents]
+
+## Reproducible Training
+
+Any registered model should be rebuildable from its record. That takes more than saving the training script:
+
+- **Pin everything the build stamps into the artifact:** container images by digest rather than by a mutable tag, CI actions by commit, dependencies locked with hashes, and the pipeline compiler at an exact version. A compiled pipeline template can embed the version of the SDK that compiled it, so an SDK release can change the artifact built from an unchanged commit.
+- **One container image per job, not per pipeline.** GPU training and CPU scoring images share nothing and each has its own lock file, so a dependency upgrade for one doesn't break the other.
+- **Align runtime versions** across Python training, the ONNX opset the model is exported with, and the ONNX Runtime version in the Go bidder.
+- **Fix random seeds** where possible, and record the dataset version.
+
+For GPU training, bit-for-bit reproducibility usually isn't realistic, because parallel floating point operations don't run in a fixed order. Define reproducible as "metrics and predictions within a tolerance" instead, and check rebuilt models against it.
+
+## First-Time Pitfalls
+
+- **Registry labels can be shared across all versions of a model** rather than stored per version, depending on the registry. Read a version's run ID and metadata from per-version fields, such as its artifact path, not from labels.
+- **Consumers that hard-code a model's outputs.** Write each version's output schema, and the entities it covers, next to its artifacts, and have consumers read them from the version.
+- **Permissions are the most common first failure.** Managed services act through their own service identities, which need their own grants, and cross-project reads need explicit roles. Keep a permission checklist with the environment setup.
+- **Code that passes locally fails in the container,** because the framework version differs. Pin the deep learning or boosting framework to the version in the training base image.
+
+::: {.callout-tip title="Try it on the simulator"}
+Run the walk pipeline end to end: build the install dataset, validate it, train, validate the model, and register it as a challenger. Then inject a training run that predicts a constant, and watch validation stop it. Finally, promote a good challenger by moving the champion alias, and watch the bidders pick it up.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we moved from a daily script to pipelines that train, validate, and publish models safely. An orchestrator triggers runs on data readiness through one resolver, an experiment tracker records every run, and a model registry with champion and challenger aliases records lineage and makes promotion and rollback a change to an alias. Code is promoted between environments while models are trained in each, publishing is separate from activation, model behavior lives in a spec separate from environment wiring, and training queries are versioned like code. Validation checks, packaging, approval rules, gates before the canary, a testing pyramid with staging, and reproducible builds keep bad models out of the bidder.
+
+A model that passes all of this is ready to see traffic, but not yet to see all of it. In the next chapter, we launch models with shadow mode, canaries, and A/B tests.
+
+[^c18-outofcloud]: Ben Weber, "Out of the Cloud: Building On-Prem Machine Learning Pipelines," *Data Science Collective*, September 27, 2025, <https://medium.com/data-science-collective/out-of-the-cloud-building-on-prem-machine-learning-pipelines-597d5603502f>
+
+[^c18-onprem]: Ben Weber, "OnPrem vs Public Cloud for AdTech ML," *Data Science Collective*, May 15, 2026, <https://medium.com/data-science-collective/on-prem-vs-public-cloud-for-ml-3fb4568bd589>
+
+[^c18-incidents]: Ben Weber, "Machine Learning Incidents in AdTech," *Towards Data Science*, January 29, 2025, <https://medium.com/data-science/machine-learning-incidents-in-adtech-e3f48d858054>

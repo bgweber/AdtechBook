@@ -1,0 +1,100 @@
+# The Unified Pricing Equation {#sec-the-unified-pricing-equation}
+
+The walk DSP's pricing grew one term at a time. Each goal type got its own formula for the advertiser value, the calibration multiplier came in as a correction, the pacing multiplier came in with the controller, margins depended on the billing model, and the incrementality tilt from @sec-uplift-modeling is one more term on top. Each piece makes sense on its own. Together, they're hard to reason about, hard to explain to an advertiser, and hard to implement consistently, because nothing says in one place how they fit together. And each campaign can still only have one goal.
+
+This chapter brings every pricing term into one equation, written so that an engineer, or an agent, could implement it from the specification alone, and so that every bid can be explained term by term from the bid ledger.
+
+In this chapter, we will look at why campaigns have more than one goal, combine goals with weights in one equation, and choose between target priority and budget priority. We then put the margin in the loop, add the incrementality tilt, check that a campaign's goals and budget can be met before launch, lay out the levers advertisers and account managers can use, and define the bid ledger that records every term.
+
+<!-- NOTE: Ben's pricing and pacing drafts (patches 0001 to 0003) aren't in the repo. This chapter is drafted from the TOC and the earlier chapters; reconcile with the patches when they're available. -->
+
+## Why Campaigns Have More Than One Goal
+
+Advertisers rarely care about one number. A studio launching Cozy Farm Tycoon in a new market might want installs at a target CPI of \$3.00, but only if those installs reach a D7 ROAS of at least 20%, because cheap installs that never pay are worthless to it. Another might want D7 ROAS, with a floor on D1 retention, to avoid buying players who churn immediately.
+
+With one goal per campaign, the advertiser has two bad options. They can pick one goal and watch the other by hand, adjusting targets when the second goal slips, which reintroduces the manual levers we worked to remove. Or they can run duplicate campaigns for the same app with different goals, which then compete with each other in the DSP's internal auction and split the data the models learn from.
+
+## Weighted Goals in One Equation
+
+The unified equation starts from a value for each goal $k$, computed exactly as in @sec-pricing-for-goals and calibrated with that goal's own multiplier, and combines them with weights:
+
+$$V = \sum_k w_k \, \kappa_k \, A_k$$
+
+Each $A_k$ is the advertiser value per thousand impressions under goal $k$, in dollars, so the values are in the same units and can be added. The weights $w_k$ express how the advertiser trades the goals off. A campaign that values installs and D7 revenue equally, at its targets, sets both weights to 0.5. A campaign with a single goal has one weight of 1, and the equation reduces to walk pricing.
+
+The full media value then applies the remaining terms, in the order from @sec-pricing-for-goals:
+
+$$v_m = V \times \rho(x) \times \gamma \times (1 - m) - f$$
+
+where $\rho(x) = 1 - \alpha + \alpha\, r(x)$ is the incrementality tilt from @sec-uplift-modeling, $\gamma$ is the pacing multiplier, $m$ is the margin, and $f$ is fees. Shading, floors, and caps follow as before.
+
+Weights work well for goals that trade off smoothly. For goals that are really constraints, such as a ROAS floor below which the advertiser doesn't want installs at any price, constraints work better, and the pacing system enforces them, as in the next section.
+
+## Target Priority vs. Budget Priority
+
+In @sec-basic-pacing, two controllers set $\gamma$: a budget controller that keeps spend on plan, and a slower goal controller that holds bids back when the campaign misses its target. With several goals, there's one goal controller per constraint, and the campaign has to say which matters more when they conflict:
+
+$$\text{target priority:} \quad \gamma = \min(\gamma_{\text{goal},1}, \dots, \gamma_{\text{goal},K}, \gamma_{\text{budget}})$$
+
+$$\text{budget priority:} \quad \gamma = \gamma_{\text{budget}}$$
+
+With **target priority**, every constraint can hold the campaign back, and it underspends rather than miss a target. With **budget priority**, the campaign spends its budget, and the goals are reported but not enforced. Most performance advertisers want target priority. Budget priority suits launches and brand pushes, where reach matters more than efficiency for a while. It's a campaign setting, chosen explicitly, rather than something an account manager achieves with an overbid.
+
+## Margin in the Loop
+
+The margin $m$ has been fixed per campaign so far. In run, it flexes between a floor and a target, as one more control the DSP can use:
+
+- **When a campaign is constrained by its goal,** lowering the margin toward its floor raises the media value without changing the advertiser's cost per outcome, so the campaign wins more of the impressions it was narrowly losing.
+- **When a campaign is comfortably within its goal and on budget,** the margin stays at its target.
+- **Across impressions,** the margin can vary with the surplus available, as long as the campaign's average margin meets its target, as in the dynamic margin from @sec-pricing-for-goals.
+
+A margin controller runs on the slow loop, alongside the goal controllers, and its bounds are set by the business, not by the controller. The bid ledger records the margin on every bid, so the DSP can always report what it kept.
+
+## The Incrementality Tilt
+
+The tilt $\rho(x) = 1 - \alpha + \alpha\, r(x)$ multiplies the value by a factor that depends on the predicted incrementality ratio $r(x)$, from a segment table or an uplift model. With $\alpha = 0$, pricing is purely attributed. With $\alpha = 1$, the value is scaled fully by the ratio, which prices installs the DSP is likely to cause above installs it would only get credit for.
+
+The tilt sits with the other multipliers, before the margin and shading, and it's separate from the calibration multiplier: $\kappa$ corrects predicted attributed outcomes toward realized attributed outcomes, and says nothing about incrementality. A campaign with an incremental goal, such as a target incremental CPI, uses that goal as one of its $A_k$ instead of a tilt, as in @sec-uplift-modeling. Because advertisers are usually billed and judged on attributed results, the tilt is an advertiser opt-in, with $\alpha$ set by the campaign.
+
+## Consistency Check Before Launch
+
+Some combinations of goals and budgets can't all be met. A campaign that wants \$50,000 a day at a \$1.50 CPI in a market where the DSP can only buy 10,000 installs a day at that price will underspend every day under target priority, and the advertiser will be surprised by it.
+
+Before a campaign launches, and whenever its settings change, the DSP runs a **consistency check**: replay recent eligible traffic through the pricing path, as in the feedforward forecast from @sec-basic-pacing, and estimate the spend and outcomes at each value of $\gamma$. If no $\gamma$ within bounds spends the budget while meeting every constraint, the check says so, with the frontier between spend and performance: how much the campaign could spend at its target, and what CPI it would need to spend its full budget. The advertiser can then change the budget, the target, or the priority before launch, rather than after a week of underdelivery.
+
+## Advertiser Levers and Overrides
+
+Advertisers and account managers need ways to steer campaigns. The unified equation gives them a ladder of levers, each acting on a specific term, from the most to the least preferred:
+
+1. **Goals and targets:** change what the campaign is trying to achieve, which changes $A_k$.
+2. **Weights and priority:** change how goals trade off, through $w_k$ and target or budget priority.
+3. **Budgets and schedules:** change how much and when, through the pacing plan.
+4. **Targeting:** change which requests are eligible.
+5. **Bounded overrides:** a temporary multiplier on $\gamma$'s bounds, with an expiry date and a cap, for cases such as a launch week.
+
+Each lever is recorded in the campaign configuration and in the bid ledger, so its effect is visible, and the consistency check shows where it moves the campaign on the frontier between spend and performance. What's missing from the ladder is a raw multiplier on the bid that bypasses pricing, which is what overbids were. Every override goes through a term of the equation.
+
+## The Bid Ledger
+
+The bid ledger from @sec-logging-at-bid-time records every term of the unified equation for every bid:
+
+- **Predictions:** each model's output and version, including the click, install, value, retention, and uplift predictions.
+- **Goal values:** each $A_k$, its calibration multiplier $\kappa_k$, and its weight $w_k$.
+- **Multipliers:** the tilt $\rho$ and its inputs, $\gamma$ and which controller set it, and any bounded override.
+- **Margin and fees:** $m$, its bounds, and $f$.
+- **Shading:** the media value $v_m$, the win model's version and predicted curve parameters, the shaded bid, any exploration multiplier, and the floor and cap checks.
+- **The internal auction:** each candidate's score and the winner.
+
+With the ledger, any bid can be explained term by term, any change in a campaign's bids can be traced to the term that moved, and any proposed change to the equation can be replayed on logged traffic before it ships.
+
+::: {.callout-tip title="Try it on the simulator"}
+Trace one bid through every term of the unified equation, for a campaign with a CPI target and a D7 ROAS floor. Then set up a campaign whose budget and targets can't both be met, run the consistency check, and compare its forecast frontier with what the campaign actually does over a simulated week.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we brought every pricing term into one equation. Campaigns can have several goals, combined with weights in one value, or enforced as constraints by goal controllers with target or budget priority. The margin flexes within bounds as one more control, the incrementality tilt sits with the other multipliers, and a consistency check before launch shows whether goals and budgets can both be met. Advertiser levers form a ladder of terms in the equation, and the bid ledger records every term of every bid.
+
+The pacing controllers in this equation are still the PI controllers from Part III. In the next chapter, we learn pacing policies with reinforcement learning, and measure them against the PI baseline.

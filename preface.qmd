@@ -36,12 +36,14 @@ There are three groups of readers that I had in mind while writing:
 
 You will learn about state of the art machine learning in bidding systems, but you will also come away with a broad understanding of the mobile programmatic ecosystem. We will cover the details of how real-time auctions work, the OpenRTB protocol that exchanges and bidders use to communicate, mobile measurement partners (MMPs) that attribute installs and in-app events back to ads, and how a DSP integrates with ad exchanges.
 
-The book does not stop at the models. For each ML system that we discuss, we provide hands-on examples of how to make it a reality inside a DSP: parsing bid requests, fetching device profiles, building tensors for a model, turning predictions into a bid price, and logging what the model saw so that you can debug it later. The ML topics follow a progression from simple and validated approaches to state of the art, for each of the main decisions that a DSP makes:
+The book does not stop at the models. For each ML system that we discuss, we provide hands-on examples of how to make it a reality inside a DSP: parsing bid requests, fetching device profiles, building tensors for a model, turning predictions into a bid price, and logging what the model saw so that you can debug it later. Each of them runs on the companion bid simulator described in Code Examples and Conventions, so you can trace a bid, change a model or a pricing term, and see what happens. The ML topics follow a progression from simple and validated approaches to state of the art, for each of the main decisions that a DSP makes:
 
-- **Conversion prediction:** from logistic regression, to tree models and factorization machines, to deep neural networks and transformer architectures.
-- **Campaign and creative selection:** from rules and bandits, to two-tower models and content embeddings.
-- **Win rate and pricing:** from heuristics to model-based bid shading.
-- **Pacing:** from heuristics, to PID controllers, to reinforcement learning.
+- **Conversion prediction:** from logistic regression on hashed features, to LightGBM, to deep neural networks, sequence models, and transformers pretrained on device histories.
+- **Goals and pricing:** from CPC, to CPI, CPA, and ROAS goals, to one pricing equation with weighted goals and a tilt toward incremental value.
+- **Win rate and shading:** from a fixed shade, to a LightGBM win model, to models that predict the whole win rate curve and correct for the winner's curse.
+- **Campaign and creative selection:** from weighted random selection, to Thompson sampling, to two-tower retrieval and personalized creatives.
+- **Pacing:** from spend caps and throttling, to PI controllers, to reinforcement learning.
+- **Incrementality:** from a holdout flag logged at bid time, to ghost bids, to uplift models.
 
 We also cover the work that happens around the models: building training datasets, offline evaluation, validation and publishing, serving options, experimentation on live campaigns, monitoring, and handling incidents.
 
@@ -57,19 +59,15 @@ Experience with SQL, Spark, and a cloud platform such as GCP is helpful but not 
 
 ## How This Book Is Organized
 
-The book is divided into seven parts:
+After Part I, the book builds a DSP three times, at three levels of ambition: crawl, walk, and run. Each of those parts ends with a working DSP that could be operated in production, and each one opens its topics with what broke or didn't scale at the previous level. Shipping, monitoring, and on-call aren't collected in one place. They're threaded through every part, at the level that part needs, and each part ends with a chapter on operating the DSP it built. The book is divided into five parts:
 
 - **Part I: The Mobile Programmatic Ecosystem** is a tour of how mobile ad tech works, with no code, that sets up the ML problems in the rest of the book: how a free game sells an ad slot through an auction, how measurement partners attribute installs and purchases, and what happens inside a DSP, from campaign setup to a single bid worked out by the numbers.
-- **Part II: The Bid Path** walks through the life of a bid request in a Go bidder, from parsing the request to computing a bid.
-- **Part III: The Model Workflow** covers building training datasets, training pipelines, offline evaluation, and validating and publishing models.
-- **Part IV: Serving and Launching Models** covers serving options, in-process inference in Go, writing technical specs, and launching models with shadow mode, canaries, and A/B tests.
-- **Part V: Operating Models in Production** covers monitoring, training-serving parity, fallbacks, on-call, and root-cause analysis.
-- **Part VI: From Simple to State of the Art** revisits each ML decision in the DSP and walks through the progression of approaches for conversion, value, win rate, campaign selection, creative selection, and pacing.
-- **Part VII: Looking Ahead** covers iOS and signal loss, building an ML team at a DSP, and where the field is heading.
+- **Part II: A First DSP** builds the simplest DSP that closes the loop: a Go bidder with a logistic regression click model, CPC and a first CPI campaign, bidding on low-CPM inventory, with features and propensities logged from the first bid, and the dashboards, alerts, and kill switches needed to spend real money.
+- **Part III: A Competitive DSP** adds the goals advertisers actually buy: LightGBM models for click, install, purchase, and win rate, goal-based pricing, PI pacing, incrementality reporting, a model registry and pipelines, and shadow runs, canaries, and A/B tests for every change.
+- **Part IV: A State-of-the-Art DSP** builds deep and sequence models, pretrained on data beyond the DSP's own wins, and serves them on CPU within the latency budget. It brings every pricing term into one equation, and replaces hand-tuned pacing and selection with learned policies.
+- **Part V: Looking Ahead** covers iOS and contextual signals, building an ML team at a DSP, and where the field is heading.
 
 If you already know ad tech, you can skip Part I. If you know ML well but are new to ad tech, start with Part I. It's also readable without an ML background, if you want to share it with colleagues. The online version of the book is designed so that chapters can be read on their own, with links back to the background they depend on.
-
-<!-- TODO: update this section if the part order changes (see the discussion about moving Part VI earlier). -->
 
 ## My Journey in Ad Tech
 
@@ -99,7 +97,9 @@ The code examples in this book use two languages:
 
 We present both cloud and on-prem options throughout the book. For managed services, the examples use Google Cloud Platform (GCP). For self-hosted infrastructure, we use open source tools that you can run on your own hardware. We do not cover Kubernetes or the infrastructure work needed to scale a bidder to millions of requests per second, which is its own book.
 
-All of the code is available in the book's GitHub repository, along with a synthetic data generator so that you can run the examples without access to real bid stream data. The code in the repository is tested on every change, and the snippets in the book are pulled directly from it.
+The book is built around a companion bid simulator: a reference DSP and a simulated market that run end to end on mocked data. The market generates devices, apps, campaigns, and bid requests, runs first-price auctions against competing bidders, and sends win notices and MMP postbacks with realistic delays. The reference DSP bids into it with the models from each part. Because the market is simulated, the true click, install, and lift rates are known, so we can check a model's calibration, or a lift measurement, against the truth. Every chapter from Part II on has a working example that runs on the simulator, and every result the book reports comes from a simulator run with a fixed seed. Bid trace mode records every step of a single bid, from the parsed request to the pricing ledger and the postbacks that came back later, and replay reruns logged traffic through any version of the bidder. There's a release of the simulator for each part, so you can run the DSP as it stands at the end of that part. Simulator results show how a method works, not how large its gains will be in production.
+
+All of the code is available in the book's GitHub repository, with sample data and trained models so that the crawl DSP runs on a laptop with one command. The code in the repository is tested on every change, and the snippets in the book are pulled directly from it. Longer listings, schema walkthroughs, and notebooks are in the online edition and the repository rather than in print.
 
 The book is available in two editions. The online edition is free, in full color, and includes interactive figures where possible. The print edition is in black and white, and figures are designed to be readable in grayscale. Some long lines of code are wrapped in the print edition to fit the page.
 
@@ -181,7 +181,7 @@ The process relied on heavy prompting, brainstorming, and refinement. I set the 
 
 To ground the content and match my voice, Claude used my prior writing as reference material. That included my two earlier books, *Data Science for Startups* and *Data Science in Production*, and the blog posts that I wrote on ML in ad tech after 2020, covering topics such as click prediction, serving deep learning models, ML incidents, on-prem pipelines, and transformers for user acquisition. This writing shaped both what the book covers and how it reads. No model was trained on this material; it was provided as context while drafting.
 
-AI use in technical work is becoming more common, and I expect most readers of this book will use AI tools in their own work. I encourage you to use them with this book too. Here is a homework assignment: once you have read a chapter, point an AI agent at the book's GitHub repository and have it review the code. Then work with the agent to draft an architecture document for implementing the system described in that chapter in your own environment, the same kind of technical spec that we discuss in @sec-technical-specs. Writing that document, and checking where the agent gets things wrong, is one of the best ways to make sure you understand the material.
+AI use in technical work is becoming more common, and I expect most readers of this book will use AI tools in their own work. I encourage you to use them with this book too. Here is a homework assignment: once you have read a chapter, point an AI agent at the book's GitHub repository and have it review the code. Then work with the agent to draft an architecture document for implementing the system described in that chapter in your own environment, the same kind of technical spec that we discuss in @sec-where-trees-stop. Writing that document, and checking where the agent gets things wrong, is one of the best ways to make sure you understand the material.
 
 ## Feedback
 

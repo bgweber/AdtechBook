@@ -1,0 +1,5 @@
+# A Competitive DSP {.unnumbered}
+
+The crawl DSP works, but no advertiser will scale budget on it. In this part, the walk stage, we add the goals advertisers actually buy, replace logistic regression with LightGBM, model the auction, pace to goals, and start measuring what the DSP causes. Every change from @sec-shadow-mode-canaries-and-ab-tests on ships through a shadow run, a canary, and an A/B test.
+
+Each chapter opens with what broke or didn't scale in the crawl DSP. By the end of the part, you'll have LightGBM models for click, install, purchase, and win rate, goal-based pricing, a PI pacing controller in place of manual overbids, incremental results reported next to attributed ones, and the monitoring and on-call practices that go with real budgets.

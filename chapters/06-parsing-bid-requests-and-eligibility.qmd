@@ -1,0 +1,181 @@
+# Parsing Bid Requests and Eligibility {#sec-parsing-bid-requests-and-eligibility}
+
+Every bid starts with a request that the DSP didn't write. It arrives as JSON from an exchange, in a version of OpenRTB that the exchange has extended in its own way, sometimes with fields missing, misspelled, or in a different format from what the documentation says. The bidder has a few milliseconds to turn it into something a model can use, decide which campaigns could serve it, and pick one. Mistakes here don't usually crash anything. They show up later, as a feature that's empty for one exchange, a campaign that never wins in one country, or a model that learned that two spellings of the same device model are different devices.
+
+For the ML team, this chapter is about data quality at the source. Everything a model sees at bid time, and everything it trains on later, passes through the parsing and normalization code first. Getting it right once, at ingest, is far cheaper than finding and fixing its effects in every model that reads it.
+
+In this chapter, we will parse OpenRTB requests in Go, normalize fields into canonical forms, read device profiles and handle the ones that are missing, load campaign configuration into the bidder, and apply eligibility and supply quality filters. We then pick a campaign and creative for each request with weighted random selection, and log the candidate set and the probability of our choice, which later chapters use to evaluate better selection policies offline.
+
+## Parsing OpenRTB Requests in Go
+
+In @sec-the-auction-lifecycle, we walked through a bid request for a rewarded video in Gem Garden, field by field. The bidder doesn't need all of it. For ML and pricing, the fields that matter are:
+
+- **The auction:** `id`, the key that joins the request to later notifications, `tmax`, the time limit in milliseconds, and `at`, the auction type.
+- **Each impression:** the `imp` array, with the placement's format (`banner`, `video`, or `native`), whether it's full screen (`instl`) or rewarded (`rwdd`), and its `bidfloor` and `bidfloorcur`.
+- **The app:** `app.bundle`, the publisher app's store ID, plus its categories and publisher ID.
+- **The device:** `device.ifa`, the advertising ID that keys the device profile, plus `os`, `osv`, `make`, `model`, `connectiontype`, `geo.country`, and `lmt`.
+- **The user and regulation:** consent strings in `user` and the flags in `regs`, which decide whether we can use device-level data at all.
+- **Blocks:** the blocked categories, advertisers, and apps (`bcat`, `badv`, `bapp`) that the publisher doesn't want to see ads for.
+
+The bidder parses the request into a Go struct with just these fields, and ignores the rest. A sketch of the struct looks like this:
+
+<!-- CODE: replace with an include from code/dsp/openrtb once it exists. -->
+
+```go
+type BidRequest struct {
+    ID     string   `json:"id"`
+    TMax   int      `json:"tmax"`
+    AT     int      `json:"at"`
+    Imp    []Imp    `json:"imp"`
+    App    *App     `json:"app"`
+    Device *Device  `json:"device"`
+    Regs   *Regs    `json:"regs"`
+    BCat   []string `json:"bcat"`
+    BAdv   []string `json:"badv"`
+    BApp   []string `json:"bapp"`
+}
+
+type Device struct {
+    IFA      string `json:"ifa"`
+    OS       string `json:"os"`
+    OSV      string `json:"osv"`
+    Make     string `json:"make"`
+    Model    string `json:"model"`
+    ConnType int    `json:"connectiontype"`
+    Geo      *Geo   `json:"geo"`
+    LMT      int    `json:"lmt"`
+}
+```
+
+A few practices keep parsing fast and safe:
+
+- **Parse only what you use.** Decoding into a narrow struct skips everything else in the payload. Go's standard `encoding/json` package is slow at bid-path rates because it relies on reflection, so most bidders use a code-generated decoder or a faster third-party parser. Whichever you choose, benchmark it on real requests from each exchange, since request sizes vary a lot between exchanges.
+- **Keep unknown fields and extensions out of the hot path.** Exchanges put useful signals in `ext` objects, such as rewarded flags on older versions of OpenRTB or their own placement types. Map the few you need into the struct explicitly, per exchange, and ignore the rest.
+- **Reject malformed requests cheaply.** A request with no `imp`, no `app`, or a `tmax` too short to respond in gets a no-bid response before any profile read or model call. Count rejections by reason and exchange, because a sudden rise usually means the exchange changed something.
+- **Respond to everything.** A request the bidder can't handle still gets an answer: a no-bid with a reason code. Exchanges watch timeout rates, and a bidder that drops requests silently gets throttled.
+
+## Normalizing Fields at Ingest
+
+The same value often arrives in several forms. One exchange sends `geo.country` as a three-letter ISO code, as the OpenRTB specification asks, while another sends a two-letter code. One sends `osv` as `"14"` and another as `"14.0.1"`. Device models come in as marketing names, model numbers, and mixed case. App bundles can arrive with trailing whitespace, in different cases, or with suffixes that an exchange appends. To a model, each of these variations is a different value, so a device model seen through two exchanges becomes two sparse, half-trained features instead of one well-trained one.
+
+The fix is to normalize every field into one canonical form as soon as it's parsed:
+
+- **Country:** map to one code standard, and treat unknown codes as missing rather than as a new country.
+- **OS and OS version:** lowercase the OS name, and truncate versions to the major version, which is what the models need.
+- **Device make and model:** lowercase, trim, and map known aliases to one name with a lookup table that's versioned and shared with training.
+- **App bundles:** trim and lowercase Android package names, and validate their format, so that a malformed value becomes missing rather than a new app.
+- **Format and placement:** derive one placement type (rewarded video, interstitial, banner, native) from the combination of fields and extensions each exchange uses.
+- **Exchange quirks:** keep a small adapter per exchange that maps its extensions and conventions into the common schema, so the rest of the bidder sees only one format.
+
+Normalization belongs at ingest, in the bidder, and not in training code. If the bidder logs raw values and the training pipeline cleans them, there are two implementations of the cleaning logic, and they'll drift. We'll see in @sec-logging-at-bid-time that the bidder logs the features it used, after normalization, so that training sees exactly what the model saw. That only works if normalization happens before the features are computed.
+
+Count what normalization does. The share of each field that's missing, unmapped, or rewritten, by exchange, is one of the first dashboards a DSP needs, and one of the best early warnings that an exchange has changed its format.
+
+## Device Profiles
+
+After parsing, the bidder reads the device's profile, using the advertising ID as the key. As we saw in @sec-inside-a-demand-side-platform, the profile is where most strong features come from: the apps the device has been seen in, the ads it has been shown recently, and, later, installs and purchases from MMP postbacks and precomputed model outputs.
+
+We define the profile schema in protocol buffers, so that the bidder, the streaming jobs that update profiles, and the training pipelines all read the same definition. A first version is small:
+
+<!-- CODE: replace with an include from code/schemas once it exists. -->
+
+```protobuf
+message DeviceProfile {
+  string device_id = 1;
+  int64 first_seen_ms = 2;
+  int64 last_seen_ms = 3;
+  // Publisher apps the device was seen in, with counts.
+  repeated AppSeen apps_seen = 4;
+  // Our recent impressions and clicks, for caps and features.
+  repeated AdEvent ad_events = 5;
+  // Set by batch jobs; versioned so features can be traced.
+  string precomputed_version = 6;
+}
+```
+
+The profile store needs to answer in a few milliseconds at the bidder's full request rate, which usually means a key-value or wide-column NoSQL store such as Aerospike, Bigtable, or Redis, with the device ID as the key. In my experience, the right pattern is to keep values that are expensive to compute next to the profile, computed ahead of time by streaming or batch jobs, so the bidder only does one read and a few cheap calculations.[^c6-realtime] We'll come back to the choice of store in @sec-serving-models-in-the-bid-path.
+
+The most important design decision is what happens when the profile isn't there. On any day, a large share of requests come from devices the DSP has never seen, or whose profile lookup times out. Neither is an error. A missing profile is a value, and the models should learn what it means: a device with no history behaves differently from one with a long history, and that's useful information. In practice:
+
+- **Set a strict timeout** on the profile read, a few milliseconds, and treat a timeout exactly like a missing profile.
+- **Log which case occurred** (found, not found, or timed out), so that profile coverage and timeouts are visible and the models can use the distinction if it matters.
+- **Train on the same mix.** Because the bidder logs features at bid time, the training data includes missing profiles at the rate they actually occur, and the model sees them in training as it will in serving.
+
+Some requests have no usable device ID at all. The `ifa` is absent, or it's the all-zeros value that devices send when the user has limited ad tracking. These requests can't be joined to a profile, can't be frequency capped, and would all collapse into one profile if keyed naively. The crawl DSP doesn't bid on them. It logs a sample of them, so we know how much of the traffic they are, and @sec-ios-and-contextual-signals covers how to bid without a device ID.
+
+[^c6-realtime]: Ben Weber, "Approaches for Building Real-Time ML Systems," *Towards Data Science*, September 2021, <https://medium.com/data-science/approaches-for-building-real-time-ml-systems-79ea0e340269>
+
+## Campaign Configuration and How the Bidder Loads It
+
+Campaigns are defined outside the bidder. In @sec-starting-from-scratch, we decided that every campaign is set up through a campaign API with validation rules, even when our own team does the setup. The API writes each campaign as a record in one schema: the advertiser and app, the goal and target, budgets, targeting, creatives, and start and end dates. The bidder never accepts a campaign that hasn't passed validation.
+
+The bidder loads all campaigns at startup into an in-memory snapshot, and reloads when anything changes. Two rules make this safe:
+
+- **Swap whole snapshots.** Build a complete new snapshot in the background, validate it, and replace the old one with a single atomic pointer swap. Never update a campaign field by field while requests are in flight, or one request can see half of an edit, such as a new target with an old budget.
+- **Version every snapshot,** and log the version with every bid. When a campaign's performance changes, the first question is often whether its configuration changed, and the version in the bid log answers it.
+
+Configuration changes the bidder's behavior as much as a model does. A wrong target or a missing country in targeting can move more money than a bad model. We'll treat configuration changes as deploys in @sec-operating-the-first-dsp.
+
+## Eligibility Filters
+
+With a parsed request, a profile, and a snapshot of campaigns, the bidder decides which campaigns could serve this impression. Each filter removes campaigns that can't or shouldn't bid:
+
+- **Targeting:** the campaign's countries, OS and OS versions, device types, connection types, and publisher app categories.
+- **Blocks:** the publisher's blocked categories, advertisers, and apps, and the advertiser's own blocklist of publisher apps.
+- **Creative compatibility:** at least one of the campaign's creatives fits the placement's format, size, and orientation.
+- **Floors:** the campaign's maximum price could clear the floor. In crawl, this is a rough check against the campaign's target, since the real value comes later from the model.
+- **Budgets:** the campaign has budget left today and in total, based on the shared spend counters we'll build in @sec-operating-the-first-dsp.
+- **Frequency caps:** the device hasn't seen this campaign's ads too many times today, using the ad events in its profile.
+- **Already installed:** the device doesn't already have the advertised app. A useful signal in crawl comes from the bid stream itself: if a device appears in requests from Cozy Farm Tycoon as a publisher app, it has Cozy Farm Tycoon installed, and a user acquisition campaign for it would be wasted.
+
+The filters run in order from cheapest to most expensive. Checks on fields in the request, such as country and OS, cost almost nothing and remove most campaigns, so they run first. Checks that need the profile, such as frequency caps and installed apps, run next. Anything that needs a model runs last, on the few campaigns that remain.
+
+Log why each campaign was filtered, at least for a sample of requests. When an advertiser asks why their campaign isn't spending, the answer is usually in the filter counts: targeting that matches almost no traffic, a creative that fits no placements, or a floor the campaign can never clear.
+
+## Supply Quality and Fraud Filters
+
+As we saw in @sec-the-auction-lifecycle, not all supply is what it claims to be. Some requests come from fake apps, emulators, or devices in click farms. Some come from real apps that place ads where users tap them by accident. The crawl DSP is especially exposed, for two reasons. First, cheap inventory has more invalid traffic, because fraud is easier to hide where prices are low and volumes are high. Second, a CPC goal pays for clicks, which is exactly what most mobile fraud produces. A click model trained on fraudulent clicks learns to find more of them, and it will look like an excellent model while doing it.
+
+The crawl DSP starts with simple filters:
+
+- **Blocklists** for publisher apps and supply paths with known problems, maintained by the team and fed by the checks below.
+- **Supply chain checks:** requests whose supply chain object is incomplete, or whose seller isn't listed in the publisher's app-ads.txt file, get a lower priority or no bid.
+- **Click rate outliers:** publisher apps whose click rate is far above similar apps are suspicious, especially on interstitial and banner placements.
+- **Click timing:** clicks that arrive impossibly soon after an impression, or in bursts from one device, are likely scripted.
+- **Click to install time:** once installs arrive, the distribution of time from click to install for a publisher app reveals click spamming and click injection, which we covered in @sec-measurement-and-mmps.
+
+These filters are blunt, and some of them only work after the fact, on logged clicks. That's fine for crawl. The blocklists they produce feed back into eligibility, and in @sec-operating-the-first-dsp, we remove invalid traffic from training data as well, so the click model doesn't learn from it.
+
+## Weighted Random Campaign and Creative Selection
+
+After filtering, a few campaigns are usually still eligible, and the bidder has to pick one. The crawl DSP does it at random, with weights:
+
+$$P(c) = \frac{w_c}{\sum_{c' \in E} w_{c'}}$$
+
+Here, $E$ is the set of eligible campaigns and $w_c$ is a weight for campaign $c$, based on its priority and how much budget it has left to spend today relative to the others. A campaign that's behind on spending gets a larger weight. Once a campaign is chosen, the bidder picks one of its eligible creatives, uniformly at random in crawl, so the probability of the full choice is the product of the two:
+
+$$P(c, k) = P(c) \times \frac{1}{|K_c|}$$
+
+where $K_c$ is the set of the campaign's creatives that fit the placement.
+
+Random selection sounds naive, and it would be a poor choice at scale, where we'd rather pick the campaign whose impression is worth the most. But it's a reasonable start, for two reasons. It explores: every eligible campaign and creative gets traffic, so the models see data across all of them, not just the ones an early model happened to favor. And it's unbiased: because the choice doesn't depend on predictions, the data it produces doesn't encode the mistakes of an earlier model, which makes it a clean baseline for every policy that replaces it. In @sec-pricing-for-goals, we replace it with an internal auction that picks the campaign with the highest expected surplus, and Thompson sampling for creatives. In @sec-learned-campaign-selection and @sec-personalized-creative-selection, we learn both.
+
+## Logging the Candidate Set and Selection Probabilities
+
+The selection step logs three things for every bid: the list of eligible candidates, the one we picked, and the probability $P(c, k)$ of picking it. It's one of the cheapest decisions in the book and one of the most valuable.
+
+The probability is a **propensity**: the chance that the logging policy took the action it took. With propensities, we can estimate offline how a different selection policy would have performed, by reweighting the logged outcomes by the ratio of the new policy's probability to the logged one. This is inverse propensity weighting, which we use in @sec-offline-evaluation-and-model-iteration and @sec-learned-campaign-selection. Without logged propensities, the only way to evaluate a new selection policy is to run it live.
+
+Propensities can't be reconstructed later. The weights depend on budgets and pacing state at the moment of the bid, and those are gone by the time anyone asks. So the bidder logs them from the first bid, even though nothing in crawl uses them yet.
+
+::: {.callout-tip title="Try it on the simulator"}
+Trace a handful of requests through parsing and eligibility: one with a missing device model, one from an exchange that sends two-letter country codes, one with no device ID, and one from a publisher app the simulator generates as invalid traffic. For each, check the normalized fields, the profile lookup result, which campaigns were filtered and why, and the logged selection probability. Then compare the click rates of the invalid traffic with the rest.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we built the front of the bid path. We parsed OpenRTB requests into a narrow Go struct, normalized fields into canonical forms at ingest so that the models see one value where exchanges send several, and read device profiles with strict timeouts, treating a missing profile as a value rather than an error. We loaded campaigns as versioned, atomically swapped snapshots, filtered them from cheapest to most expensive check, added simple supply quality filters, and picked a campaign and creative with weighted random selection, logging the probability of every choice.
+
+Before we spend any money on these requests, it's worth watching them for a while. In the next chapter, we run the bidder in listen-only mode, to validate the system on live traffic and learn what the market looks like before we bid in it.

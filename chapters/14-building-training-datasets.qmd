@@ -1,0 +1,178 @@
+# Building Training Datasets {#sec-building-training-datasets}
+
+In the crawl DSP, a training example was easy to build. An impression joined to the bid ledger for its features and to the click log for its label, and an hour later it was final. Installs and purchases change that. Labels come from another system, days or weeks later, through IDs that sometimes don't match. Features that weren't logged have to be looked up as they were at bid time. Rows are sampled at different rates, data arrives late or partially, and advertisers' terms limit what can be used where. Every one of these is a way for a training set to be quietly wrong, and a model trained on a wrong dataset can look fine offline and lose money online.
+
+Datasets are also where reproducibility starts. When a model behaves strangely in production, the first question is what it was trained on, and the answer has to be exact: which logs, which code, which settings, and which advertisers' data.
+
+In this chapter, we will join impressions to clicks, installs, and in-app events, make every feature point-in-time correct with as-of joins, and add new features by replay. We then choose training windows for delayed labels, track sampling rates, pick data formats and a Spark setup, and version every dataset. We close with the checks and contracts that keep bad data out of training, how to evolve the FeatureVector schema, and data governance in the pipelines.
+
+## Joining Impressions to Clicks, Installs, and In-App Events
+
+The base table for every conversion model is the impression log, joined to everything that happened after each impression. For the walk DSP, that's four joins:
+
+1. **Impressions to the bid ledger,** on the request and impression IDs, for the FeatureVector, the campaign and creative, the model and configuration versions, and the price.
+2. **Impressions to clicks,** on the impression ID, keeping the first click in the click window.
+3. **Clicks and impressions to install postbacks.** Click-through installs join on the click ID. View-through installs join on the impression ID, or on the device ID and impression time when that's what the MMP sends.
+4. **Installs to in-app events,** on the MMP's install or user identifier, keeping the events within each label's window, such as purchases in the first seven days.
+
+Three problems come up in every one of these joins:
+
+- **Duplicates.** Notifications, clicks, and postbacks can all arrive more than once. Deduplicate each log on its event ID before joining, not after, so duplicates don't multiply through the joins.
+- **Late arrivals.** A postback that arrives after the training job ran is missing from that dataset, and present in the next. That's expected, and it's why each label has a cutoff, as we'll see below. What's not acceptable is a join that silently drops late rows from future runs too, which happens when a job only reads the newest partition of the postback table.
+- **Unmatched postbacks.** Some postbacks don't match any impression: the click ID was mangled by a redirect, the impression was from a test campaign, or the impression logs for that hour were lost. Count them by MMP and advertiser, and treat a rising unmatched rate as an incident, since every unmatched install is a positive label the model never sees.
+
+## Point-in-Time Correctness and As-Of Joins
+
+A training example must use only what was known at bid time. For features in the FeatureVector, that's guaranteed, because the bidder logged them as it bid. But some useful inputs aren't logged: an app's category from a metadata table that was updated later, a device's purchase history from non-attributed postbacks, or a campaign's settings at the time.
+
+For these, the join has to be **as of** the bid. Instead of joining to the current value of a table, join to the value that was in effect at the bid's timestamp. That requires every such table to keep history, with the time each value became available:
+
+$$\text{value used for a bid at } t = \text{the latest value with } t_{\text{available}} < t$$
+
+As we saw for backfills, the time that matters is when the value became available to the bidder, not when the underlying event happened. A non-attributed purchase made at 10:00 that reached the profile store at 14:00 wasn't known to a bid at noon.
+
+Most warehouses and Spark support as-of joins directly or through a window function: sort each table by key and time, and for each bid, take the latest row at or before the bid time. They're more expensive than plain joins, which is one more reason to log the features the bidder already has, and use as-of joins only for what it doesn't.
+
+## Logged vs. Recomputed Features, and Backfill by Replay
+
+The default, as we set up in @sec-logging-at-bid-time, is to train on the features the bidder logged. One practice from that chapter matters even more now that postbacks are an input: keep data from the MMP and SDKs in its own vocabulary, separate from bid request fields, and join the two only on the device ID. The two sources often describe the same thing differently, such as country codes in different standards or device models by marketing name instead of hardware ID, and merging them early turns every mismatch into a parity bug.[^c14-intent]
+
+Logging features at bid time has one real cost. A new feature has no history until the bidder has logged it for long enough to train on, which for conversion models also means waiting for labels to mature. For a D7 ROAS model, that can be a month or more. There are four ways to shorten the wait.
+
+**Dark launch the feature.** Ship the feature extraction to the bidder behind a flag, so that it's computed and logged but not used by any model. Logging starts as soon as the code is written, well before the model that uses it is ready, and the cost is only bidder CPU and log space.
+
+**Backfill by replaying raw context.** If the bidder logs raw inputs (the request and the device profile it fetched) for a sample of traffic, a batch job can run the same Go feature code over that history to compute the new feature for past bids. Because the code is the same as the bidder's, there is no second implementation to drift. This is the main reason to keep a sample of raw context alongside the FeatureVector.
+
+**Reconstruct as of the bid from an event log.** If the device profile is built from an append-only log of events, a historical profile can be rebuilt by replaying only the events that were available before each bid:
+
+$$\text{include event } e \text{ for a bid at time } t \iff t_{available}(e) < t$$
+
+The important detail is the availability time, when the event landed in the online store and the bidder could see it, rather than the event time on the device. As we saw in @sec-measurement-and-mmps, postbacks and SDK events often arrive minutes or hours late. A replay based on event time gives training fresher profiles than the bidder ever had, which is a quiet form of skew.
+
+**Train with partial history.** When neither replay is possible, train on a mix of rows with and without the new feature, with explicit missing values for older rows. Tree models handle this natively, and DNNs can use a missing indicator. The model learns more slowly about the new feature, but it doesn't have to wait.
+
+### Validating a Backfill
+
+A backfill is only trustworthy if it reproduces what the bidder actually computed. Once live logging begins, there is a window where both values exist for the same bids, as shown in @fig-c9b-backfill. For each feature, measure the share of bids where the backfilled and logged values disagree:
+
+$$\text{mismatch}_j = \frac{1}{N}\sum_{i=1}^{N} \mathbb{1}\left[\,\lvert x^{backfill}_{ij} - x^{logged}_{ij}\rvert > \epsilon_j\,\right]$$
+
+where $x_{ij}$ is feature $j$ for bid $i$, and $\epsilon_j$ is a tolerance, zero for strings and sets. A mismatch rate below a threshold, such as 0.1%, means the backfill can be used for training. Higher rates usually come from availability times, event ordering, or list truncation, and are worth fixing before any model sees the data.
+
+![Backfilling a new feature. The feature is reconstructed for past bids by replaying logged raw context through the bidder's feature code. During the overlap window, after live logging begins, backfilled values are compared with logged values before the backfill is trusted for training.](../images/features-backfill.png){#fig-c9b-backfill width="100%"}
+
+## Delayed Labels and Training Windows
+
+In @sec-from-clicks-to-installs-and-purchases, we chose to wait for most labels to arrive before training on them. In the dataset, that becomes a **training window** for each model: the range of impression dates it trains on, ending at the label's cutoff.
+
+| Model | Label | Cutoff after impression | Example training window |
+|-------|-------|-------------------------|-------------------------|
+| Click | Click within one hour | About 1 hour | The last 14 days |
+| Install after click or view | Attributed install | About 3 days | 30 days, ending 3 days ago |
+| Purchase or D7 revenue | Revenue in 7 days after install | About 10 days | 60 days, ending 10 days ago |
+
+: Training windows for each label. The cutoffs are illustrative and should be set from each label's delay distribution. {#tbl-c14-windows}
+
+The cutoff is a cost. A purchase model trained on impressions that ended ten days ago knows nothing about the last ten days. That's the **delayed feedback problem**: the newest examples are the most relevant, but their labels are the least complete, so recent conversions that haven't arrived yet look like negatives.[^c14-chapelle] Waiting for the window to close is the simplest fix, and it's the right one for walk, where models retrain a few times a day at most. The calibration multiplier from @sec-pricing-for-goals absorbs some of the drift in between, because it's computed on recent outcomes. In @sec-retraining-and-real-time-learning, when models retrain every few hours, we look at methods that train on recent examples and correct for the labels still to come.
+
+## Negative Downsampling and Sampling Rates
+
+By the time a training row reaches a model, it may have been sampled several times: no-bids sampled at logging, raw context kept for a share of bids, and negatives downsampled for training. Each sampling step changes what the model sees, and each has to be undone correctly when the model's output is used or evaluated.
+
+The rule is simple: every row carries its own sampling weight, the inverse of the probability it was kept, through every step of the pipeline. A row kept at 10% for training from a log kept at 100% has a weight of 10. Calibration checks, evaluation metrics, and the downsampling correction from @sec-a-click-model all read the weight from the row, never from a constant in the code. When a sampling rate changes, which it will, old and new rows keep their own weights, and nothing else has to change.
+
+## Data Formats, and PySpark on Dataproc vs. Spark On-Prem
+
+Training tables are large and read many times, so their format matters. **Parquet** is the default: it's columnar, compressed, and read efficiently by Spark, warehouses, and Python libraries. Partition by impression date, so a training window reads only the partitions it needs. Some deep learning pipelines prefer **TFRecord** or similar row formats for streaming into a training loop, and it's common to build the training table in Parquet and convert the final dataset for the model that needs it.
+
+At walk volumes, building datasets outgrows one machine, and Spark is the usual tool. There are two common ways to run it:
+
+- **Managed Spark,** such as Dataproc on Google Cloud, where a cluster is created for a job and deleted afterward. There's little to operate, and costs follow usage.
+- **Self-hosted Spark on-prem,** on owned hardware. It's cheaper at steady, high volume, and it fits a DSP that already runs its bidders on its own servers, but someone has to run the cluster.
+
+I've used both, and the choice usually follows where the logs already are and where the rest of the platform runs, rather than the other way around.[^c14-onprem] The PySpark code is the same either way, which is worth keeping true: avoid features of one platform that the other doesn't have, so the pipeline can move if the economics change.
+
+## Dataset Versioning
+
+Every dataset a model trains on gets a version, and the version records what built it:
+
+- **Inputs:** the log tables and partitions read, including the ingestion time of the newest partition of each, since late data can change a partition after the fact.
+- **Code:** the commit and container image of the job that built it.
+- **Settings:** the training window, cutoffs, sampling rates, filters for invalid traffic, and the blocklist version.
+- **Data rights:** the advertisers whose data is included, and under which terms.
+- **Statistics:** row counts, label rates, and feature coverage, so a later rebuild can be compared.
+
+The model registry in @sec-pipelines-validation-and-publishing records the dataset version with every model. With both, any model can be traced back to the exact data and code that produced it, and rebuilt if needed.
+
+## Validating Data Before Training
+
+Bad data is cheaper to catch before training than after. Every training job starts with checks on its inputs:
+
+- **Schema:** the expected columns and types are present, and the FeatureVector schema version is one the training code understands.
+- **Freshness:** the latest partition the window needs is present and complete, based on the ingestion pipeline's own completion markers rather than on whether any files exist.
+- **Volume:** row counts are in line with recent days, overall and by exchange.
+- **Feature health:** the null and out-of-vocab rates for each feature are in line with recent days.
+- **Label joins:** the share of postbacks that matched an impression, and the label rate, are in line with recent days.
+
+When a check fails, the job doesn't train. It keeps the current champion, alerts the team that owns the failing input, and records why it skipped. The one thing it never does is train on a partial day silently, because a model trained on half a day's postbacks looks like a model of a world where installs halved.
+
+These checks can be written directly in the pipeline, as SQL or PySpark assertions, or with open source tools such as Great Expectations or Evidently.[^c14-outofcloud] The tool matters less than having the checks, and having an owner for each one.
+
+## Contracts with Exchanges and MMPs
+
+Much of a DSP's data comes from systems it doesn't control, and they change without warning. An exchange renames a field or starts sending it in a different format. An SDK update stops populating a field on some devices. An MMP changes the format of a postback, or an advertiser changes which events it sends.
+
+The defense is to write down what each source must send, and check it at ingest:
+
+- **Document the fields** the DSP depends on from each exchange and MMP, with their expected formats and coverage.
+- **Monitor at ingest:** the coverage and format of each field, by source, compared with recent days. A field that drops from 95% coverage to 40% for one exchange should alert before any model is retrained on it.
+- **Normalize at ingest,** as in @sec-parsing-bid-requests-and-eligibility, so that a format change in one source is absorbed by that source's adapter and never reaches the models.
+
+Several incidents I've written about started upstream of the models, in data that changed shape without anyone on the ML team knowing.[^c14-incidents] Checks at ingest turn those into an alert rather than a slow loss of model quality.
+
+## Evolving the FeatureVector Schema
+
+The FeatureVector will change for as long as the DSP exists, and the logs written under every version of it have to stay readable, because models train on months of them. Protocol buffers make this manageable, if a few rules are followed:
+
+- **Only add fields.** New features get new field numbers.
+- **Never reuse a field number** or change a field's type or meaning. A feature that's no longer used is deprecated, and its number is reserved.
+- **Version the feature specification** that each model reads, separately from the protobuf schema. A model's specification lists the features it uses, and a model trained on schema version 5 can read logs from any later version.
+
+Training jobs read logs that span several schema versions. A feature added in version 6 is simply missing in rows written under version 5, which is fine for models that handle missing values, as long as the training job treats it as missing rather than as zero. Backfills by replay, from earlier in this chapter, can fill it in when needed.
+
+## Data Governance in the Pipelines
+
+In walk, a DSP holds months of device-level data, from several sources, under several sets of terms. Governance stops being a policy document and becomes pipeline code:
+
+- **Retention.** Bid logs, impression logs, and postbacks each have a retention period, set by contracts, regulations, and cost. Retention also bounds what the team can do: a training window or a replay backfill can only reach back as far as the logs do.
+- **Deletion and consent.** When a user's data must be deleted, or consent is withdrawn, it has to be removed from the logs, from training tables built from them, and from derived artifacts, such as device embeddings in Part IV. Design for this early, for example by keeping a deletion list that every dataset build filters against, and by rebuilding derived data on a schedule.
+- **Minimizing identifiers.** Most training datasets don't need raw device IDs once the joins are done. Drop or hash them, and restrict access to the tables that keep them.
+- **Audit trails.** For every model, record which datasets trained it and which advertisers' data they included, so the question of what a given advertiser's data was used for can be answered from metadata. We return to data rights for deep models in @sec-sequences-and-transformers.
+
+## First-Time Pitfalls
+
+- **Late partitions and backfills.** A dataset rebuilt next week can differ from the one a model trained on, because late data arrived in the meantime. Record the exact inputs, and treat a rebuild as a new dataset version.
+- **Scores used as features.** When one model's score is a feature of another, such as a click model's prediction used by an install model, the training data must use the score from the version that was live at each time. Rescoring history with today's model leaks information from data the old model never saw.
+- **Joining on the newest partition only.** A job that reads only yesterday's postbacks misses every postback that arrived late for earlier days. Read postbacks by arrival time, and join them to impressions across the whole window.
+
+::: {.callout-tip title="Try it on the simulator"}
+Build an install training dataset with as-of joins and the label cutoffs above. Then add a feature that's computed from the device profile as it is today, rather than as of the bid, and train with it. Watch the offline metrics improve, and the live results on the simulator get worse.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we built training datasets that are correct and reproducible with delayed labels. We joined impressions to clicks, installs, and in-app events, with deduplication and monitoring for late and unmatched postbacks, and used as-of joins for anything the bidder didn't log. New features come from replay, validated against live logging. Each label gets a cutoff and a training window, every row carries its sampling weight, and every dataset gets a version that records its inputs, code, settings, and data rights. Checks before training, contracts with upstream sources, rules for evolving the schema, and governance in the pipelines keep bad and disallowed data out of the models.
+
+With good install and purchase datasets, we can train better models on them. In the next chapter, we replace logistic regression with LightGBM for click, install, and purchase prediction.
+
+[^c14-intent]: Ben Weber, "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, October 3, 2026.
+
+[^c14-chapelle]: Olivier Chapelle, "Modeling Delayed Feedback in Display Advertising," KDD, 2014.
+
+[^c14-onprem]: Ben Weber, "OnPrem vs Public Cloud for AdTech ML," *Data Science Collective*, May 15, 2026, <https://medium.com/data-science-collective/on-prem-vs-public-cloud-for-ml-3fb4568bd589>
+
+[^c14-outofcloud]: Ben Weber, "Out of the Cloud: Building On-Prem Machine Learning Pipelines," *Data Science Collective*, September 2025, <https://medium.com/data-science-collective/out-of-the-cloud-building-on-prem-machine-learning-pipelines-597d5603502f>
+
+[^c14-incidents]: Ben Weber, "Machine Learning Incidents in AdTech," *Towards Data Science*, January 29, 2025, <https://medium.com/data-science/machine-learning-incidents-in-adtech-e3f48d858054>

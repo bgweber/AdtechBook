@@ -1,0 +1,136 @@
+# Gradient Boosted Conversion Models {#sec-gradient-boosted-conversion-models}
+
+The crawl click model taught us a lot with very little: hashed tokens, hand-built crosses, and one weight per token. Its limits came up at the end of @sec-a-click-model. It only learns the interactions we build by hand, it can't learn that a numeric feature matters in a nonlinear way unless we bucket it, and it treats every value as unrelated to every other. With installs and purchases as labels, those limits get more expensive, because the labels are rarer and every hand-built cross splits them further.
+
+Gradient boosted trees are the natural next step. Propensity prediction on tabular, high-cardinality ad data is what boosted trees and logistic regression do well. Trees are fast, handle missing values and mixed feature types natively, and their calibration is well understood.[^c15-intent] They're also the model that the rest of the book keeps. In Part IV, deep models produce signals, and LightGBM still makes the calibrated decision.
+
+In this chapter, we will replace logistic regression with LightGBM for click, install, and purchase prediction. We cover why trees come next, how to structure models for each step of the funnel, how to handle high-cardinality categorical features, and a first value model for ROAS goals. We then argue for one universal model per platform, handle cold start for new campaigns and creatives, calibrate the models for bidding, and choose a retraining cadence.
+
+## Why Trees After Logistic Regression
+
+A gradient boosted tree model is a sum of many small decision trees, each trained to correct the errors of the ones before it. LightGBM is a widely used, fast implementation, and it's the one we use in the reference DSP, though XGBoost and CatBoost would work much the same way.
+
+Trees fix the logistic regression model's main weaknesses:
+
+- **Interactions are learned, not built.** A tree splits on one feature and then another, so it learns that rewarded video on a puzzle game behaves differently from rewarded video on a casino app, without a hand-built cross. The model finds the interactions that matter, rather than the ones we thought of.
+- **Numeric features need no buckets.** A tree splits a numeric feature wherever the data says to, so impressions today, time since the last click, or the bid floor can go in as numbers.
+- **Missing values are handled natively.** LightGBM learns which branch missing values should take at each split, which fits the FeatureVector's explicit missing values.
+
+They also keep what made logistic regression a good first model. They train quickly on large tabular datasets, a model with a few hundred trees scores in microseconds on a CPU, their predictions can be calibrated well, and their behavior can be inspected with feature importances and per-prediction explanations.
+
+The cost is a different kind of serving. Logistic regression was a lookup and a sum, written by hand in Go. A tree model needs either a Go implementation of tree inference or a runtime, which we cover in @sec-serving-models-in-the-bid-path.
+
+## Click, Install, and Purchase Models
+
+The install equation from @sec-from-clicks-to-installs-and-purchases splits an attributed install into a click-through path and a view-through path. The walk DSP trains a model for each term:
+
+| Model | Trained on | Label | Predicts |
+|-------|------------|-------|----------|
+| Click | All impressions | Click in the click window | $p_{\text{click}}$ |
+| Install after click | Clicked impressions | Click-through install | $p_{\text{install} \mid \text{click}}$ |
+| Install after view | Impressions without a click | View-through install | $p_{\text{install} \mid \text{view}}$ |
+| Purchase or value | Installs | Purchase, or revenue, in a window | $P(\text{purchase})$ or $E[\text{value}]$ |
+
+: The funnel models in the walk DSP. {#tbl-c15-funnel tbl-colwidths="[22,26,26,26]"}
+
+Training each stage on the population that reaches it keeps each model focused. The install-after-click model only has to tell good clicks from bad ones, and it doesn't have to relearn what makes an impression clickable. The tradeoff is that the stages are trained on different populations, so their errors multiply, and the combined prediction needs its own calibration check, which we cover below.
+
+There's an alternative: one model that predicts an attributed install directly from every impression, with no separate click stage. It's simpler to serve, and with LightGBM it often performs about as well. Separate stages are worth it for a DSP because the two paths behave so differently, and because monitoring each one on its own catches problems, such as a broken click tracker, that a single model would hide. In Part IV, a multi-task network trains all of these heads on a shared base, which gets the benefits of both.
+
+## Categorical Features and High Cardinality
+
+Most of the strong features in a DSP are categorical, and several have very high cardinality: publisher apps, placement IDs, device models, campaigns, and creatives. Trees handle them in a few ways:
+
+- **Native categorical splits.** LightGBM can split a categorical feature into two groups of values directly, choosing the grouping that best separates the labels. It works well for features with up to a few thousand values, after mapping strings to integer codes with a vocabulary that ships with the model, as we described in @sec-logging-at-bid-time.
+- **Frequency thresholds.** Values seen fewer than a minimum number of times in training map to a shared "other" code. This keeps the vocabulary small and stops the model from memorizing values it has barely seen.
+- **Target encoding.** For very high-cardinality features, replace each value with a smoothed estimate of its label rate, computed on data the model doesn't train on, or out of fold, so that the encoding doesn't leak each row's own label. Done carelessly, target encoding is one of the most common sources of leakage in tabular models.
+- **Counts and rates as numeric features.** How many impressions an app had yesterday, or a smoothed click rate for a placement over the last week, as numbers the trees can split on.
+
+IDs can hurt as well as help. A campaign ID lets the model learn things specific to that campaign, but it also lets the model memorize the campaign's past, which may not hold when its targeting or creatives change, and it says nothing about a new campaign. Pair every ID with features that generalize, such as the app's genre and the creative's format, and watch out for IDs that dominate the feature importances.
+
+## A First Value Model
+
+ROAS goals need more than an install rate. They need the predicted revenue from each install, so walk includes a basic value model rather than waiting for the deep value models of Part IV.
+
+Revenue is hard to predict. Most installers never pay anything, and a few pay a lot, so the label is mostly zeros with a long tail. Two approaches work well with LightGBM:
+
+- **A Tweedie objective** on D7 revenue. The Tweedie distribution has a point mass at zero and a continuous tail, which fits revenue data, and LightGBM supports it directly. One model predicts expected revenue per install.
+- **A two-part model:** one classifier for the probability that an install pays at all, and one regression for expected spend given that it pays, trained only on payers. Expected revenue is the product.
+
+Both work well with pretrained features, as we'll see in Part IV, and both are much simpler than stacks of models with a separate combiner.[^c15-intent] The two-part model is easier to debug, because each part can be checked on its own, and the payer classifier is often useful by itself for CPA goals.
+
+Evaluate the value model on two things: the calibration of predicted revenue, by campaign and by country, and how well it ranks installs by value, for example by the share of total revenue in the top 10% of predicted value. Because revenue is so skewed, a few large payers can swing these metrics, so evaluate on enough days to see past them. We return to value prediction in @sec-value-prediction.
+
+## One Universal Model per Platform
+
+The walk DSP trains one install model for Android across all campaigns and advertisers whose terms allow pooling, rather than one model per campaign. This is a design choice worth being explicit about, because per-campaign models are tempting: each campaign is different, and its own model can fit it closely.
+
+Universal models win for a DSP, for several reasons:
+
+- **Data.** Most campaigns don't have enough installs to train a good model on their own. A universal model learns from all of them, and what it learns about devices and supply transfers across campaigns.
+- **Cold start.** A new campaign starts with everything the model knows about its app's genre, its creatives' formats, and the supply it targets, rather than with nothing.
+- **A fair internal auction.** As we'll see in @sec-pricing-for-goals, the bidder compares campaigns by their predicted value. If each campaign has its own model, the comparison mixes models of different quality and calibration, and the best-calibrated campaign doesn't necessarily win. With one model, every campaign is priced by the same predictions.
+- **Operations.** One model per model type is something a small team can train, validate, monitor, and roll back. Hundreds of per-campaign models are not.
+
+Campaign-specific behavior still gets in, through campaign and app features, and through calibration multipliers by segment, which correct a universal model for the campaigns it gets wrong.
+
+## Campaign and Creative IDs, and Cold Start
+
+New campaigns, new apps, and new creatives arrive every week, and every one of them starts with no history. The model's job is to price them reasonably from the start, and to learn their specifics as data arrives.
+
+Cold start is handled with features that describe the new item without its ID:
+
+- **For apps and campaigns:** the app's genre and subgenre, its store rating and size, the advertiser's other apps, and the campaign's goal, target, and geos.
+- **For creatives:** format, length, orientation, end card type, and whether it's playable.
+- **For new publisher apps:** the publisher's other apps, the app's category, and the placement type.
+
+Because the model also sees IDs for items that do have history, it learns to rely on the ID when there's data and on the descriptive features when there isn't. In LightGBM, an ID below the frequency threshold maps to "other", so a new campaign is treated like the average of rare campaigns with the same descriptive features. Check this explicitly: evaluate the model on campaigns that launched during the evaluation period, separately from established ones, since cold-start performance is easy to miss in an overall metric dominated by large campaigns.
+
+## Calibration for Bidding
+
+As we saw in @sec-a-click-model, calibration matters more than ranking for bidding, because the price is proportional to the prediction. Tree models are usually well calibrated on their training distribution, but several things push them off in practice:
+
+- **Negative downsampling.** Correct predictions with $q = p / (p + (1 - p)/w)$, as in the crawl click model, using the sampling rate stored with the model.
+- **Shifts between training and serving.** The model trained on last month's impressions, and it's serving today's, which come from a different mix of campaigns and supply, partly because the model itself changed which impressions the DSP wins.
+- **Stacked models.** Errors in the click, install, and value models multiply.
+
+There are a few standard tools for recalibration. **Platt scaling** fits a logistic regression on the model's output, and **isotonic regression** fits a monotone step function, both on a held-out set that the model didn't train on. Isotonic regression is more flexible and needs more data. Either is shipped as part of the model bundle and applied in the bidder.
+
+A few practices matter more than the choice of method:[^c15-intent]
+
+- **Calibrate by segment.** A model that's calibrated overall can be 30% high on one exchange and 20% low on another. Check calibration by exchange, country, placement type, and campaign, and correct segments that are consistently off. The calibration multiplier $\kappa$ in @sec-pricing-for-goals does this continuously.
+- **Report normalized entropy, and AUC within each campaign.** Overall AUC is dominated by differences between placements and campaigns, which are easy to learn. AUC within each campaign shows whether the model ranks impressions well where the bidder actually has to choose.
+- **Check the calibration of the product.** For a ROAS goal, the bid depends on $P(\text{install}) \times E[\text{value}]$. Check the calibration of that product by campaign and by bid range, not only of each model on its own.
+
+## Retraining Cadence
+
+The crawl click model retrained daily. Walk models retrain on a schedule set by two things: how quickly the market changes, and how quickly labels arrive.
+
+Click models can retrain several times a day, since click labels are final within an hour. Install models retrain daily, on a window that ends at the install cutoff. Purchase and value models retrain daily or every few days, on a window that ends ten days or more in the past. Between retrains, the calibration multiplier and the pacing controller absorb drift, as fast-adapting layers on top of slower models.
+
+Retraining runs through a thread that continues across the book: daily in crawl, a few times a day in walk, and near-continuous in run, where Moloco, for example, describes deploying models as often as every two hours.[^c15-moloco] More frequent retraining helps only if the pipeline, validation, and deploys keep up, which is what @sec-pipelines-validation-and-publishing and @sec-shadow-mode-canaries-and-ab-tests are about.
+
+## What This Model Can't Do
+
+LightGBM is a strong model for a DSP, and many teams would be well served stopping here for a long time. It still has limits that show up as the DSP grows:
+
+- **High-cardinality IDs and new values.** Trees can only split IDs into groups, and they share nothing between values that aren't in the same group. Two puzzle games with the same audience are only related if the model happens to split them together.
+- **Device history only through hand-built counters.** The model sees a device's past through the features we computed, such as installs in the last 30 days in each genre. It can't learn from the sequence of apps a device used, or which events predicted an install.
+
+Both limits point to Part IV, where embeddings let related values share what they learn, and sequence models learn from device histories directly.
+
+::: {.callout-tip title="Try it on the simulator"}
+Train LightGBM click, install-after-click, install-after-view, and purchase models on a simulated month of tier-1 and low-CPM traffic. Compare their calibration by segment with the true rates from the ground truth, and compare the click model with the logistic regression model from Part II. Then hold out the campaigns that launched in the last week, and check cold-start calibration on them separately.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we replaced logistic regression with LightGBM. Trees learn interactions and nonlinear effects without hand-built crosses, handle missing values natively, and stay fast and calibratable. We trained separate models for clicks, installs after clicks and after views, and purchases or value, with a Tweedie or two-part value model for ROAS goals, as one universal model per platform. We handled high-cardinality features with native categorical splits, frequency thresholds, and careful target encoding, gave new campaigns and creatives descriptive features for cold start, and calibrated by segment, checking the calibration of the products that set prices.
+
+A better model is only worth deploying if we can tell that it's better. In the next chapter, we evaluate model changes offline, to decide which ones are worth an online test.
+
+[^c15-intent]: Ben Weber, "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, October 3, 2026, <https://bgweber.medium.com/pretrained-deep-learning-intent-signals-for-mobile-dsps-2eb1834c62db>
+
+[^c15-moloco]: Moloco, "Inside Moloco's CARA: the AI that compounds," Moloco blog, 2026, <https://www.moloco.com/blog/inside-molocos-cara-the-ai-that-compounds>

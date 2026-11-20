@@ -1,0 +1,105 @@
+# Deep Models with Embeddings {#sec-deep-models-with-embeddings}
+
+The first thing deep models add to a DSP is the embedding: a learned vector for each value of a categorical feature, such as each publisher app, device model, campaign, or creative. Where logistic regression had one weight per value and LightGBM could only group values together, an embedding places every value in a shared space, where values that behave alike end up close together. A new puzzle game that attracts the same players as Gem Garden can borrow what the model learned about Gem Garden, without a single hand-built feature saying they're related.
+
+Embeddings are also where most of the practical problems with deep models in a DSP start. Vocabularies have to be built, versioned, and kept in sync between training and serving. Embedding rows that never see training data keep their random initial values. And deep models trained on sparse, downsampled conversion data are hard to calibrate.
+
+In this chapter, we will build deep models with embeddings: embedding tables and the DeepFM and DCNv2 architectures, pooling for many-hot fields, vocabularies and out-of-vocab handling, and multi-task heads for clicks, installs, and purchases trained over every impression. We then cover the checks that catch bad embeddings, how to calibrate deep models, and content embeddings that give new apps and creatives a useful representation before they have any traffic.
+
+## Embeddings, DeepFM, and DCNv2
+
+An **embedding table** for a categorical field is a matrix with one row per value in the field's vocabulary, typically with 16 to 64 columns. The model looks up the row for each value, and the rows are learned during training like any other weights. A field with 100,000 publisher apps and 32 dimensions has 3.2 million parameters, which is large, but far smaller than the crosses a linear model needs to capture the same relationships.
+
+Embeddings alone don't model interactions. Most ad ranking networks combine them with an architecture that does:
+
+- **Wide & Deep** combines a linear model on sparse features with an MLP on embeddings.
+- **DeepFM** adds a factorization machine, which models every pairwise interaction between fields as the dot product of their embeddings, alongside an MLP. It's the natural successor to the hand-built crosses of @sec-a-click-model, learned rather than chosen.
+- **DCN and DCNv2** (Deep & Cross Networks) add **cross layers**, which compute explicit feature interactions of increasing order, layer by layer, next to an MLP.[^c26-dcn]
+
+A cross layer in DCNv2 computes $x_{l+1} = x_0 \odot (W_l x_l + b_l) + x_l$, where $x_0$ is the concatenated input embeddings and $\odot$ is element-wise multiplication. Two or three cross layers capture most of the useful interactions cheaply. In practice, DCNv2 is a strong default for conversion prediction in ad tech, and it's what the reference DSP uses.
+
+## Pooling Many-Hot Fields
+
+Many of the best features are sets: the apps a device was seen in, the genres of its installed games, or the categories of a publisher app. Each member has an embedding, and the set has to become one fixed-size vector. That's **pooling**:
+
+- **Mean pooling** averages the members' embeddings. It's stable for sets of different sizes, and it's the usual default.
+- **Sum pooling** adds them, which preserves information about the size of the set, at the cost of scale differences between small and large sets.
+- **Max pooling** takes the element-wise maximum, which highlights the strongest signal in the set.
+- **Combined pooling** concatenates two or more of these, which is cheap and often helps.
+
+Pooling treats a set as unordered, which is right for sets and wrong for sequences. When order and recency matter, as they do for device histories, the model needs attention, which we cover in @sec-sequences-and-transformers.
+
+## Vocabularies, Out-of-Vocab Handling, and Versioning
+
+Every embedding table needs a **vocabulary**: a mapping from each string value to a row. As we set up in @sec-logging-at-bid-time, the vocabulary belongs to the model, not to the log, and ships in the model's bundle.
+
+- **Build vocabularies from training data,** keeping values seen at least a minimum number of times, such as 100. Rarer values share an **out-of-vocab (OOV)** row, which learns what a rare value looks like in general.
+- **Reserve index 0 for padding,** with no meaning, so empty sets and lists can be padded without claiming a real value. The padding incident in @sec-logging-at-bid-time is why.
+- **Hash very high-cardinality fields** instead of building a vocabulary, using several hash functions or buckets to reduce collisions.
+- **Version vocabularies with the model.** A retrain that rebuilds the vocabulary assigns different rows to the same values, so a model can only be served with the vocabulary it was trained with.
+- **Monitor OOV rates** by field in serving. A rising OOV rate means the world has moved past the model's vocabulary, such as a wave of new apps, and it's a reason to retrain.
+
+## Multi-Task Heads
+
+A DSP needs several predictions for every impression: clicks, installs after a click, installs after a view, and purchases. Deep models can predict them all from one shared base, with a separate **head** for each. The shared base learns from every label, so a rare label, such as purchases, benefits from the representation learned from common ones, such as clicks.
+
+The install equation from @sec-from-clicks-to-installs-and-purchases shapes how the heads are trained. If the install-after-click head were trained only on clicked impressions, it would only see the narrow, biased slice of traffic where clicks happen. Instead, every loss is defined over all impressions, following the entire space multi-task model (ESMM) approach:[^c26-transformers]
+
+- The **click head** predicts $p_{\text{click}}$, with the click as its label.
+- The **install-after-click head** predicts $p_{\text{install} \mid \text{click}}$, with its loss applied to $p_{\text{click}} \times p_{\text{install} \mid \text{click}}$, and the label "clicked and then installed".
+- The **install-after-view head** predicts $p_{\text{install} \mid \text{view}}$, with its loss applied to $(1 - p_{\text{click}}) \times p_{\text{install} \mid \text{view}}$, and the label "installed without clicking, inside the view window".
+
+A purchase head is added the same way, multiplying through the funnel. Losses for rare labels get larger weights, so the model doesn't learn only the click head. Every head trains on every impression, with masked losses for labels that don't apply or haven't matured.
+
+The same structure works for an embedding model trained jointly with a conversion model. One design trains a device embedding model, with transformer and DCNv2 layers, together with a multi-task conversion model, as one composite network, and then exports the two separately. The embedding model is scored in batch, and the conversion model serves online on the precomputed embedding, so each can retrain on its own cadence.[^c26-pyspark] We use that split in @sec-serving-deep-models.
+
+## Checks on Weights and Embeddings
+
+Deep models fail in ways tree models don't. The most instructive example I know of is untrained embeddings. On a team I worked on, many deployed click and install models were poorly calibrated, and the miscalibration was worst on categorical features with sparse training data. The cause was embedding rows with no training examples: their weights never received an update, so they kept their random initial values, and live predictions for those values were essentially random. It happened because one vocabulary was shared across a click model and an install model, and the install model's smaller dataset didn't cover all of it.[^c26-incidents]
+
+A few checks catch this and its relatives:
+
+- **Compare weights before and after training.** Any embedding row whose weights didn't change got no gradient. Zero them, or map their values to OOV, before the model is published.
+- **Don't reuse vocabularies across tasks** trained on different data. Build each model's vocabulary from its own training data.
+- **Check embedding norms.** Rows with unusually large or small norms, compared with others of similar frequency, often point to rare values the model overfit or never learned.
+- **Compare models across training runs.** The same tooling that compares weights within a run can compare runs, which helps explain models with similar offline metrics but different live behavior.
+
+## Calibrating Deep Models
+
+Deep models are often worse calibrated than trees. In my own experiments on click prediction, a small deep model slightly outperformed logistic regression on AUC but was worse calibrated.[^c26-intent] There are several reasons: heavy negative downsampling, large models that become overconfident, embedding rows for rare values that fit noise, and losses for rare labels that are weighted up.
+
+The standard fixes still apply: correct for downsampling, then calibrate on held-out data with Platt scaling or isotonic regression, by segment. For a DSP, the most robust fix is to not let the deep model set the price at all. In Design A, its outputs are features for LightGBM, which makes the calibrated prediction. In Design B, a LightGBM layer calibrates the deep model's output before it's used. Either way, a calibrated tree model sits between the deep model and the bid. We build both in @sec-sequences-and-transformers.
+
+## Content Embeddings for Cold Start
+
+An embedding learned from traffic only exists for values that have traffic. A new app, campaign, or creative starts with the OOV row. **Content embeddings** fix this, by computing a representation from what the item is, rather than from how it has performed:
+
+- **Apps:** embed the app store description, screenshots, and metadata with a language model or vision-language model. I've used BERT embeddings of app store descriptions for advertiser and publisher apps, which gave every app a useful representation, including brand new apps with no history.[^c26-intent]
+- **Creatives:** embed video frames, end cards, and text, as we'll do in @sec-personalized-creative-selection.
+- **Co-occurrence embeddings:** embed apps by which apps are installed together, such as GloVe trained on device app lists, then cluster them with k-means and use the cluster IDs as categorical features in a classic model.
+
+Content embeddings matter beyond cold start. Meta's LLaTTE work found that content embeddings were a prerequisite for the steeper scaling curves of its sequence models, which we look at in the next chapter.[^c26-llatte]
+
+::: {.callout-tip title="Try it on the simulator"}
+Train a multi-task DCNv2 model with click, install-after-click, and install-after-view heads on simulated impressions. Find the embedding rows that never changed during training, and compare the model's calibration with and without zeroing them. Then compare its calibration with the LightGBM models from Part III, against the true rates.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we built deep models with embeddings. Embedding tables give every categorical value a learned vector, DeepFM and DCNv2 learn feature interactions on top of them, and pooling turns sets into fixed vectors. Vocabularies belong to models, with OOV and padding rows and monitored OOV rates. Multi-task heads share a base and train over every impression, following the install equation. Checks on weights catch untrained embedding rows, calibration is handled by keeping a calibrated tree model between the deep model and the bid, and content embeddings give new items a representation before they have traffic.
+
+Pooling treats a device's history as a set. In the next chapter, we model it as a sequence, and pretrain on the much larger non-attributed data.
+
+[^c26-dcn]: Ruoxi Wang, Bin Fu, Gang Fu, and Mingliang Wang, "Deep & Cross Network for Ad Click Predictions," AdKDD, 2017; and Ruoxi Wang et al., "DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems," WWW, 2021.
+
+[^c26-transformers]: Ben Weber, "Transformers for Mobile User Acquisition," *AI Advances*, November 2026, <https://medium.com/ai-advances/transformers-for-mobile-user-acquisition-f3816d8b0c41>
+
+[^c26-pyspark]: Ben Weber, "Using DNN Embedding Models in PySpark at AdTech Scale," *Data Science Collective*, May 2026, <https://medium.com/data-science-collective/using-dnn-embedding-models-in-pyspark-at-adtech-scale-8f8fdd00fc17>
+
+[^c26-incidents]: Ben Weber, "Machine Learning Incidents in AdTech," *Towards Data Science*, January 29, 2025, <https://medium.com/data-science/machine-learning-incidents-in-adtech-e3f48d858054>
+
+[^c26-intent]: Ben Weber, "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, October 3, 2026, <https://bgweber.medium.com/pretrained-deep-learning-intent-signals-for-mobile-dsps-2eb1834c62db>
+
+[^c26-llatte]: Lee Xiong et al., "LLaTTE: Scaling Laws for Multi-Stage Sequence Modeling in Large-Scale Ads Recommendation," arXiv:2601.20083, January 2026, <https://arxiv.org/abs/2601.20083>

@@ -1,0 +1,127 @@
+# Starting from Scratch {#sec-starting-from-scratch}
+
+Most of what's written about ML in ad tech describes systems that are already large: thousands of campaigns, millions of requests per second, and deep models trained on years of logs. Nobody starts there. A new DSP starts with no logs, no models, a handful of campaigns, and an exchange that will only send it a trickle of traffic until it proves it can respond in time. The decisions made in those first months, about what to log, which traffic to buy, and how campaigns are set up, shape every model the DSP trains for years afterward, and they're much harder to change later than any model is.
+
+In this part of the book, we build that first DSP. It's deliberately simple. It predicts clicks with logistic regression, prices with a target cost per click, and bids on cheap inventory in a few markets. But it closes the loop: it receives bid requests, picks a campaign, predicts, prices, bids, and learns from what happens, and it logs everything a later, better DSP will need. A model can be improved at any time, but a model trained on logs that were wrong from the start is wrong in ways that are hard to see. The goal of this part is to get the parts that are hard to retrofit right first, and to leave the parts that are easy to improve simple.
+
+In this chapter, we will describe what we build in Part II and what we leave out, introduce the companion bid simulator that every working example in the book runs on, and cover the business decisions a new DSP makes before its first bid: how campaigns are set up, which exchanges and geos to start with, which integrations take longest, and why we start with a goal that no advertiser actually buys.
+
+## What We Build in Part II
+
+By the end of Part II, we'll have a DSP that could bid on real traffic and spend real money safely. Its pieces are the ones from the bid path in @sec-inside-a-demand-side-platform, each in its simplest useful form:
+
+- **A Go bidder** that parses OpenRTB requests, normalizes them, reads a device profile, filters campaigns, picks one at random with weights, predicts a click rate, prices the impression, and responds within the exchange's time limit (@sec-parsing-bid-requests-and-eligibility).
+- **A listening mode** that runs the full bid path without sending bids, so we can validate the system and learn the market before spending anything (@sec-listening-before-bidding).
+- **Logs that are the single source of truth for training**, with a FeatureVector recorded at bid time, selection probabilities, bid multipliers, and a holdout flag (@sec-logging-at-bid-time).
+- **A logistic regression click model** on hashed features, trained with FTRL and evaluated for calibration as well as ranking (@sec-a-click-model).
+- **CPC pricing and a first CPI campaign** priced from clicks, with a fixed shade and a small randomized multiplier that later lets us train a win model (@sec-pricing-a-click).
+- **A path from training script to bidder**, with versioned model artifacts, hot-swapping, golden-file parity tests, and a manual deploy checklist (@sec-shipping-the-first-model).
+- **Basic operations:** spend dashboards, a few alerts, spend caps, kill switches, a fallback to segment rates, and reconciliation with the exchanges (@sec-operating-the-first-dsp).
+
+Just as important is what's missing. There are no install or purchase models, no win rate model, no pacing controller, no A/B testing framework, and no model registry. Each of these comes in Part III, and each chapter there opens with what broke in the crawl DSP that made it necessary. Leaving them out isn't a shortcut. A new DSP doesn't have the data to train an install model well, or enough traffic to run a meaningful A/B test, and building the machinery before there's anything to use it on is a common way to spend six months without bidding.
+
+The book follows this pattern three times. Part II is the crawl stage: the simplest DSP that works. Part III is the walk stage: a DSP that can compete for the goals advertisers actually buy. Part IV is the run stage: deep models, learned pacing and selection, and one pricing equation for every goal. Each part ends with a working DSP and a chapter on operating it, so production practices grow with the system rather than arriving all at once at the end.
+
+## The Reference DSP and the Synthetic Data Generator
+
+Every chapter from here on has a working example that you can run. The examples run on the companion bid simulator in the book's GitHub repository, which has two halves: a reference DSP, and a simulated market for it to bid in.
+
+<!-- FIGURE: one simulated bid, from scenario to logged outcomes (Ben's fig-simulated-bid-flow), redrawn in the book's grayscale style. -->
+
+The **simulated market** generates a synthetic world and runs it forward in time. It creates devices with hidden traits, such as how much a device's owner likes puzzle games, how likely they are to click, and how much they tend to spend. It creates publisher apps like Gem Garden, advertiser apps like Cozy Farm Tycoon, and campaigns and creatives for those apps. It then generates OpenRTB bid requests from several simulated exchanges, each with its own traffic patterns, floors, and quirks, including missing fields and some invalid traffic. When the DSP bids, the market runs a first-price auction against competing bidders, sends win, loss, and billing notices, decides whether the ad is actually shown, and, if it is, whether the device clicks, installs, and later makes purchases. Later in the book, an MMP in the simulator attributes those installs and sends postbacks with realistic delays.
+
+The **reference DSP** is the system we build in this book. The bidder is written in Go, because that's what most DSPs use for the bid path, and the training, validation, and publishing code is written in Python, with PySpark where the data gets too large for one machine. For each workflow, we show a managed option on Google Cloud Platform and an open source option you can run on your own hardware.
+
+The most useful property of the simulator is that it knows the truth. In a real DSP, you never learn the true probability that a device would have clicked on an ad, only whether it did. You never learn whether an install would have happened without the ad, only whether the MMP credited the DSP with it. In the simulator, the market generated those outcomes from known probabilities, so it can report them next to the logs. That lets us check things that are impossible to check in production:
+
+- **Calibration against true rates**, not just against observed outcomes, so we can tell model error from noise.
+- **Lift against true lift**, so we can see how well an incrementality measurement recovers what the ads actually caused.
+- **The winner's curse against true values**, so we can measure how much a DSP overpays on the impressions it wins.
+- **Bias from delayed labels**, so we can see exactly what a correction removes.
+
+The ground truth is kept in separate tables and is never used as a model input. A model that trained on it would look perfect and teach us nothing.
+
+Three tools in the simulator come up in every chapter:
+
+- **Bid trace mode** records each step of a single bid with its inputs and outputs: the parsed fields and any that were missing, the profile read, which campaigns were filtered and why, the FeatureVector, each model's prediction and version, the pricing terms, the auction result, and any postbacks that came back later. When a chapter says "trace a request", this is the tool.
+- **Replay** reruns logged requests, from one request to a day of traffic, through any version of the bidder, and compares bids, wins, spend, and outcomes between versions.
+- **Releases by part** let you run the DSP as it stands at the end of each part of the book. The crawl release runs on a laptop with one command, with sample data and trained models included.
+
+A word of caution about what simulated results mean. A model trained on synthetic data learns whatever structure the generator put there. If the simulator makes device histories matter, a sequence model will look good on it, whether or not your real data has the same structure. Throughout the book, simulator results show how a method works and how to check it. They don't tell you how large its gains will be on your traffic. Where public datasets exist for a problem, such as click logs or bid landscapes, we use them as a reality check, and the gains that matter are the ones you measure in your own A/B tests.
+
+The repository is organized so that each piece can be run on its own:
+
+<!-- TODO: replace with the final repo layout once the simulator exists. -->
+
+- `code/dsp/`: the Go bidder, feature encoding, and model inference.
+- `code/training/`: Python and PySpark for datasets, training, validation, and publishing.
+- `code/sim/`: the simulated market and its ground truth.
+- `code/schemas/`: protocol buffer definitions for every log and record the DSP owns.
+
+::: {.callout-tip title="Try it on the simulator"}
+Run the market and the crawl bidder for one simulated day. Then look at three things: the bid log, with one row per request; the impression and click logs, joined to it by request ID; and the ground truth table, with the true click probability for every impression that was shown. Pick one request and trace it from the parsed request to the click.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Start Managed, Build as if Self-Serve
+
+In @sec-inside-a-demand-side-platform, we saw two ways of selling a DSP. In a managed service, the DSP's own team sets up and runs campaigns for advertisers. In a self-serve platform, advertisers do it themselves through a UI or an API. A new DSP almost always starts managed. There are only a few campaigns, the advertisers are taking a chance on an unproven platform, and they want a person to talk to.
+
+The risk of starting managed is that the system gets built around people. An account manager knows that a campaign's daily budget shouldn't be set above its total budget, that a creative needs an end card for one exchange, and that a target CPI of \$0.15 is a typo for \$1.50. None of that knowledge is in the system, so the system accepts whatever is entered. When the team grows, or the platform opens up to self-serve, the checks are gone.
+
+My recommendation is to start managed but build as if self-serve. Our own team sets up the first campaigns, but they do it through the same campaign API that an advertiser would eventually use, and every manual check becomes a validation rule in that API. If an account manager catches a mistake, the follow-up is a rule that catches it next time. Some examples:
+
+- **Ranges:** targets, bids, and budgets within sensible bounds for the campaign's goal and geos, with a warning for values far from similar campaigns.
+- **Consistency:** a daily budget no larger than the total budget, start dates before end dates, and targeting that matches at least some traffic.
+- **Completeness:** every creative has the formats, sizes, and tracking links its placements require, and the app has a store ID and an MMP integration.
+- **Changes:** large edits to a live campaign, such as doubling the target CPI, require a second confirmation.
+
+This matters for the ML team more than it seems. A campaign with a target CPI ten times too high bids aggressively on everything, wins impressions no reasonable campaign would win, and those impressions become training data. A model trained on them learns that certain supply converts at whatever rate that campaign happened to see. Bad campaign settings poison training data quietly, and the damage outlives the campaign. A validation rule is much cheaper than a model that has to be retrained after the problem is found, if it is found at all.
+
+The same thinking applies to manual levers. In @sec-inside-a-demand-side-platform, we saw how overbids and other hand-set multipliers accumulate in a DSP and become hard to remove. The easiest time to avoid them is at the start. The crawl DSP has no manual bid multipliers at all. When a campaign needs to spend more, the fix is a change to its goal or budget, recorded in the campaign API, not a multiplier on its bids.
+
+## Choosing Exchanges, Geos, and QPS Caps
+
+A new DSP can't bid on everything, and shouldn't try. The first choices are which exchanges to integrate with, which geos to bid in, and how much traffic to accept.
+
+**Start with one or two exchanges.** As we saw in @sec-the-auction-lifecycle, each exchange has its own onboarding process, its own extensions to OpenRTB, and its own quirks. Every exchange you add multiplies the integration and testing work, and in the first months, the bottleneck is learning, not reach. Good first exchanges offer a test endpoint, where you can send responses to sample requests without them reaching a real auction, and let you start with a low cap on queries per second (QPS). They also send the fields the models will need, such as a device ID, the publisher app, and the placement, reliably enough to train on.
+
+**Start in low-CPM geos.** Markets such as India, Brazil, and much of Southeast Asia have large Android audiences and much lower prices than the US or Western Europe. A dollar buys many more impressions and clicks there, so a small budget produces enough labels to train and evaluate a click model, and mistakes cost less while the system is new. These markets are also mostly Android, which matches the Android-first scope of this book.
+
+<!-- TODO (research): current CPM benchmarks by geo for in-app Android inventory, with citations, e.g. from a public ad network or MMP benchmark report. Don't state numbers until sourced. -->
+
+The catch is that models trained in these markets don't transfer cleanly. Click rates, install rates, devices, and popular apps all differ between India and the US, and purchase rates differ the most, because a much smaller share of players pay in lower-income markets. That's fine for the crawl DSP, whose goal is to close the loop and learn, but it means purchase models wait for Part III, when the DSP expands into tier-1 geos (@sec-from-clicks-to-installs-and-purchases).
+
+**Turn up QPS as the bidder proves itself.** Exchanges cap the number of requests they send to a new DSP, and you should want them to. Start with a cap that the bidder can handle easily, watch latency and timeout rates, and raise it in steps. Each step up exposes problems that didn't appear at the lower rate: garbage collection pauses, connection pool limits, and slow profile reads under load. A timeout rate that creeps up is a sign to stop raising the cap until it's fixed, because exchanges throttle or drop bidders that respond late.
+
+## Long-Lead Integrations
+
+Some of the work needed before a DSP spends real money has little to do with code, and it takes much longer than the code does. Start these on day one, in parallel with building the bidder.
+
+- **Exchange seats and contracts.** Each exchange needs a signed agreement, a seat ID, billing terms, and an onboarding review of your bid responses. Some exchanges also review each creative before it can serve, which can take days for a new advertiser.
+- **Billing.** You need billing set up with each exchange, which pays for the impressions, and with each advertiser, which pays you. New DSPs often have to prepay exchanges or accept low credit limits until they have a history, which caps how much you can spend regardless of how good the models are.
+- **MMP integrations.** Install postbacks only reach a DSP that the advertiser's MMP knows about. Becoming an integrated partner with each major MMP takes time, and it's needed for every install and purchase label the DSP will ever see. Install models don't arrive until Part III, but start this now. The first CPI campaign in @sec-pricing-a-click needs at least some postbacks.
+- **Tracking links and click URLs.** Every click goes through a tracking link that carries the click ID to the MMP. Getting these right for each advertiser, MMP, and exchange combination is tedious, and a broken link silently loses attribution, which looks to the models like a campaign that never converts.
+
+None of this is ML work, but all of it decides when the ML team gets data. A model that's ready before the MMP integration is just waiting, so an ML lead who tracks these items is doing the team a favor.
+
+## Why We Start with CPC
+
+The crawl DSP prices impressions with a target cost per click (CPC). The advertiser says what a click is worth, the click model predicts the chance of a click, and the product is the value of the impression. We'll work through the details in @sec-pricing-a-click.
+
+I want to be plain about this choice. No advertiser buys mobile user acquisition on CPC today. As we saw in @sec-introduction, game studios buy installs and the revenue those installs bring, and the goals they set are CPI, CPA, and ROAS. Clicks also attract fraud. A goal that pays for clicks rewards whoever can produce clicks most cheaply, and on cheap inventory, that includes click farms, accidental taps on interstitials, and scripts.
+
+We start with CPC anyway, because it's the simplest goal that closes the loop:
+
+- **Clicks arrive in seconds.** A click happens within a minute or so of the impression, so a training example is complete almost immediately. Installs take hours to days, and purchases take days to weeks.
+- **Clicks arrive in volume.** Even at low click rates, a modest budget produces tens of thousands of clicks a day in low-CPM geos, which is enough to train and evaluate a model. The same budget might produce a few hundred installs.
+- **Clicks need no MMP.** The DSP observes clicks directly through its own tracking. Installs depend on MMP integrations that may not be ready yet.
+
+So CPC is where you'd start if you were building from scratch, and it's where we start. The click model isn't wasted when we move on, either. In @sec-pricing-a-click, we price a first CPI campaign by multiplying the click model's prediction by a click-to-install rate for each segment, and in Part III, the click model becomes the first stage of the install model in @sec-from-clicks-to-installs-and-purchases.
+
+## Conclusion
+
+A new DSP is defined less by its first model than by its first decisions about data. In this chapter, we described the crawl DSP we build in Part II: a Go bidder with a logistic regression click model, CPC pricing, and a first CPI campaign, on low-CPM Android traffic from one or two exchanges, with logging and operations built to last. We introduced the companion bid simulator, whose ground truth lets us check models against true rates rather than observed outcomes, and whose trace and replay tools every later chapter uses. We also covered the decisions that come before the first bid: setting up campaigns through validated APIs, starting with cheap traffic and low QPS caps, and starting the long-lead integrations early.
+
+In the next chapter, we start on the bid path itself, by parsing OpenRTB requests in Go, filtering out the requests we can't or shouldn't bid on, and picking a campaign and creative for the rest.

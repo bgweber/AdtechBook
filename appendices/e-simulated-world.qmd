@@ -1,0 +1,3 @@
+# The Simulated World and Its Schemas {#sec-simulated-world}
+
+<!-- TODO: draft. Documents the companion bid simulator's assumptions as equations (how true probabilities, lift, competitor bids, delays, and attribution are generated), a parameter table per part, and every format the DSP owns: BidRequest, BidLog, notification events, impression log, postback, DeviceProfile, training tables, and ground truth tables. See private/toc-proposal5.md, "Synthetic Data and Code to Build". -->

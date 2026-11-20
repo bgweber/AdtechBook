@@ -78,7 +78,7 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Frequency cap.** A limit on how often the same device can see a campaign's ads.
 
-**Ghost bid.** A bid the DSP computes but doesn't send, for a device in a random control group. Comparing the control group with devices that saw ads measures the lift. See @sec-incrementality-and-uplift.
+**Ghost bid.** A bid the DSP computes but doesn't send, for a device in a random control group. Comparing the control group with devices that saw ads measures the lift. See @sec-measuring-incrementality.
 
 **Holdout test.** An experiment where a random group of devices doesn't see the ads, so the difference in installs between groups shows what the ads caused.
 
@@ -88,7 +88,7 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Incremental CPI (iCPI).** Spend divided by the installs that wouldn't have happened without the ads.
 
-**Incrementality.** The installs, or revenue, that an ad actually caused, as opposed to those it was credited with. See @sec-introduction and @sec-incrementality-and-uplift.
+**Incrementality.** The installs, or revenue, that an ad actually caused, as opposed to those it was credited with. See @sec-introduction and @sec-measuring-incrementality.
 
 **Internal auction.** The DSP's comparison between its own candidate campaigns for a request, which picks the one campaign that bids.
 

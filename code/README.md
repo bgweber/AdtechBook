@@ -7,16 +7,16 @@ so the code in the book is code that builds and passes tests.
 code/
   dsp/        Go: the reference DSP (bid path, features, in-process inference)
   training/   Python: training datasets, training, validation, publishing
-  data/       Python: synthetic data generator used by the examples
+  sim/        Python: the simulated market (adsim) that every example runs on
 ```
 
 ## Conventions
 
 - **Go** (`code/dsp/`): one Go module, `go.mod` in `code/dsp/`. Tests run
   with `go test ./...`.
-- **Python** (`code/training/`, `code/data/`): Python 3.12. Tests are
+- **Python** (`code/training/`, `code/sim/`): Python 3.12. Tests are
   `test_*.py` files and run with `pytest code`.
-- Examples use a fixed random seed and synthetic data from `code/data/`
+- Examples use a fixed random seed and synthetic data from the simulator in `code/sim/`
   unless a chapter names a public dataset. Nothing downloads data at render
   time.
 - GPU training code uses PyTorch, falls back to CPU, and fits in 4 GB of GPU

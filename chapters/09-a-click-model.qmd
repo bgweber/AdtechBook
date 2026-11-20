@@ -1,0 +1,243 @@
+# A Click Model {#sec-a-click-model}
+
+Logistic regression has been the workhorse of click prediction in ad tech for more than a decade. Facebook described combining it with boosted trees for ad click prediction in 2014,[^c9-facebook] Google described training it online at very large scale a year earlier,[^c9-mcmahan] and DSPs pushed it pretty far before moving to deep learning. I've worked with logistic regression click models that had more than 50 million parameters.[^c9-click] It's not the state of the art anymore, but it's still a good first model for a new DSP: it trains fast on a single machine, it's cheap to serve in Go, its predictions are probabilities that are easy to calibrate, and every weight can be inspected.
+
+In this chapter, we will train the crawl DSP's click model. We build labeled click examples from the logs of @sec-logging-at-bid-time, choose the first features, and encode them as hashed one-hot tokens with hand-built crosses. We train with FTRL, an online learning algorithm built for sparse, high-dimensional data, correct predictions for negative downsampling, and evaluate the model with log loss, AUC, and calibration, using out-of-time evaluation broken down by segment. We close with what this model can't do, which motivates the models in Parts III and IV.
+
+## From Logs to Labeled Click Examples
+
+A click example is one impression, with the features the bidder logged when it bid, and a label of 1 if the impression was clicked and 0 if not. As we saw in @sec-logging-at-bid-time, examples start from impressions, not wins, so that the label isn't diluted by wins whose ad was never shown. Building them is a join of three logs:
+
+1. **Impressions** from the impression log, deduplicated on the event ID.
+2. **Features** from the bid ledger, joined on the request ID: the FeatureVector, plus the campaign and creative that were chosen.
+3. **Clicks** from the click log, joined on the impression ID, keeping the first click per impression.
+
+One more decision is needed: when is an example final? A click usually follows an impression within seconds, since it happens while the ad is on screen, but a few arrive later, from end cards, delayed redirects, or a tracker that was slow to fire. We pick a **click window**, such as one hour after the impression, and count only clicks inside it. An impression becomes a training example once its window has closed. The window should be chosen from data: plot the distribution of time from impression to click in the logs, and pick a window that captures nearly all of it. A window that's too short turns late clicks into negatives, and one that's too long delays training for almost no extra labels.
+
+Before training, remove the rows we don't want the model to learn from. Impressions from publisher apps on the invalid traffic blocklist come out, as do ghost bids, which by definition have no impressions, and any impressions from test campaigns. We cover cleaning invalid traffic from training data in more detail in @sec-operating-the-first-dsp.
+
+## Features for the First Model
+
+<!-- Ben will review the feature list once the click model and simulator are further along (2026-11-19). -->
+
+The first model's features come from three sources: the bid request, the device profile, and the campaign and creative being considered. All of them are computed in the Go bidder at bid time and logged in the FeatureVector, so training uses exactly what the bidder saw. Early on, the gains usually come from getting a handful of strong features right rather than from having many features, so it's worth understanding what each one captures, how it's encoded, and how it can go wrong.
+
+### Features from the Request
+
+The request describes where the ad would be shown, and the placement explains more of the variation in click rates than anything else. The same player who skips past a banner might happily tap the end card of a rewarded video they chose to watch.
+
+| Feature | Type | What it captures | Watch out for |
+|---|---|---|---|
+| Publisher app (`app.bundle`) | String | The app's audience and how ads fit into it | High cardinality; new apps have no history |
+| Publisher or developer | String | Apps from one developer share audiences and ad setups | Missing on some exchanges |
+| App store category | String | Genre, such as puzzle, casual, or casino | Exchange categories are noisy; prefer your own app metadata |
+| Placement ID (`imp.tagid`) | String | One ad slot within an app, such as the level-end interstitial | Very high cardinality; IDs change when apps update |
+| Placement type | String | Rewarded video, interstitial, banner, or native | Derived per exchange from fields and extensions |
+| Format details | String, numeric | Size, orientation, video duration limits, skippable | Many combinations; bucket them |
+| Exchange and seller | String | Integration differences and supply path | Collinear with publisher; keep both |
+| Bid floor | Numeric | The publisher's own estimate of the slot's value | Varies by exchange policy; bucket it |
+| Country and region | String | Market, language, and device mix | Normalize codes at ingest |
+| OS version, make, model | String | Device price tier and age | Thousands of models; normalize aliases |
+| Device type and screen size | String, numeric | Phone or tablet; how big the ad is | Often derivable from the model |
+| Connection type and carrier | String | Wi-Fi vs. cellular, which affects video completion | Unknown values are common |
+| Local hour and day of week | String | Daily and weekly cycles in attention | Use the device's local time, not UTC |
+
+: Request features for the first click model. {#tbl-c9-request-features tbl-colwidths="[24,12,34,30]"}
+
+Two of these deserve a note. The **publisher app** is the most predictive single feature in most click models, and it's also the hardest for a linear model, because there are many apps and most have little traffic. The hashed one-hots below give every app its own weight, and L1 regularization keeps rare apps near zero until they've earned a weight. The **bid floor** may seem like a pricing input rather than a click feature, but publishers set higher floors on placements that perform better, so it carries real information about the slot. It's available at bid time, so it's safe to use.
+
+### Features from the Device Profile
+
+The profile describes the device's recent activity. In crawl, it's built mostly from the bid stream, as in @sec-listening-before-bidding, and from our own impressions and clicks.
+
+| Feature | Type | What it captures | Watch out for |
+|---|---|---|---|
+| Apps seen in the last 30 days | String set | Interests and the kind of games the player plays | Large sets; cap the length |
+| Genres of apps seen | String set or counts | A compact version of the same signal | Depends on app metadata coverage |
+| Requests seen today and this week | Numeric | How active the device is | Varies with our QPS caps, not just the user |
+| Days since first seen | Numeric | How long we've known the device | New devices and reset IDs look alike |
+| Our impressions today and this week | Numeric | Ad fatigue | Count shown impressions, not wins |
+| Impressions of this campaign today | Numeric | Fatigue with this specific ad | Also used for frequency caps |
+| Our clicks in the last 30 days | Numeric | A habit of clicking ads | Includes invalid clicks unless cleaned |
+| Time since our last impression and click | Numeric | Recency | Missing for new devices; log as missing |
+| Profile status | String | Found, not found, or timed out | Must be logged, not inferred later |
+
+: Profile features for the first click model. {#tbl-c9-profile-features tbl-colwidths="[30,16,28,26]"}
+
+Counts are bucketed into tokens, such as `imps_today_3to5`, so the linear model can learn that the click rate rises and then falls with activity. Ratios, such as the device's historical click rate, are tempting but risky. They're noisy for devices with few impressions, and a zero denominator has to be handled the same way in Go and Python. Giving the model the counts as separate bucketed features is safer, and lets it learn the ratio's effect itself.
+
+### Features from the Campaign and Creative
+
+The bidder scores the chosen campaign and creative, so their features describe the ad itself.
+
+| Feature | Type | What it captures | Watch out for |
+|---|---|---|---|
+| Campaign ID | String | Everything specific to this campaign | New campaigns start with no weight |
+| Advertised app and its genre | String | How appealing the game is, and to whom | Genre lets new campaigns borrow from similar ones |
+| Creative ID | String | Everything specific to one ad | Many creatives with little traffic each |
+| Creative format and length | String | Video, playable, or static; short or long | Must match what the placement allows |
+| Orientation and end card type | String | Fit with the placement; the call to action | Missing for some formats |
+
+: Campaign and creative features for the first click model. {#tbl-c9-campaign-features tbl-colwidths="[24,12,34,30]"}
+
+Campaign and creative IDs memorize, and genre and format generalize. Including both lets the model use an ID's own history when it has one, and fall back on what similar campaigns and creatives have done when it doesn't. Most of the value of these features comes from crosses with the request and profile features, which we add below.
+
+### Features to Leave Out
+
+Some features look predictive and should stay out of the model:
+
+- **Anything not known at bid time.** Whether the impression was shown, its clearing price, and anything from the device's later activity are all outcomes or partial outcomes. A feature computed after the bid is leakage, as we saw in @sec-logging-at-bid-time.
+- **Absolute time.** The date, or the number of days between an event and training, means something different at serving time than in training. Express time relative to the request, as the FeatureVector's canonicalization rules require.
+- **The device ID itself, and IP addresses.** As features, they memorize individual devices rather than learning anything general, and they're personal data with limits on how they can be used.
+- **Our own decisions.** The selection probability, the bid, and the random multiplier depend on the logging policy, not on the user. A model that uses them learns about our past bidding rather than about clicks.
+- **Self-reported user fields.** Fields such as year of birth and gender are rarely present in mobile bid requests, are often unreliable when they are, and depend on consent.
+
+### Choosing What to Add
+
+There's no shortage of possible features, so each one should earn its place. A simple process works well in crawl:
+
+1. **Check coverage first.** Look at how often the feature is present, by exchange, in the logs. A feature present on 30% of requests from one exchange and 95% from another will mostly teach the model which exchange the request came from.
+2. **Add it to the bidder and log it,** or backfill it by replay, as in @sec-building-training-datasets.
+3. **Train with and without it** on the same days, and compare log loss and calibration out of time, overall and by segment.
+4. **Weigh the gain against the cost.** Every feature adds latency, memory, logging volume, and a new way for training and serving to disagree. A feature that improves log loss by a tiny amount is often not worth carrying.
+
+## Hashed One-Hots and Feature Crosses
+
+Logistic regression needs numeric inputs, and most of these features are strings. The approach I've used is to turn every feature into one or more **tokens**, strings of the form `name_value`, and give the model one binary input per token.[^c9-click] For a rewarded video in Gem Garden on a Samsung phone in India, the tokens might look like this:
+
+```
+pub_app_com.example.gemgarden
+placement_rewarded_video
+country_ind
+device_model_sm-a155f
+campaign_cozyfarm_cpc_in
+```
+
+Each type of value in the FeatureVector maps to tokens in its own way:
+
+- **Strings** become one token each, as above. A missing value gets its own token, such as `device_model_null`, so the model learns what missing means.
+- **String sets** become many tokens, one per member, such as one token for each publisher app the device was seen in recently. These are **many-hot** features.
+- **Numerics** are bucketed first, and each bucket becomes a token, such as `imps_today_3to5`. Buckets let a linear model learn a nonlinear effect, for example that the click rate falls as a device sees more of our ads in a day.
+
+A linear model can't learn interactions on its own. It can learn that rewarded video gets more clicks than banners, and that Cozy Farm Tycoon's ads get more clicks than average, but not that Cozy Farm Tycoon's ads do especially well in rewarded video. So we add **crosses**: tokens that combine two features, such as `placement_rewarded_video*campaign_cozyfarm_cpc_in`. The most useful crosses pair the campaign or advertised app with features of the supply and device:
+
+- Publisher app × campaign.
+- Placement type × creative format.
+- Country × campaign.
+- Device model × publisher app.
+
+Crosses are where the token count explodes. There are many publisher apps, many device models, and many campaigns, so their pairs number in the millions or more. Rather than keeping a dictionary from token to index, which would have to be built, versioned, and shared between training and serving, we use the **hashing trick**: hash each token to an integer and take it modulo a fixed number of buckets, such as $2^{24}$.[^c9-hashing] The model has one weight per bucket. Two tokens can collide into one bucket, which adds a little noise, but with enough buckets, collisions among the tokens that matter are rare, and the model needs no vocabulary at all.
+
+<!-- CODE: replace with an include from code/training/click once it exists. -->
+
+```python
+import mmh3
+
+NUM_BUCKETS = 2 ** 24
+
+def tokens(fv: dict) -> list[str]:
+    toks = [f"{k}_{v}" for k, v in fv["strings"].items()]
+    for k, vals in fv["sets"].items():
+        toks += [f"{k}_{v}" for v in vals]
+    toks += [f"{k}_{bucket(k, x)}" for k, x in fv["numeric"].items()]
+    for a, b in CROSSES:  # pairs of feature names
+        if a in fv["strings"] and b in fv["strings"]:
+            toks.append(f"{a}_{fv['strings'][a]}*{b}_{fv['strings'][b]}")
+    return toks
+
+def hashed(toks: list[str]) -> list[int]:
+    return sorted({mmh3.hash(t, seed=0, signed=False) % NUM_BUCKETS
+                   for t in toks})
+```
+
+The hash function has to be stable and identical in Python and Go. Python's built-in `hash()` is randomized per process for strings, so it can't be used, and two libraries that both call themselves MurmurHash can still differ in seed and output type. Pick one algorithm and one seed, and check that both languages produce the same indexes for a fixed set of tokens. That check becomes part of the golden-file test in @sec-shipping-the-first-model.
+
+Choosing the number of buckets is a tradeoff between collisions and memory. Each bucket is one weight, so $2^{24}$ buckets is about 16 million weights, or 64 MB as 32-bit floats, which is fine in a Go bidder's memory. With L1 regularization, which we turn to next, most weights end up at exactly zero, and the model can be stored sparsely.
+
+## Training with FTRL
+
+We train with **FTRL-Proximal** (Follow The Regularized Leader), the algorithm Google described for large-scale online click prediction.[^c9-mcmahan] It's built for exactly this setting: billions of examples, millions of sparse binary inputs, and only a few dozen of them active in each example.
+
+FTRL is an **online** algorithm. It passes over the examples one at a time and updates only the weights of the tokens present in each example. For each bucket $i$, it keeps two numbers, $z_i$ and $n_i$, and computes the weight from them when it's needed:
+
+$$w_i = \begin{cases} 0 & \text{if } |z_i| \le \lambda_1 \\ -\dfrac{z_i - \operatorname{sgn}(z_i)\,\lambda_1}{(\beta + \sqrt{n_i})/\alpha + \lambda_2} & \text{otherwise} \end{cases}$$
+
+For an example with prediction $p = \sigma(\sum_i w_i x_i)$ and label $y$, the gradient for each active bucket is $g_i = p - y$, and the update is:
+
+$$\sigma_i = \frac{\sqrt{n_i + g_i^2} - \sqrt{n_i}}{\alpha}, \qquad z_i \leftarrow z_i + g_i - \sigma_i w_i, \qquad n_i \leftarrow n_i + g_i^2$$
+
+Three properties make it a good fit:
+
+- **Per-coordinate learning rates.** The effective learning rate for bucket $i$ shrinks as $n_i$ grows, so common tokens, such as a large publisher app, settle quickly, while rare tokens keep learning. This matters a lot when token frequencies span many orders of magnitude.
+- **Sparsity from L1.** The $\lambda_1$ term sets weights exactly to zero unless a token has accumulated enough evidence. Most hashed crosses never do, so the trained model is mostly zeros and stores and serves sparsely.
+- **One pass, small memory.** FTRL needs only two numbers per bucket and one pass over the data, so it can train on billions of rows on a single machine, reading examples as a stream.
+
+FTRL is also the first step in a thread that runs through the book. Because it updates example by example, the same model can keep learning as new impressions arrive, rather than waiting for a daily retrain. The crawl DSP retrains daily from scratch, which is simpler to reason about, but online updates come back in @sec-retraining-and-real-time-learning.
+
+A practical warning: general-purpose libraries don't always handle this kind of model well. When I trained logistic regression models with tens of millions of parameters in Spark's MLlib, training ran into problems because the implementation densified the feature vectors in its training loop. A library that works on the sparse vectors directly, with model averaging across workers, avoided the bottleneck.[^c9-click] FTRL is short enough to implement yourself, which is what the reference DSP does, and it's worth checking that whatever you use never builds a dense vector of all the buckets.
+
+<!-- CODE: include the FTRL trainer from code/training/click, about 40 lines, once it exists. -->
+
+## Negative Downsampling and Correcting Probabilities
+
+Click rates are low, typically a few percent or less, so almost all examples are negatives. Most of them teach the model very little that the others don't, and they dominate training time. A common fix is **negative downsampling**: keep every click, and keep each non-click with probability $w$, such as 0.1.
+
+Downsampling changes the base rate the model sees, so its predictions are too high. If the model predicts $p$ on downsampled data, the corrected probability is:[^c9-facebook]
+
+$$q = \frac{p}{p + (1 - p)/w}$$
+
+For example, with $w = 0.1$, a prediction of 10% on downsampled data corresponds to about 1.1% on the original data. The correction has to be applied wherever the model's output is used, which in the crawl DSP means in the Go bidder, before pricing. We store $w$ in the model's metadata, so the bidder applies the right correction for each model version, and a model trained with a different rate can't be served with the wrong correction by accident.
+
+Record the sampling rate on every training row, too. The same correction applies when evaluating calibration offline, and the no-bid sampling from @sec-logging-at-bid-time is a second rate that has to be tracked separately.
+
+## Metrics
+
+We evaluate the click model with three kinds of metric, because each answers a different question:
+
+- **Log loss** measures how good the predicted probabilities are, example by example. Lower is better. It's the quantity the model is trained to minimize, and it's sensitive to both ranking and calibration. To compare across datasets with different click rates, normalize it by the log loss of a model that always predicts the average click rate, which gives the **normalized entropy** that Facebook's paper reports.[^c9-facebook]
+- **AUC** measures ranking: the probability that a randomly chosen click gets a higher prediction than a randomly chosen non-click. It ignores calibration entirely. A model can have a good AUC and predict click rates that are all twice too high.
+- **Calibration** measures whether predicted rates match observed rates. The simplest check is the ratio of the sum of predictions to the number of clicks, overall and by segment. A reliability curve, plotting the observed click rate against the predicted rate in buckets, shows where the model is off.
+
+For bidding, calibration matters more than ranking. The price of an impression is proportional to the predicted click rate, as we'll see in @sec-pricing-a-click, so a model that overpredicts by 20% overbids by 20% on every impression, even if it ranks impressions perfectly. AUC still matters, because a model that can't tell good impressions from bad ones pays the same for both, but a well-calibrated model with a modest AUC makes money, and a poorly calibrated model with a great AUC loses it.
+
+## Out-of-Time Evaluation
+
+Click data changes over time. New apps appear, campaigns start and stop, and devices update. A model is always trained on the past and used in the future, so we evaluate it the same way: train on earlier days, and evaluate on a later day the model has never seen. For example, train on days 1 to 7, and evaluate on day 8. A random split of the same days would put examples from the same hours, apps, and devices in both sets, and overstate how well the model generalizes.
+
+Then break the results down. An overall log loss can hide a model that's well calibrated on the largest exchange and badly off on the second one. For each evaluation, report log loss, AUC, and calibration by exchange, country, placement type, and campaign, with the number of impressions in each segment, so small, noisy segments are easy to spot. Segments where the model is miscalibrated are the ones where pricing will be off, and they're often where a feature is broken or missing.
+
+The simulator adds one more comparison that production can't. Because it knows the true click probability of every impression, we can compare predicted rates with true rates, not just with the noisy observed clicks. That separates model error from sampling noise in small segments.
+
+<!-- RESULT: table of log loss, AUC, and calibration by exchange and placement for the crawl click model on the simulator, with true-rate calibration, from a fixed-seed run. -->
+
+::: {.callout-tip title="Try it on the simulator"}
+Build click examples from a simulated week, train the logistic regression model with FTRL on days 1 to 6, and evaluate it on day 7. Compare its calibration with the observed clicks and with the true click rates, by exchange and placement. Then remove the crosses and train again, and see which segments get worse.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+<!-- TODO: optional reality check on a public mobile click dataset, such as Avazu, after checking its license for use in a sold print edition. -->
+
+## What This Model Can't Do
+
+The click model is a good start, and it has clear limits:
+
+- **No sharing between related values.** Each token has its own weight. Two puzzle games that attract the same players are, to the model, as unrelated as a puzzle game and a casino app. A new publisher app starts at zero and has to earn its weight from its own clicks.
+- **Crosses built by hand.** The model only learns the interactions we thought to add. An important interaction we didn't add, such as one between connection type and video creatives, is invisible to it.
+- **No device memory.** The model sees a device's history only through the counters we computed in the bidder, such as impressions today. It can't learn which sequences of apps or events predict a click.
+
+These limits set up the rest of the book. In @sec-gradient-boosted-conversion-models, LightGBM learns interactions and nonlinear effects without hand-built crosses. In Part IV, embeddings let related values share what they learn, and sequence models learn from device histories directly.
+
+## Conclusion
+
+In this chapter, we trained the crawl DSP's first model. We built click examples from impressions joined to the bid ledger and the click log, with a click window that decides when an example is final. We encoded the FeatureVector as hashed one-hot tokens with hand-built crosses, trained logistic regression with FTRL, and corrected its predictions for negative downsampling. We evaluated it out of time, by segment, with log loss, AUC, and, most importantly for bidding, calibration.
+
+A calibrated click rate is not yet a bid. In the next chapter, we turn the click model's prediction into a price, first for a CPC campaign and then for a first CPI campaign, and add the randomized bids that later let us model the auction itself.
+
+[^c9-facebook]: Xinran He, Junfeng Pan, Ou Jin, Tianbing Xu, Bo Liu, Tao Xu, Yanxin Shi, Antoine Atallah, Ralf Herbrich, Stuart Bowers, and Joaquin Quiñonero Candela, "Practical Lessons from Predicting Clicks on Ads at Facebook," ADKDD, 2014.
+
+[^c9-mcmahan]: H. Brendan McMahan, Gary Holt, D. Sculley, Michael Young, Dietmar Ebner, Julian Grady, Lan Nie, Todd Phillips, Eugene Davydov, Daniel Golovin, Sharat Chikkerur, Dan Liu, Martin Wattenberg, Arnar Mar Hrafnkelsson, Tom Boulos, and Jeremy Kubica, "Ad Click Prediction: a View from the Trenches," KDD, 2013, <https://research.google/pubs/ad-click-prediction-a-view-from-the-trenches/>
+
+[^c9-click]: Ben Weber, "Deep Learning for Click Prediction in Mobile AdTech," *Towards Data Science*, January 2025, <https://medium.com/data-science/deep-learning-for-click-prediction-in-mobile-adtech-9739fe3f52de>
+
+[^c9-hashing]: Kilian Weinberger, Anirban Dasgupta, John Langford, Alex Smola, and Josh Attenberg, "Feature Hashing for Large Scale Multitask Learning," ICML, 2009.
