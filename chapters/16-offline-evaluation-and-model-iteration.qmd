@@ -1,0 +1,82 @@
+# Offline Evaluation and Model Iteration {#sec-offline-evaluation-and-model-iteration}
+
+Online tests are the final word on whether a model change is better, but they're expensive. An A/B test in a DSP takes days to weeks, because install and purchase labels arrive late, and it spends real budget on the variant that loses. A DSP can only run so many of them, so most model changes need to be judged offline first. The question offline evaluation answers isn't whether a change is better, but whether it's promising enough to be worth an online test.
+
+That's harder than it sounds in a DSP. The data a model is evaluated on was collected by the current model, through an auction the new model would bid in differently. A new model can improve log loss and still lose money, because it changes which impressions the DSP wins. Good offline evaluation measures the things that predict online results, not just the things that are easy to compute.
+
+In this chapter, we will choose metrics that reflect how predictions become money, evaluate out of time with segment breakdowns, and lay out a ladder of model changes from routine retrains to new model forms. We then replay logged traffic to estimate how a new model would change bids and spend, evaluate selection policies offline with the propensities logged since Part II, and measure how stable a model's predictions are from one training run to the next.
+
+## Metrics
+
+The crawl DSP used log loss, AUC, and calibration. Walk keeps all three, and changes how they're computed:
+
+- **Normalized entropy** (log loss divided by the log loss of a model that predicts the base rate) for comparing across days, segments, and label types with different base rates.
+- **AUC within each campaign,** averaged with weights by impressions or spend, because overall AUC is dominated by differences between campaigns and placements that any model learns.
+- **Calibration error** by segment, as the ratio of predicted to observed outcomes, and as an expected calibration error across prediction buckets.
+- **Metrics weighted by spend.** An impression the DSP paid \$10 CPM for matters more than one it paid \$0.50 for. Weighting log loss and calibration by the price paid focuses evaluation on the impressions where errors cost the most.
+
+For models that feed a price, the most useful single check is often the calibration of the bid value: $P(\text{install}) \times E[\text{value}]$ by campaign and by bid range, compared with realized value. That's the number the bidder actually acts on.
+
+## Out-of-Time Evaluation and Segment Breakdowns
+
+As in @sec-a-click-model, every evaluation is out of time: train on earlier days and evaluate on later ones, with the evaluation days' labels complete. For install and purchase models, that means evaluating on a period that ended at least one label cutoff ago.
+
+Every result is broken down by segment, with the number of examples in each: exchange, country, placement type, campaign, and campaigns that launched during the evaluation period. Most model changes help some segments and hurt others, and an overall improvement can hide a large regression on one exchange or one important campaign. A useful habit is to list the segments where the new model is worst relative to the champion, and to look at each before deciding.
+
+## The Ladder of Model Changes
+
+Not all model changes are equal, and they shouldn't get the same process. A useful way to think about them is as a ladder, from the most routine to the most involved:
+
+| Change | Example | What it needs in serving | Typical evaluation |
+|--------|---------|--------------------------|--------------------|
+| Retrain on new data | The daily retrain | Nothing new | Validation gates and a canary |
+| Hyperparameters | More trees, a different learning rate | Nothing new | Offline comparison, then a canary |
+| New features from logged data | A new count from the FeatureVector | A new spec; same runtime | Offline, then an A/B test |
+| New logged features | A feature the bidder doesn't compute yet | Bidder code, logging, backfill | Offline after backfill, then an A/B test |
+| New model form | LightGBM to a DNN | A new runtime, parity tests | Offline, shadow mode, then an A/B test |
+
+: The ladder of model changes. {#tbl-c16-ladder tbl-colwidths="[22,26,24,28]"}
+
+The higher the rung, the more can go wrong in serving, and the more evaluation it needs before it reaches traffic. Routine retrains go through automated gates. New features and model forms need an online test, because they change the model in ways offline metrics can't fully capture.
+
+## Replaying Logged Traffic to Estimate Bid and Spend Impact
+
+Offline metrics measure predictions. What matters is how the predictions change bids, and through them, wins and spend. Replay estimates that before anything goes live.
+
+Take a day of logged requests, with their FeatureVectors, and run them through the pricing path twice: once with the champion and once with the challenger. For each request, compare the two bids. From there, a few summaries are informative:
+
+- **The distribution of bid changes,** overall and by segment. A new model that raises bids by 30% on one exchange will spend very differently there, even if its log loss is better.
+- **Predicted spend and volume.** Using a win rate model, or the observed win rates at each bid level, estimate how many more or fewer impressions the challenger would win, and what it would spend, by campaign.
+- **Which impressions change hands.** Impressions where the challenger bids much higher than the champion are the ones it would start winning. Its predictions on those impressions can't be checked against outcomes, because the champion mostly didn't win them, and they're where surprises come from.
+
+Replay doesn't tell us what the challenger's results would be, only how its behavior would differ. That's still valuable: a challenger whose bids differ wildly from the champion's is a bigger risk, and should go through shadow mode and a smaller canary. The simulator's replay tool, from @sec-starting-from-scratch, does exactly this on simulated traffic.
+
+## Offline Policy Evaluation with Logged Propensities
+
+Some changes aren't to predictions but to decisions, such as a new way to choose which campaign or creative to show. For these, there's a way to estimate online results from logs, thanks to the selection probabilities the bidder has logged since @sec-parsing-bid-requests-and-eligibility.
+
+The idea is **inverse propensity weighting**. The logs record, for each request, the action the logging policy took, the probability $\pi_0(a \mid x)$ it took it with, and the outcome $r$. A new policy $\pi$ would have taken the same action with probability $\pi(a \mid x)$. The expected reward of the new policy can be estimated by reweighting the logged outcomes:
+
+$$\hat{V}(\pi) = \frac{1}{N} \sum_{i=1}^{N} \frac{\pi(a_i \mid x_i)}{\pi_0(a_i \mid x_i)} \, r_i$$
+
+Requests where the new policy would have done what the old one did count for more, and requests where it would have done something different count for less, or not at all.
+
+This works well when the logging policy explored, as the crawl DSP's weighted random selection did, so every action had a reasonable probability. It works poorly when the new policy takes actions the old one almost never took, because the weights become huge and the estimate is dominated by a few rows. Clipping the weights and self-normalizing them, by dividing by the sum of the weights instead of $N$, trade a little bias for much less variance. When the estimate's confidence interval is too wide to decide anything, that's the signal to run an online test instead. We use this method for campaign selection in @sec-learned-campaign-selection.
+
+## Model Stability Across Training Runs
+
+Two models trained on almost the same data should make almost the same predictions. Often they don't. Retrain a LightGBM model on yesterday's window and today's, and individual predictions can move by a surprising amount, even when the overall metrics are unchanged. In a DSP, that **prediction churn** matters, because every change in a prediction is a change in a bid, and large daily swings make pacing harder, confuse advertisers watching their campaigns, and make it difficult to tell a real change from noise.
+
+Measure churn directly: score a fixed sample of requests with consecutive model versions, and track the distribution of the relative change in predictions, by segment. Some churn is expected and healthy, because the market moved. Churn that's large on stable segments, or that jumps from one day to the next, usually points to a problem: a feature whose coverage changed, a vocabulary that reshuffled, or a hyperparameter that makes the model unstable. Fixing seeds, using longer training windows, and averaging over several runs all reduce churn, and the right amount is a tradeoff against freshness.
+
+::: {.callout-tip title="Try it on the simulator"}
+Replay a simulated day of traffic through two install model versions, and compare their bids by exchange and the volume each would win. Then evaluate a new campaign selection policy offline with the logged propensities, and compare the estimate with the result of running that policy on the simulator, where the true outcome is known.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we set up offline evaluation for the walk DSP. Metrics are normalized, computed within campaigns, weighted by spend, and focused on the calibration of the values that set bids. Every evaluation is out of time and broken down by segment. Model changes sit on a ladder from routine retrains to new model forms, with more evaluation for each rung. Replay estimates how a new model would change bids and spend, inverse propensity weighting estimates how a new selection policy would perform from logged data, and churn measures how much predictions move between training runs.
+
+Offline evaluation tells us which models are worth trying. Before we can try them, the bidder has to serve several models on every request within its latency budget. In the next chapter, we make the bid path fast enough, measurably.

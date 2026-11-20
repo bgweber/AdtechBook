@@ -1,0 +1,86 @@
+# Personalized Creative Selection {#sec-personalized-creative-selection}
+
+The creative is what the player actually sees: a 15-second video of a farm growing, a playable demo of a match-3 level, an end card with a big install button. It changes click rates and install rates as much as almost anything else in the bid, and studios produce new creatives constantly, because creatives wear out. Yet in most DSPs, creative selection is the least sophisticated decision in the bid. The walk DSP chose creatives with Thompson sampling per campaign, which finds the creative that works best on average, and treats every new creative as unrelated to the ones before it.
+
+In this chapter, we will look at what breaks with per-campaign creative testing, and the data available to do better. We embed creatives from their content and from engagement, model a device's history with creatives, and measure fatigue per device and per creative. We then score campaigns and creatives jointly, explore in embedding space, measure creative impact with incrementality in mind, and report creative insights back to advertisers.
+
+## What Breaks with Per-Campaign Creative Testing
+
+Thompson sampling per campaign, from @sec-pricing-for-goals, answers one question: which of this campaign's creatives has the highest install rate across all the devices it's shown to? Three things are missing:
+
+- **Personalization.** The best creative on average isn't the best creative for every device. A player who finishes puzzle-style videos and skips narrative ones should see the puzzle-style creative, even if the narrative one wins on average.
+- **Sharing across creatives.** A new creative starts from a prior based on the campaign's other creatives, but nothing about what it contains. A new creative that's nearly identical to the current winner is treated like any other unknown.
+- **Sharing across campaigns.** What the DSP learns about which kinds of creatives work, such as short playables for puzzle games, stays inside each campaign.
+
+## Creative Engagement Data
+
+The signals for creative models come from the DSP's own impressions: impressions, video starts and quartiles, playable interactions, end card views and clicks, clicks, and the installs and post-install events attributed to each creative.
+
+One constraint is worth stating plainly: creative engagement exists only on the DSP's own impressions. MMPs report which channel won an install, not which creatives a device saw elsewhere. So a device's history with creatives is much sparser than the install and purchase histories used for pretraining in @sec-sequences-and-transformers, and many devices have none at all. Models have to work well without it, and use it when it's there.
+
+## Content Embeddings for Creatives
+
+Every creative can be described by what it contains, before it has a single impression. Extending the content embeddings from @sec-deep-models-with-embeddings to creatives:
+
+- **Video frames and end cards,** embedded with a pretrained vision or vision-language model, sampled at a few frames per second and pooled.
+- **Text and audio,** such as the call to action, captions, and voice-over, embedded with language and audio models.
+- **Playable metadata,** such as the mechanic it demonstrates and how long it runs.
+- **Structured attributes** alongside the embeddings: format, length, orientation, genre cues, and end card type.
+
+Content embeddings give every new creative a position in a shared space, near creatives that look and sound like it, so it can borrow what the DSP has learned about them.
+
+## Creative Embeddings Learned from Engagement
+
+Content says what a creative is, and engagement says how players respond to it. A two-tower model with a device tower and a creative tower, trained on engagement, such as completions, end card clicks, and installs, learns creative vectors where creatives that the same players respond to are close together, even when they look different.
+
+The two kinds of embedding work together. A new creative starts at a position predicted from its content embedding, and moves toward its engagement-based position as data arrives, for example by training the creative tower with the creative ID randomly dropped, so it learns to build a vector from content alone, as with apps in @sec-sequences-and-transformers.
+
+## A Device's Creative History
+
+For devices that have seen the DSP's ads before, their history with creatives is a strong signal. Creative events become tokens in the device sequence from @sec-sequences-and-transformers: the creative's embedding, plus the event type (impression, completion, end card click, install), plus an age band. Target attention between the candidate creative and the device's creative history then learns, for example, that a device which finishes puzzle-style videos and skips narrative ones should see the puzzle-style creative.
+
+Because this attention depends on the candidate creative, it runs online, per candidate. Keep it cheap: a short history of the device's last few dozen creative events, small embeddings, and only a few candidate creatives per campaign, as we'll see below.
+
+## Fatigue per Device and per Creative
+
+Creatives wear out at two levels.
+
+**Per device:** a player who has seen the same creative five times is less likely to respond to it a sixth time, and the same is true, more weakly, for creatives close to it in embedding space. Features for fatigue count how many times this device has seen this creative, and how many times it has seen creatives within a distance of it, with decay over time.
+
+**Per creative:** across the population, a creative's performance declines as more of its audience has seen it. Track each creative's install rate by age and by how many unique devices have seen it, and retire creatives whose performance has fallen below the campaign's other options, with a report to the advertiser so the creative team knows to replace it.
+
+## Joint Campaign and Creative Scoring
+
+The creative changes click and install rates, so the internal auction should score campaign and creative pairs, not pick a campaign first and attach a creative afterward. A campaign whose best creative for this device is excellent can beat one with a higher average install rate.
+
+Scoring every pair is expensive, so keep it affordable: retrieve campaigns first, as in @sec-learned-campaign-selection, then score a few creatives per retrieved campaign, such as the top three by a cheap creative score. Research on ranking ads and creatives together, rather than one after the other, points the same way.[^c36-parallel]
+
+## Exploring in Embedding Space
+
+Thompson sampling per creative explores each creative from scratch. **Contextual bandits** over creative embeddings explore more efficiently: linear Thompson sampling, or neural Thompson sampling, models the reward as a function of the device's and creative's features, with uncertainty over the model's weights. Exploration then spreads to similar creatives: showing one puzzle-style creative to a kind of device teaches the model about every puzzle-style creative for that kind of device.
+
+The practical issues are the same as before. Rewards are delayed, so the bandit updates on matured labels in batches. Exploration has a cost, which should be budgeted and measured. And the selection probabilities must be logged, so new policies can be evaluated offline with the methods from @sec-offline-evaluation-and-model-iteration.
+
+## Measuring Creative Impact
+
+Creative policies are tested like any other change, with A/B tests from @sec-shadow-mode-canaries-and-ab-tests. One trap is specific to creatives: some creatives win attribution without causing installs. A creative that gets accidental clicks, or that's shown mostly to players who were going to install anyway, can have an excellent attributed install rate and little lift. Check creative-level results against the incrementality measurements from @sec-measuring-incrementality, at least for the creatives that a new policy favors most.
+
+## Creative Insights for Advertisers
+
+The models that choose creatives also learn which creative attributes and embedding clusters drive installs and value, for which audiences. That's valuable to advertisers' creative teams. Report it as feedback: which attributes, such as length, format, or the first few seconds of gameplay shown, are associated with higher installs and higher value, which clusters of creatives are wearing out, and which kinds of devices respond to which styles.
+
+Generated creatives change the picture. Studios can now produce many variants of a creative quickly with generative tools, which is good for testing, and creates a cold-start problem at a new scale: hundreds of new creatives a week, each with no history. Content embeddings and exploration in embedding space are what make that volume usable.
+
+::: {.callout-tip title="Try it on the simulator"}
+Simulate creative engagement histories for devices with hidden creative preferences. Compare personalized creative selection, with content embeddings and a device's creative history, with per-campaign Thompson sampling, on installs and on true lift.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we chose creatives per device. Per-campaign testing finds the best creative on average and learns nothing across creatives, so we embedded creatives from their content and from engagement, added a device's creative history as tokens in its sequence, and measured fatigue per device and per creative. Campaigns and creatives are scored jointly within a budget, contextual bandits explore in embedding space, creative results are checked against incrementality, and what the models learn goes back to advertisers' creative teams.
+
+That completes the models of the state-of-the-art DSP. In the next chapter, we cover how to operate it: many model families, at scale, with automation and a learning loop from incidents.
+
+[^c36-parallel]: "Parallel Ranking of Ads and Creatives in Real-Time Advertising Systems," AAAI, 2024, arXiv:2312.12750, <https://arxiv.org/abs/2312.12750>

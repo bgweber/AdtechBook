@@ -1,0 +1,53 @@
+# Learned Campaign Selection {#sec-learned-campaign-selection}
+
+Every request the bidder sees could, in principle, be scored for every campaign. With a few campaigns, that's what the crawl and walk DSPs did: filter for eligibility, cap the candidates at a few dozen, score them all, and let the internal auction pick. As the DSP grows to thousands of campaigns, and its models grow to the deep rankers of Part IV, scoring everything stops being possible within the latency budget. The bidder needs to decide which campaigns are worth scoring before it scores them.
+
+That's a **retrieval** problem, the same one that recommendation systems solve when they narrow millions of items down to the few hundred worth ranking. Snapchat's ad serving, for example, uses learned embeddings and approximate nearest neighbor search to narrow millions of ads to hundreds of candidates before running more expensive ranking models.[^c35-intent] A DSP has far fewer campaigns than a social platform has ads, but the same idea applies at its scale.
+
+In this chapter, we will frame campaign selection as retrieval, train two-tower models for retrieval, and use predicted price to prune the candidate set. We then handle cold start for new campaigns, and evaluate new selection policies offline with the propensities the bidder has logged since Part II.
+
+## Campaign Selection as Retrieval
+
+In a two-stage design, a cheap **retrieval** stage picks a few dozen candidates from all eligible campaigns, and the expensive **ranking** stage, the conversion models, pricing, and the internal auction, scores only those. The retrieval stage doesn't need to be precise. It needs high **recall**: the campaign the full ranking would have chosen should almost always be among the candidates it passes on.
+
+The cap on candidates from @sec-serving-models-in-the-bid-path was a crude retrieval stage, based on each campaign's recent value in the segment. A learned retrieval model replaces it with one that knows about the device: which campaigns this device is likely to install, given its history.
+
+## Two-Tower Retrieval for Campaigns
+
+The two-tower model from @sec-sequences-and-transformers is a natural retrieval model. A device tower and a campaign tower are trained so that the dot product of their vectors scores how likely the device is to install the campaign's app. At bid time, the device's vector comes from the profile, the campaign vectors are in memory, and scoring every eligible campaign is a matrix-vector product: a few microseconds for thousands of campaigns. The top candidates by score go to ranking.
+
+Training for retrieval differs from training for affinity signals in a few ways:
+
+- **The objective is recall.** Evaluate on recall at $k$: the share of installs in held-out data where the installed campaign is among the device's top $k$ campaigns by score.
+- **Training data comes from installs across the market,** including non-attributed installs, not only the DSP's own wins, so retrieval isn't limited to campaigns the current ranking already likes.
+- **Popularity correction and in-batch negatives** work the same way as before, and matter even more, since retrieval should surface campaigns that fit the device, not just the most popular ones.
+
+At a few thousand campaigns, exact scoring is cheap enough that approximate nearest neighbor search isn't needed. At much larger catalogs, it is, as we note in @sec-conclusion.
+
+## Predicting Price to Prune the Candidate Set
+
+Retrieval scores relevance, but a campaign that's relevant and can't clear the floor is still wasted work. A second, cheap model predicts each candidate's likely media value from a few features, such as the campaign's recent value per impression in the segment and the device's affinity score, and drops candidates whose predicted value is below the floor, or far below the best candidate's. It's a learned version of the floor check in @sec-parsing-bid-requests-and-eligibility, and it removes candidates before any expensive model runs.
+
+## Cold Start for New Campaigns
+
+A new campaign has no installs, so a campaign tower trained on IDs can't place it. The fixes from @sec-sequences-and-transformers apply: train the campaign tower with the ID randomly dropped, so it can build a vector from the app's metadata and content embeddings alone, as in @sec-deep-models-with-embeddings. A new campaign then gets a reasonable vector on day one. Reserve a small share of retrieval slots for new campaigns as well, so they get enough traffic to learn from, even when their scores are uncertain.
+
+## Offline Policy Evaluation
+
+Changing how campaigns are selected changes which impressions the DSP buys, so it can't be evaluated by offline metrics on logged impressions alone. The propensities logged since @sec-parsing-bid-requests-and-eligibility make offline policy evaluation possible, with the inverse propensity weighting from @sec-offline-evaluation-and-model-iteration: reweight logged outcomes by the ratio of the new policy's probability of choosing each logged campaign to the logging policy's.
+
+The estimate is only reliable where the logging policy explored. The crawl DSP's weighted random selection explored widely, which is why it was worth starting with. Later policies, such as the internal auction, are more deterministic, so keep a small share of traffic with randomized selection, and log its propensities, to keep offline evaluation possible. Use the offline estimate to choose which policies are worth an online test, not to replace the test.
+
+::: {.callout-tip title="Try it on the simulator"}
+Train two-tower retrieval for campaigns on simulated installs, and measure recall at $k$ against the campaign the full ranking would choose. Compare it with weighted random selection and the walk candidate cap, offline with logged propensities and online on the simulator.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we replaced score-only selection with learned retrieval. A two-tower model scores every eligible campaign with one matrix-vector product, trained for recall on installs across the market, and a cheap price model prunes candidates that can't clear the floor. ID dropout and content embeddings handle new campaigns, and offline policy evaluation with logged propensities decides which selection policies are worth an online test.
+
+Choosing the campaign is half of choosing the ad. In the next chapter, we choose the creative for each device.
+
+[^c35-intent]: Ben Weber, "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, October 3, 2026, <https://bgweber.medium.com/pretrained-deep-learning-intent-signals-for-mobile-dsps-2eb1834c62db>

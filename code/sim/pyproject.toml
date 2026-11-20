@@ -1,0 +1,16 @@
+[project]
+name = "adsim"
+version = "0.1.0"
+description = "The simulated mobile ad market behind Machine Learning in Mobile AdTech"
+requires-python = ">=3.12"
+dependencies = ["numpy>=1.26", "pandas>=2.1", "pyarrow>=14"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools]
+packages = ["adsim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

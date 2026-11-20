@@ -1,0 +1,129 @@
+# From Clicks to Installs and Purchases {#sec-from-clicks-to-installs-and-purchases}
+
+The crawl DSP works. It bids, wins, logs, retrains every day, and spends safely. But it optimizes for clicks, and advertisers don't buy clicks. A game studio judges a DSP by the installs it delivers and by what those installs spend, and it will move budget to whichever channel delivers them more cheaply. No advertiser will scale budget on the crawl DSP, and its first CPI campaign, priced from segment install rates, is a stopgap.
+
+This is the first chapter of Part III, the walk stage, where we build a DSP that can compete for the goals advertisers actually buy. Moving from clicks to installs and purchases changes more than the label. Installs and purchases are rare, they arrive late, they come through an MMP rather than our own trackers, and they're attributed by rules we don't control. Most of the hard problems in this part start here.
+
+In this chapter, we will look at what breaks in the crawl DSP when advertisers want installs, revisit the goal types and what each requires a DSP to predict, and write down the install equation that splits installs into click-through and view-through paths. We then cover MMP postbacks and attribution windows, label delay, attributed and non-attributed data, pooled models and the limits advertisers put on them, and the move to tier-1 geos that purchase models need.
+
+## What Breaks at Crawl
+
+The crawl DSP's first CPI campaign valued a click as the target CPI times a smoothed install rate for its segment. That got the DSP buying installs quickly, but it has three problems that only get worse as the campaign scales.
+
+**Segment install rates are too coarse to price well.** Every click in a segment gets the same install rate, whether it comes from a device that installs a new puzzle game every week or one that has never installed anything. The click model distinguishes between impressions, and then the install rate averages that distinction away for the step that matters most.
+
+**Click optimization finds clicks, not installs.** The click model was trained to find impressions that get clicked. Some of the most clickable placements, such as small banners where taps are often accidental, produce clicks that rarely turn into installs. A CPC campaign is happy to buy them, and a CPI campaign priced from clicks overpays for them unless the segment rate catches the difference.
+
+**Click goals attract click fraud.** As we saw in @sec-parsing-bid-requests-and-eligibility, invalid traffic produces clicks cheaply. A model trained to predict clicks rewards it, and the blocklists are always a step behind. Install labels, which come through the MMP's fraud checks, are much harder to fake.
+
+The fix is to model installs directly, with features of the device, the supply, and the campaign, rather than layering a fixed rate on top of a click model. That needs install labels in volume, which is what the rest of this chapter is about.
+
+## Goal Types and What They Require
+
+In @sec-inside-a-demand-side-platform, we listed the common goal types in mobile UA and the predictions each requires. For the walk DSP, the important thing is what each goal means for labels: how rare they are, how late they arrive, and where they come from.
+
+| Goal | Label | Typical delay | Notes for modeling |
+|------|-------|---------------|--------------------|
+| CPI | Install | Minutes to days | The base of every other goal |
+| CPA | A named in-app event, such as a tutorial completion | Hours to days after install | Depends on which events the advertiser sends |
+| D7 ROAS | Revenue in the first 7 days | Up to 7 days after install | Most installers pay nothing; a few pay a lot |
+| D1 retention | Opened the app the day after install | About 1 day after install | Needs an event the advertiser sends |
+| Ad ROAS | Ad revenue the user generates | Days after install | Common for hypercasual games; needs ad revenue data |
+| Incremental CPI | Installs caused by the ad | Needs a holdout | Measured, not labeled per impression, in walk |
+
+: What each goal means for labels. {#tbl-c13-goal-labels tbl-colwidths="[16,30,20,34]"}
+
+Every goal builds on installs. A CPA or ROAS goal still needs the chance that an impression leads to an install, multiplied by the chance or value of what happens after it. So the walk DSP starts with install models, and adds purchase and value models on top of them in @sec-gradient-boosted-conversion-models. Incremental goals need the holdout from @sec-logging-at-bid-time, and we measure them in @sec-measuring-incrementality.
+
+## The Install Equation
+
+An impression can lead to an install in two ways. The user can click the ad and then install, which is a **click-through install**, or see the ad, not click, and install later, which, if the MMP credits it to the impression, is a **view-through install**. The chance that an impression leads to an attributed install is the sum of the two paths:
+
+$$P(\text{install}) = p_{\text{click}} \times p_{\text{install} \mid \text{click}} + (1 - p_{\text{click}}) \times p_{\text{install} \mid \text{view}}$$
+
+The click model from @sec-a-click-model already predicts $p_{\text{click}}$. The walk DSP adds a model for each of the other two terms, the install rate after a click and the install rate after an impression without a click.
+
+It's worth modeling and monitoring the two paths separately, for a few reasons.[^c13-transformers] They depend on different things: a click-through install depends mostly on whether the user meant to click and how good the store page is, while a view-through install depends on whether the ad left an impression and whether the user was already considering the game. They have different delays, since view-through installs are only credited within a shorter window, as we'll see below. They're treated differently by advertisers and MMPs, some of whom give view-through installs less credit or none at all. And they fail differently: a broken click tracker drops click-through installs to zero while view-through installs carry on, which looks like a model problem unless the two are tracked apart.
+
+The equation also shows why placements differ so much. Rewarded video has a high view-through share, because players watch the whole ad, often without clicking. A banner's installs come almost entirely from clicks. Pricing rewarded video on clicks alone, as the crawl DSP did, undervalues it.
+
+## MMP Postbacks and Attribution Windows
+
+Install and in-app event labels arrive as postbacks from the advertiser's MMP, as we saw in @sec-measurement-and-mmps. The crawl DSP had a minimal postback endpoint. The walk DSP needs the full version.
+
+An **install postback** tells the DSP that it was credited with an install. It carries the click ID or impression ID that won attribution, the install time, the touch type (click or view), and the time of the touch. An **in-app event postback** tells the DSP that a user it was credited with did something in the app, such as a purchase with a revenue amount, a tutorial completion, or a level reached, with the event time. Which events are sent, and whether revenue is included, is the advertiser's choice, configured in the MMP for each partner.
+
+Joining a postback to an impression uses the IDs our trackers created. A click-through install's postback carries our click ID, which joins to the click log and from there to the impression and the bid ledger. A view-through install's postback carries the impression ID, or a device ID and an impression time that identify our impression. In-app events join to the install, and from there back to the impression.
+
+Postbacks only arrive within **attribution windows**. An MMP credits an install to a click only if the install happens within the click-through window after the click, and to an impression only if it happens within the much shorter view-through window. Windows are set by the advertiser in its MMP, with defaults that are often around a week for clicks and a day for views.[^c13-af-windows] For the DSP, the windows set the upper bound on label delay: an impression whose window has closed without a postback is a confirmed negative.
+
+The windows are configuration, and configuration changes. Record each advertiser's windows, per MMP, with the date they took effect, and use the window that applied at the time of each impression when building labels.
+
+## Label Delay and When an Example Is Ready
+
+A click is final within an hour of an impression. An install is not. Most click-through installs happen within an hour or two of the click, but the tail stretches across the whole attribution window, and postbacks themselves can be delayed by the MMP's processing. Purchases are later still: a D7 revenue label isn't complete until seven days after the install, which can be more than a week after the impression.
+
+This creates a tradeoff for every training job:
+
+- **Wait for windows to close,** and train only on examples whose labels are final. The labels are right, but the newest training data is a week or more old, and the model learns about the market as it was, not as it is.
+- **Train on recent examples with incomplete labels,** and the model sees recent conversions that haven't arrived yet as negatives. It underpredicts, especially for whatever changed recently, such as a new campaign whose installs are still arriving.
+
+For walk, the right choice is mostly to wait. Pick a cutoff for each label, such as 72 hours after the impression for installs, based on the delay distribution in the logs: the share of installs that arrive within the cutoff should be very high, such as 95% or more. Train only on impressions older than the cutoff, and correct for the small share of installs that arrive later, either by scaling labels up by the known completion rate or by letting the calibration multiplier absorb it. For purchase and revenue labels, the cutoff is the end of the revenue window plus a margin for postback delay.
+
+What's lost by waiting is freshness, and that matters more as retraining gets more frequent. @sec-building-training-datasets builds training windows around these cutoffs, and @sec-retraining-and-real-time-learning covers methods that correct for delayed labels when models retrain every few hours.
+
+## Attributed vs. Non-Attributed Data
+
+Every postback a DSP receives about its own impressions is **attributed data**: the MMP credited the DSP with the install. Some advertisers also share **non-attributed data**: postbacks for installs and events credited to other channels, or to no channel at all.
+
+The two kinds of data support different uses:
+
+- **Attributed data is the label.** It's what the DSP is judged and often paid on, and it's the only data that ties an outcome to one of our impressions. Conversion models train on it.
+- **Non-attributed data is context about devices.** It tells us that a device installed a strategy game last week, or made a purchase in another app, even though our ads had nothing to do with it. That makes it valuable for features, such as a device's install history and spending habits, and later for pretraining models on device behavior in Part IV.
+
+Non-attributed data can't be used as labels for our impressions, because our impressions didn't cause it, at least as far as attribution goes. Using it that way would teach the model to predict installs that other channels were credited for. And it's not universal. Many advertisers don't share it, and those that do set terms for how it can be used. Store it separately from attributed postbacks, with the advertiser and the terms it was shared under, so every downstream use can check whether it's allowed.
+
+## Pooled Models and Per-Advertiser Restrictions
+
+The walk DSP trains one install model across all advertisers, rather than one per advertiser or per campaign. As we'll see in @sec-gradient-boosted-conversion-models, a pooled model learns much more than separate ones: a device that installs puzzle games is a good prospect for every puzzle game, and a new campaign starts with everything the model learned from the others.
+
+Pooling is also where data rights become concrete. As we covered in @sec-measurement-and-mmps, advertisers own their postback data, and their contracts with the DSP set how it can be used. Some allow pooled models trained on their data to benefit other advertisers. Some allow their data to be used only for their own campaigns. Some exclude certain events, such as purchase amounts, from any use beyond reporting.
+
+The pipeline has to enforce these terms, not just remember them:
+
+- **Tag every postback with its advertiser and the terms it was shared under,** at ingest.
+- **Filter training data by purpose.** A pooled model's training set includes only advertisers whose terms allow pooling. A per-advertiser model, or a per-advertiser calibration layer, can use data that a pooled model can't.
+- **Restrict features, not just rows.** A feature built from one advertiser's purchase data, such as a device's spend in that game, can't be used in a model that serves other advertisers, unless the terms allow it.
+- **Record what trained each model,** so the question "was this advertiser's data used in that model?" can be answered from metadata. We build this into dataset versioning and data governance in @sec-building-training-datasets.
+
+## Expanding to Tier-1 Geos and New Trading Locations
+
+The crawl DSP started in low-CPM geos, where impressions and clicks are cheap. Purchase models need payers, and payers are concentrated in tier-1 markets such as the US, Japan, South Korea, and Western Europe, where a much larger share of players spend money in games. A D7 ROAS model trained only on traffic from India will see very few purchases, and the purchases it does see won't look like those in the US.
+
+Expanding to tier-1 geos has three parts:
+
+- **Exchange and supply.** Turn on the new geos with the existing exchanges, at low QPS caps, and listen first, as in @sec-listening-before-bidding. Floors, volumes, formats, and devices will all look different.
+- **Trading locations.** As we saw in @sec-inside-a-demand-side-platform, bidders run close to the exchanges they serve, because network time comes out of the latency budget. US traffic is usually served from a US data center. Adding one is the first time the DSP's models have to be distributed to more than one location, which we come back to in @sec-shadow-mode-canaries-and-ab-tests.
+- **Models.** The models trained so far have seen almost no tier-1 traffic. Expect miscalibration at first, and new devices and apps that the models have never seen. Country features and the calibration multiplier from @sec-pricing-for-goals help, and the new geos start with conservative targets and budgets until they have enough data.
+
+## First-Time Pitfalls
+
+- **Postbacks are duplicated, retried, delayed, or lost.** MMPs retry postbacks that fail, and an endpoint that's down loses postbacks unless the MMP retries long enough. Make the endpoint idempotent on the postback's own ID, monitor its error rate and the delay from install to receipt, and know how to request a backfill from each MMP.
+- **Reinstalls and re-attributions.** A user who deletes a game and installs it again, or who is re-engaged by a retargeting campaign, can show up as a new install unless the postback fields that mark reinstalls and re-attributions are handled. For a user acquisition model, these usually shouldn't count as new installs.
+- **Windows that change silently.** An advertiser who shortens its view-through window changes the label distribution overnight. Store windows with effective dates, and alert on sudden changes in the view-through share.
+
+::: {.callout-tip title="Try it on the simulator"}
+Turn on postbacks and the tier-1 geo preset. Watch install labels arrive over the following days, and plot the share of each day's installs that have arrived by each hour since the impression. Then compare attributed installs with the true caused installs from the ground truth, by placement, and see how much of the view-through share was caused by the ads.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we moved from clicks to the goals advertisers buy. The crawl DSP's segment install rates were too coarse and its click optimization attracted clicks that don't install, so the walk DSP models installs directly. The install equation splits installs into click-through and view-through paths, each modeled and monitored on its own. Labels arrive as MMP postbacks within attribution windows, with delays that force a tradeoff between complete labels and fresh data, and we chose to wait for most labels to arrive. We separated attributed data, which is the label, from non-attributed data, which describes devices, enforced advertiser terms in pooled models, and expanded to the tier-1 geos that purchase models need.
+
+Install labels that arrive late, from a different system, and under different terms make building training data much harder than it was for clicks. In the next chapter, we build training datasets that are correct and reproducible with delayed labels.
+
+[^c13-transformers]: Ben Weber, "Transformers for Mobile User Acquisition," *AI Advances*, November 2026, <https://medium.com/ai-advances/transformers-for-mobile-user-acquisition-f3816d8b0c41>
+
+[^c13-af-windows]: AppsFlyer, "Attribution lookback windows," AppsFlyer support documentation.

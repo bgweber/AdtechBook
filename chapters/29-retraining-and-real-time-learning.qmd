@@ -1,0 +1,88 @@
+# Retraining and Real-Time Learning {#sec-retraining-and-real-time-learning}
+
+Markets move faster than models retrain. A new game launches and takes over a genre's audience, an exchange changes its auction, a holiday weekend changes who's playing, or a competitor changes how it bids. A model retrained once a day is always a little behind, and a model retrained once a week can be badly behind by the end of the week. Every DSP has to decide how fresh its models need to be, and what it's willing to pay, in compute and in risk, to keep them that fresh.
+
+"Real-time learning" is the phrase vendors use for the answer, and it means very different things depending on who's using it. Some mean retraining every few hours. Some mean features that update within seconds. Some mean models that update themselves continuously. Some mean a business that gets better with more data. This chapter separates them, because they have very different costs and risks.
+
+In this chapter, we will look at frequent retraining and real-time features, separate the five things real-time learning can mean, and cover the risks of learning fast, with guards against them. We then handle delayed feedback when models retrain every few hours, and build shared state for real-time features on the counter store from Part II.
+
+## Frequent Retraining and Real-Time Features
+
+The retraining thread has run through the book: daily in crawl, a few times a day in walk, and near-continuous in run. The leading platforms describe the far end of it. Moloco describes deploying models as often as every two hours, with real-time features that update the next prediction as soon as a user sees an ad or a competitor changes a bid.[^c29-moloco] Liftoff describes training hundreds of models a day on over a petabyte of new data.[^c29-liftoff] Meta describes its GEM foundation model as training continuously.[^c29-gem]
+
+Retraining every few hours is possible only when everything around it keeps up. The pipelines from @sec-pipelines-validation-and-publishing need to run end to end within the interval, validation and canaries need to be automated, since nobody can review a model every two hours, and the labels a model trains on need to be as recent as the model. The last one is the hardest, as we'll see below.
+
+## Real-Time Learning
+
+It helps to separate the five things "real-time learning" can mean, because vendors use the phrase loosely:
+
+1. **Frequent batch retraining,** from daily to every few hours. Moloco says it retrains as new signals arrive and deploys as often as every two hours, and Liftoff says it trains hundreds of models a day on over a petabyte of new data.[^c29-moloco][^c29-liftoff]
+2. **Real-time features,** updated within seconds of an impression or a win. The model doesn't change, but its inputs do. Moloco describes features that update the next prediction as soon as a user sees an ad or a competitor changes a bid.[^c29-moloco]
+3. **Fast-adapting layers on a slower model.** The calibration multiplier $\kappa$, per-campaign bias terms, the pacing multiplier $\gamma$, and creative bandits absorb drift between retrains. This is the practical sweet spot for a DSP, and most of it was built in Parts II and III.
+4. **Online training of the model itself,** where the model's weights update with each new example. FTRL logistic regression from @sec-a-click-model is the classic example,[^c29-mcmahan] continuous training of large models such as GEM is the modern one,[^c29-gem] and libraries such as GoMLX can fine-tune a model in a Go service on win and loss feedback.[^c29-golang]
+5. **Self-improving systems,** as described in earnings calls and product pages, where more advertisers and more data feed periodic model releases. AppLovin describes models that keep improving through periodic releases and more data, and Unity describes its Vector platform as self-learning and adaptive.[^c29-applovin][^c29-unity] These are claims about results, not methods, and should be read that way.
+
+<!-- TODO: check the AppLovin earnings call transcripts (R19, R20) before quoting or characterizing specific statements. -->
+
+For most DSPs, the order to invest in is the order above, starting from the third: fast-adapting layers first, then more frequent retraining, then real-time features, and online training of the model itself last.
+
+**The risks of learning fast.** The faster a system learns, the faster bad data reaches it. In online learning, a burst of bad labels or a broken feature changes the model immediately, with no validation step in between. Unity has described rebuilding its earlier system after it ingested inaccurate customer data in 2022.[^c29-unity] In one incident I've written about, false-positive labels from a small experiment drove a clearing-price feature upward, which pushed bids up and fed back into the feature.[^c29-incidents] The guards are the same at every level of speed:
+
+- **Filter outliers** before they reach the model, such as segments whose label rates jump far beyond their history.
+- **Handle delayed labels,** so recent examples aren't treated as negatives.
+- **Bound updates,** so no single interval can move the model or a multiplier more than a set amount.
+- **Roll back fast** to the last scheduled model, with the automated rollback from @sec-shadow-mode-canaries-and-ab-tests.
+
+## Delayed Feedback with Frequent Retraining
+
+In walk, we waited for each label's window to close before training on it. When models retrain every few hours, waiting a week for purchase labels throws away exactly the recent data that frequent retraining is for. But training on recent impressions without waiting means their installs and purchases haven't arrived yet, so they look like negatives, and the model underpredicts.
+
+Three published approaches correct for this:
+
+- **The delayed feedback model** models the conversion and the delay together, so an impression without a conversion yet is treated as "not converted so far" rather than "not converted".[^c29-chapelle]
+- **Elapsed-time sampling (ES-DFM)** corrects the training distribution for how long each example has been waiting, using importance weights.[^c29-esdfm]
+- **Real negatives (DEFER)** ingests examples first as unlabeled or fake negatives, and later ingests the real labels and real negatives, with a correction so the model stays unbiased.[^c29-defer]
+
+The simulator makes the bias easy to see, because it knows the true conversion rate. Train a model every few hours on recent impressions with naive labels, and its predictions fall below the true rate. Apply one of the corrections, and the gap closes.
+
+<!-- RESULT: calibration against the true rate for naive and corrected training with frequent retraining, from a fixed-seed run. -->
+
+## Shared State for Real-Time Features
+
+Real-time features build on the fleet-wide counter store from @sec-operating-the-first-dsp, which already holds spend per campaign and impressions per device for budgets and frequency caps. In run, it also holds features that change within seconds: how many of our impressions a device has seen in the last minute, whether it clicked one in the last hour, how a publisher's win rate has moved in the last five minutes.
+
+Streaming jobs update these counters from impression, win, click, and postback events as they arrive. The hard part is keeping training and serving consistent when features change this fast. A feature computed at bid time from a counter that was a few seconds stale is the value the model saw, so it's the value that's logged in the FeatureVector, and the value training uses. Recomputing it later from the event log, even as of the bid time, would give a fresher value than the bidder had, which is the skew from @sec-logging-at-bid-time all over again.
+
+::: {.callout-tip title="Try it on the simulator"}
+Shift the simulated market mid-day, for example by launching a new game that takes over a genre's audience. Compare a model retrained daily, the same model with a continuously updated $\kappa$, and an online-updated model, by their calibration against the true rates through the shift. Then retrain every few hours with naive labels and with a delayed feedback correction, and measure the bias each leaves.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we looked at keeping models current. "Real-time learning" covers five different things: frequent retraining, real-time features, fast-adapting layers, online training, and claims about self-improving systems, and the fast-adapting layers built in Parts II and III are the practical place to start. Learning fast also spreads bad data fast, so outlier filters, delayed label handling, bounded updates, and fast rollback guard every level. When models retrain every few hours, delayed feedback corrections replace waiting for labels, and real-time features come from a shared counter store, logged as the bidder saw them.
+
+Freshness matters most for predictions that move fastest, and the slowest labels belong to value. In the next chapter, we predict what an installed user will be worth.
+
+[^c29-moloco]: Moloco, "Inside Moloco's CARA: the AI that compounds," Moloco blog, 2026, <https://www.moloco.com/blog/inside-molocos-cara-the-ai-that-compounds>
+
+[^c29-liftoff]: "How Liftoff improved conversion performance and reduced infrastructure costs with Cortex using AWS Graviton," AWS for Industries blog, March 31, 2026, <https://aws.amazon.com/blogs/industries/liftoff-improved-conversion-performance-and-reduced-infrastructure-costs-with-cortex-using-aws-graviton>
+
+[^c29-gem]: Huayu Li, Xiaoyi Liu, Jade Nie, et al., "Meta's Generative Ads Model (GEM): The Central Brain Accelerating Ads Recommendation AI Innovation," Engineering at Meta, November 10, 2025, <https://engineering.fb.com/2025/11/10/ml-applications/metas-generative-ads-model-gem-the-central-brain-accelerating-ads-recommendation-ai-innovation/>
+
+[^c29-mcmahan]: H. Brendan McMahan et al., "Ad Click Prediction: a View from the Trenches," KDD, 2013, <https://research.google/pubs/ad-click-prediction-a-view-from-the-trenches/>
+
+[^c29-golang]: Ben Weber, "Options for ML Serving with Golang," *Medium*, May 7, 2026, <https://medium.com/@bgweber/options-for-ml-serving-with-golang-3b1afa3a6182>
+
+[^c29-applovin]: AppLovin, Q1 2026 earnings call transcript, May 6, 2026, via The Motley Fool, <https://www.fool.com/earnings/call-transcripts/2026/05/07/applovin-app-q1-2026-earnings-transcript>
+
+[^c29-unity]: Allison Schiff, "Unity's AI Ad Platform Is Out Of Beta After A Complete Rebuild," *AdExchanger*, May 7, 2025, <https://adexchanger.com/gaming/unitys-ai-ad-platform-is-out-of-beta-after-a-complete-rebuild/>
+
+[^c29-incidents]: Ben Weber, "Machine Learning Incidents in AdTech," *Towards Data Science*, January 29, 2025, <https://medium.com/data-science/machine-learning-incidents-in-adtech-e3f48d858054>
+
+[^c29-chapelle]: Olivier Chapelle, "Modeling Delayed Feedback in Display Advertising," KDD, 2014.
+
+[^c29-esdfm]: Jia-Qi Yang et al., "Capturing Delayed Feedback in Conversion Rate Prediction via Elapsed-Time Sampling," AAAI, 2021, <https://arxiv.org/abs/2012.03245>
+
+[^c29-defer]: Siyu Gu et al., "Real Negatives Matter: Continuous Training with Real Negatives for Delayed Feedback Modeling," KDD, 2021, <https://arxiv.org/abs/2104.14121>

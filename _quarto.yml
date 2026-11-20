@@ -25,52 +25,56 @@ book:
         - chapters/02-the-rtb-ecosystem.qmd
         - chapters/02b-measurement-and-mmps.qmd
         - chapters/03-inside-a-demand-side-platform.qmd
-    - part: "The Bid Path"
+    - part: parts/part-2-first-dsp.qmd
       chapters:
-        - chapters/05-data-sources-and-labels.qmd
-        - chapters/06-parsing-bid-requests.qmd
-        - chapters/07-eligibility-and-candidate-selection.qmd
-        - chapters/08-features-and-tensors.qmd
-        - chapters/09-from-predictions-to-bids.qmd
-    - part: "The Model Workflow"
+        - chapters/05-starting-from-scratch.qmd
+        - chapters/06-parsing-bid-requests-and-eligibility.qmd
+        - chapters/07-listening-before-bidding.qmd
+        - chapters/08-logging-at-bid-time.qmd
+        - chapters/09-a-click-model.qmd
+        - chapters/10-pricing-a-click.qmd
+        - chapters/11-shipping-the-first-model.qmd
+        - chapters/12-operating-the-first-dsp.qmd
+    - part: parts/part-3-competitive-dsp.qmd
       chapters:
-        - chapters/09b-feature-logging-and-feature-stores.qmd
-        - chapters/10-building-training-datasets.qmd
-        - chapters/11-training-pipelines.qmd
-        - chapters/12-offline-evaluation-and-model-iteration.qmd
-        - chapters/13-model-validation-and-publishing.qmd
-    - part: "Serving and Launching Models"
+        - chapters/13-from-clicks-to-installs-and-purchases.qmd
+        - chapters/14-building-training-datasets.qmd
+        - chapters/15-gradient-boosted-conversion-models.qmd
+        - chapters/16-offline-evaluation-and-model-iteration.qmd
+        - chapters/17-serving-models-in-the-bid-path.qmd
+        - chapters/18-pipelines-validation-and-publishing.qmd
+        - chapters/19-shadow-mode-canaries-and-ab-tests.qmd
+        - chapters/20-win-rate-models-and-bid-shading.qmd
+        - chapters/21-pricing-for-goals.qmd
+        - chapters/22-basic-pacing.qmd
+        - chapters/23-measuring-incrementality.qmd
+        - chapters/24-operating-a-competitive-dsp.qmd
+    - part: parts/part-4-state-of-the-art-dsp.qmd
       chapters:
-        - chapters/14-model-serving-options.qmd
-        - chapters/15-in-process-inference-in-go.qmd
-        - chapters/16-technical-specs.qmd
-        - chapters/17-shadow-mode-and-canaries.qmd
-        - chapters/18-ab-testing-in-an-auction.qmd
-    - part: "Operating Models in Production"
+        - chapters/25-where-trees-stop.qmd
+        - chapters/26-deep-models-with-embeddings.qmd
+        - chapters/27-sequences-and-transformers.qmd
+        - chapters/28-serving-deep-models.qmd
+        - chapters/29-retraining-and-real-time-learning.qmd
+        - chapters/30-value-prediction.qmd
+        - chapters/31-win-rate-curves-and-the-winners-curse.qmd
+        - chapters/32-uplift-modeling.qmd
+        - chapters/33-the-unified-pricing-equation.qmd
+        - chapters/34-pacing-with-reinforcement-learning.qmd
+        - chapters/35-learned-campaign-selection.qmd
+        - chapters/36-personalized-creative-selection.qmd
+        - chapters/37-operating-at-scale.qmd
+    - part: parts/part-5-looking-ahead.qmd
       chapters:
-        - chapters/19-monitoring-and-parity.qmd
-        - chapters/20-fallbacks-playbooks-and-on-call.qmd
-        - chapters/21-root-cause-analysis.qmd
-    - part: "From Simple to State of the Art"
-      chapters:
-        - chapters/22-conversion-prediction.qmd
-        - chapters/23-sequences-and-transformers.qmd
-        - chapters/24-value-prediction.qmd
-        - chapters/24b-incrementality-and-uplift.qmd
-        - chapters/25-win-rate-and-bid-shading.qmd
-        - chapters/26-campaign-selection.qmd
-        - chapters/27-creative-selection.qmd
-        - chapters/28-pacing-and-budget-control.qmd
-    - part: "Looking Ahead"
-      chapters:
-        - chapters/29-ios-skan-and-signal-loss.qmd
-        - chapters/30-building-the-ml-team.qmd
-        - chapters/31-conclusion.qmd
+        - chapters/38-ios-and-contextual-signals.qmd
+        - chapters/39-building-the-ml-team.qmd
+        - chapters/40-conclusion.qmd
   appendices:
     - appendices/a-glossary.qmd
     - appendices/b-openrtb-fields.qmd
     - appendices/c-templates.qmd
     - appendices/d-further-reading.qmd
+    - appendices/e-simulated-world.qmd
   sidebar:
     style: docked
     tools:

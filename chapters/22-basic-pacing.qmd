@@ -1,0 +1,122 @@
+# Basic Pacing {#sec-basic-pacing}
+
+A campaign has a budget and a goal, and it wants both met: spend the daily budget, spread across the day, at or better than the target CPI or ROAS. Those two pull against each other. Bidding higher spends more and wins more installs, but at a higher cost per install. Bidding lower meets the target easily and leaves budget unspent. Pacing is the system that sets this balance, continuously, for every campaign.
+
+The crawl DSP paced with throttling: it bid on a fraction of each campaign's eligible requests, adjusted every few minutes to follow a spend curve. That spreads spend, but it can't trade price against volume, and it drops requests at random rather than dropping the least valuable ones. And in many legacy DSPs, the real pacing system is manual: account managers raise overbids when a campaign underspends, as we saw in @sec-inside-a-demand-side-platform.
+
+In this chapter, we will replace throttling and manual levers with a controller on the pacing multiplier $\gamma$. We cover why pacing matters, why we pace by modifying bids rather than dropping requests, and how a PI controller with a forecast from the win model sets $\gamma$. We then pace under CPI and ROAS goals, replace manual overbids, handle new campaigns and weekly budgets, and monitor pacing.
+
+<!-- NOTE: Ben's pacing drafts (patches 0001 to 0003) aren't in the repo. This chapter is drafted from the TOC, Chapter 4, and the win rate draft; reconcile with the patches when they're available. -->
+
+## Why Pacing Matters
+
+Without pacing, campaigns fail in three ways:
+
+- **Underspend.** The campaign bids too low to win enough impressions, and ends the day with budget left. The advertiser wanted that spend, and moves it to another channel.
+- **Overspend.** The campaign wins too much, too fast, and hits its daily cap. Budgets are caps, so it doesn't overspend in total, but everything after the cap is lost reach.
+- **Spending too early.** Even a campaign that spends exactly its budget can spend it badly: all of it in the first hours of the day, on whatever traffic arrives then, in whichever time zones are awake.
+
+Pacing problems are also model problems. A campaign that spends its whole budget at 3:00 in the morning trains the models on one slice of traffic, and an advertiser who sees erratic delivery adds manual levers that make the data worse.
+
+## Throttling vs. Bid Modification
+
+There are two ways to slow a campaign down. **Throttling** skips a share of eligible requests. **Bid modification** scales the campaign's value by a multiplier $\gamma$ before shading, so it bids lower everywhere.
+
+Bid modification is better, for a reason that comes straight from the auction. When $\gamma$ falls, the campaign bids less on every request, and it loses first where its bids were marginal: the impressions where competition was close to its value, which are the ones with the least surplus. It keeps winning where it had a large margin. Throttling, in contrast, drops requests at random, so it gives up valuable and marginal impressions in equal measure. For the same spend, a campaign paced by bid modification gets more value.
+
+Bid modification also works upward. When a campaign is behind, $\gamma$ above 1 raises its bids, so it wins more of the impressions it was narrowly losing. Throttling can only stop skipping requests, and once it bids on all of them, it has nothing left.
+
+The cost is that bid modification needs the win model. Without it, a change in $\gamma$ has an unknown effect on spend, which is why crawl throttled. Throttling stays as a backstop: when a campaign is far ahead even at the lowest $\gamma$ allowed, it skips requests.
+
+## PI Controllers and Feedforward from a Replay Forecast
+
+The pacing controller is a **second fast-adapting layer**, alongside the calibration multiplier from @sec-pricing-for-goals. The models retrain on a schedule, and the controller reacts within minutes.
+
+Every few minutes, the controller compares the campaign's actual spend with its plan, and adjusts $\gamma$. A **proportional-integral (PI) controller** does this with two terms: one proportional to the current error, and one to the error accumulated over time. Because spend responds to $\gamma$ multiplicatively, the controller works in log space:
+
+$$e_t = \ln\frac{\text{planned spend}_t}{\text{actual spend}_t}, \qquad \ln \gamma_{t+1} = \ln \gamma_0 + K_p\, e_t + K_i \sum_{\tau \le t} e_\tau$$
+
+where $e_t$ is the error over the last interval, $\gamma_0$ is the starting value, and $K_p$ and $K_i$ are the gains. Spend is measured over a short window, such as the last 15 minutes, against the plan for the same window. The plan is shaped like the campaign's eligible traffic over the day, as with throttling.
+
+Two things make the controller stable:
+
+- **The gain from spend elasticity.** As we'll see in the next section, the win model predicts how much spend changes when $\gamma$ changes. With that elasticity $\varepsilon$, a proportional gain of about $1/\varepsilon$ corrects most of an error in one step without overshooting. The integral gain is much smaller, and removes persistent offsets.
+- **A feedforward starting point.** Rather than starting each day at $\gamma_0 = 1$ and waiting for the controller to find its way, start from a forecast: replay a recent day of the campaign's eligible requests through the pricing path at different values of $\gamma$, and pick the one whose forecast spend matches the budget. The controller then only has to correct the forecast's error.
+
+Bound $\gamma$, for example between 0.3 and 2, and bound how much it can change per step. A controller that pushes $\gamma$ to 10 to make up for a broken campaign is a runaway bid with extra steps.
+
+## Pacing with the Win Model
+
+The win model is also the core of spend forecasting. If we know the win rate at the bid we would place for each request, and how many requests a campaign will see, we can predict wins, spend, and conversions for any pacing multiplier before bidding. For a campaign that expects $R$ eligible requests over a period, and a **pacing multiplier** $\gamma$ that scales its values up or down:
+
+$$\hat{N}_{wins}(\gamma) = R\;\mathbb{E}_x\big[W(b^*_\gamma \mid x)\big]$$
+
+$$\hat{S}(\gamma) = R\;\mathbb{E}_x\big[b^*_\gamma\,W(b^*_\gamma \mid x)\,p_{clear}(x)\big]$$
+
+$$\hat{N}_{installs}(\gamma) = R\;\mathbb{E}_x\big[W(b^*_\gamma \mid x)\,p_{clear}(x)\,p_{install}(x)\big]$$
+
+where $b^*_\gamma$ is the shaded bid when the value is scaled by $\gamma$, and the expectations are averages over a recent sample of requests. These are the forecasts that the pacing controllers in this chapter solve against the remaining budget. @fig-c25-pacing shows them for one campaign.
+
+![Forecast daily wins and spend as the pacing multiplier changes, for a campaign that sees ten million eligible requests a day. Spend rises faster than wins, because a higher multiplier both raises the price of each win and wins more often. That faster growth is the spend elasticity that sets the pacing controller's gain.](../images/winrate-pacing-forecast.png){#fig-c25-pacing width="100%"}
+
+Two details connect the models. First, the spend elasticity, $\varepsilon = \partial \ln \hat{S} / \partial \ln \gamma$, comes straight from the win model, and sets a stable gain for the pacing controller, $K_p \approx 1/\varepsilon$. For the campaign in the figure, $\varepsilon$ is about 1.2 at $\gamma = 1$. For the single request in the shading example, it's about 2. The campaign's elasticity is lower, because many of its requests sit on flat parts of their win rate curves, where small changes in the bid barely change the win rate. Second, a target win rate can serve as a pacing heuristic of its own, raising bids until the forecast win rate meets a goal, but it ignores value. Pacing on the forecast spend from value-based shading spends the same budget on better impressions.
+
+One caution applies when reading pacing results. When $\gamma$ rises, the campaign wins more on segments that were previously out of reach, which are often cheaper and lower in value. Overall cost per install can then get worse even while it improves within every segment, because the mix of segments changed. This is an example of Simpson's paradox, and it's why pacing changes should be evaluated within segments as well as overall.
+
+## Pacing Under CPI and ROAS Constraints
+
+Spending the budget isn't enough. The campaign also has a goal. Raising $\gamma$ to spend more raises bids above the advertiser value, which spends more per install, so at some point spending the budget means missing the target.
+
+The walk DSP treats the goal as a constraint. Two multipliers are computed for each campaign: $\gamma_{\text{budget}}$, from the spend controller, and $\gamma_{\text{goal}}$, from a second controller that compares the campaign's realized CPI or ROAS with its target. The campaign bids with the smaller of the two:
+
+$$\gamma = \min(\gamma_{\text{budget}}, \gamma_{\text{goal}})$$
+
+When the campaign can spend its budget within its goal, the budget controller sets $\gamma$. When it can't, the goal controller holds it back, and the campaign underspends rather than missing its target. Which one should win is the advertiser's choice, and @sec-the-unified-pricing-equation adds campaigns that prefer budget priority.
+
+The goal controller has a problem the spend controller doesn't: its input is delayed. Spend is known within minutes, but installs take hours to days, and revenue longer. So the two controllers run on different loops. The spend controller is the fast loop, every few minutes. The goal controller is a slow loop, updated a few times a day from matured labels, using predicted outcomes for recent impressions and correcting as real ones arrive.
+
+## Replacing Manual Overbids
+
+In @sec-inside-a-demand-side-platform, we saw how manual overbids accumulate: an account manager raises a campaign's bids to hit a spend target, the campaign starts depending on them, and removing one drops spend. Over time, a DSP can end up with so many manual levers that nobody knows what the system would do without them, and the data the models train on is shaped by them.
+
+A pacing controller is the bounded, automated replacement for most overbids, because it does what overbids were used for: raising bids when a campaign needs to spend more. Migrating from one to the other takes a few steps:
+
+1. **Log overbids,** as a separate term in the bid ledger, so their effect is visible and the win model can exclude or account for them, as in @sec-win-rate-and-bid-shading.
+2. **Cap them,** so no new overbid can exceed a limit, and existing ones are brought down to it.
+3. **Move spend control into $\gamma$.** Turn on the controller for the campaign with its overbid still in place, then lower the overbid in steps while the controller makes up the difference.
+4. **Retire them.** When the overbid reaches 1, remove it, and leave the campaign to the controller.
+
+Some manual control remains legitimate, such as a deliberate push for a launch week. That belongs in the campaign's budget and goal, where the controller can act on it, not in a multiplier that bypasses the pricing.
+
+## New Campaigns and Weekly Budgets
+
+**New campaigns** have no spend history and uncertain predictions. Start them from a feedforward forecast built from similar campaigns' traffic, with a conservative $\gamma$, and let the controller ramp up over the first days rather than chasing the full budget on day one. A ramp also limits the cost of a misconfigured campaign before anyone notices.
+
+**Weekly budgets** give the controller flexibility. A campaign with a weekly budget can spend more on days with better traffic and less on worse ones, as long as the week adds up. A simple approach plans each day's budget from the remaining weekly budget and the forecast value of each remaining day, and replans daily.
+
+## Monitoring Pacing
+
+Pacing gets its own dashboard panels and alerts:
+
+- **Spend against plan,** for each campaign, through the day.
+- **$\gamma$ over time,** with its bounds. A campaign pinned at the upper bound for hours can't spend its budget at any allowed price, and needs a person to look at its targeting, goal, or creatives.
+- **Which controller is binding:** budget or goal. A campaign whose goal controller binds all day is underspending to protect its target.
+- **Controller saturation and oscillation:** $\gamma$ swinging between bounds means the gain is too high.
+
+## First-Time Pitfalls
+
+- **Controller windup at the start of the day.** The integral term accumulates error while a campaign can't spend, such as overnight in its geo, and then overshoots when traffic arrives. Bound the integral, reset or decay it daily, and ramp $\gamma$ at the start of the day.
+- **A spend spike when the day resets.** Every campaign starts the day with a full budget and a fresh controller. Stagger resets, or carry $\gamma$ over from the previous day's end.
+- **Budget edits mid-day.** When an advertiser changes a budget during the day, decide whether the plan resets or continues from the spend so far, and test both cases.
+
+::: {.callout-tip title="Try it on the simulator"}
+Pace a campaign through a simulated day with the PI controller, starting from the replay forecast, and plot spend against plan and $\gamma$ over the day. Then give a second campaign a manual overbid, migrate it to the controller in steps, and compare its spend and CPI before and after.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we replaced throttling and manual levers with a controller on the pacing multiplier $\gamma$. Bid modification gives up the least valuable impressions first, so it beats throttling for the same spend. A PI controller in log space, with a gain from the win model's spend elasticity and a feedforward start from a replay forecast, keeps spend on plan. A slower goal controller holds bids back when spending the budget would miss the target, overbids migrate into the controller in steps, and new campaigns and weekly budgets get their own handling, with pacing monitored like any model.
+
+Pacing and pricing now work toward the advertiser's attributed goals. But attributed results include installs that would have happened anyway. In the next chapter, we measure how many installs the DSP actually causes.

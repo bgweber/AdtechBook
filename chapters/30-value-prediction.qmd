@@ -1,0 +1,66 @@
+# Value Prediction {#sec-value-prediction}
+
+For a ROAS campaign, an install isn't worth a fixed amount. One new player in Cozy Farm Tycoon never spends anything, another buys a starter pack in the first hour, and a third spends hundreds of dollars over the first week. The advertiser's goal is revenue per dollar spent, so the DSP has to predict which kind of player each impression is likely to bring, and bid accordingly. Walk added a first value model with LightGBM in @sec-gradient-boosted-conversion-models. Run makes value a first-class prediction, with deep models, better losses for heavy-tailed revenue, and models for the other value-based goals: retention and ad revenue.
+
+As we said in @sec-introduction, long-term lifetime value modeling is usually the studio's job, not the DSP's. The studio has the full revenue history of its players and sets its D7 targets from its own long-term curves. The DSP's job is to predict the short-window value that its goals are measured on, as accurately as it can, from the moment of the impression.
+
+In this chapter, we will define value labels, model sparse, long-tailed revenue, and build D1 retention models and ad revenue models for hypercasual games. We close with how to evaluate value models, where the usual classification metrics don't apply.
+
+## LTV Labels
+
+Value labels come from in-app event postbacks: purchase events with revenue, joined to attributed installs, as in @sec-building-training-datasets. The common labels are:
+
+- **D7 revenue:** total purchase revenue in the first seven days after install. It's the most common ROAS goal window, because it balances signal against delay.
+- **Longer windows,** such as D30 revenue, which are closer to long-term value but take a month to mature, so models trained on them are always more than a month behind.
+- **Studio-provided multipliers.** Some studios share a multiplier between D7 and longer-term revenue, from their own cohort curves, so a campaign judged on D7 can be priced on expected long-term value. The multiplier is the studio's, and the DSP applies it to its D7 prediction rather than modeling D365 itself.
+
+Revenue arrives in local currencies, sometimes net of app store fees and sometimes not, depending on how the advertiser configured its MMP. Normalize currency at ingest, and record per advertiser whether revenue is gross or net, because a model pooled across advertisers will otherwise learn that some games' players spend 30% less.
+
+## Sparse, Long-Tailed Revenue
+
+Most installers never pay, and of those who do, a few pay far more than the rest. A model trained with squared error on raw revenue is dominated by the largest payers, and one trained only on payers ignores the fact that most installs are worth nothing. Three approaches handle this well:
+
+- **Two-part (hurdle) models:** a classifier for the probability of paying, and a regression for spend given payment, trained only on payers, often on log revenue. Expected value is the product. Each part is easy to evaluate on its own.
+- **Tweedie and similar losses,** which model a point mass at zero and a continuous tail in one model, as with LightGBM in walk.
+- **Zero-inflated lognormal (ZILN) loss** for deep models, which predicts the probability of paying and the parameters of a lognormal spend distribution in one network, and gives a full distribution of value rather than a point estimate.[^c30-ziln]
+
+In run, value models are heads on the shared base from @sec-deep-models-with-embeddings, trained over every impression by multiplying through the funnel, or LightGBM models that use the transformer's purchase and spend head outputs as features, in Design A. Non-attributed purchase data is especially valuable here, because spending behavior carries across apps: a device that spends heavily in three strategy games is a much better prospect for a fourth than its install history alone would suggest.[^c30-intent]
+
+Capping revenue labels, for example at a high percentile per app, reduces the influence of a few extreme payers on training. Cap for training, not for evaluation, and check that the cap doesn't bias predicted totals.
+
+## D1 Retention Models
+
+Some advertisers, especially for games that monetize later or through ads, buy retention: installs from players who come back the next day. The label is whether the installed user opened the app on day one after install, which requires the advertiser to send a session or retention event through its MMP.
+
+Retention is easier to model than revenue. It's binary, much more common than paying, and it matures in a day or two. A D1 retention head, or a LightGBM model on installs, is trained like the install models, and enters the advertiser value as $P(\text{install}) \times P(\text{D1} \mid \text{install})$. It's also a useful feature for value models, since players who come back are the ones who eventually pay.
+
+## Ad Revenue ROAS for Hypercasual Games
+
+Hypercasual games earn most of their revenue from ads shown to their players, not from purchases. Their advertisers judge campaigns on ad revenue ROAS: the ad revenue their new players generate, divided by what they cost.
+
+Ad revenue labels come from impression-level ad revenue that the advertiser's mediation platform reports, shared with the DSP through the MMP where the advertiser chooses to. Ad revenue behaves differently from purchase revenue. Almost every retained player generates some, so it's much less sparse, and it depends mostly on how long and how often the player plays, and on the player's country, which sets the price of the ads they see. Models for it lean on retention and engagement signals, and on geo, and are usually regression models on log revenue rather than hurdle models. A player's ad revenue is also part of the same market the DSP buys in, so it moves with ad prices.
+
+## Evaluating Value Models
+
+Value models need different evaluation from classifiers:
+
+- **Calibration of predicted revenue,** as the ratio of predicted to realized total revenue, by campaign, country, and decile of predicted value. The decile view matters most: a model can be calibrated overall and badly off at the top, where the money is.
+- **Ranking by value,** with a cumulative gain curve: sort installs by predicted value, and plot the share of total revenue captured by the top fraction. Normalized Gini summarizes the curve in one number.
+- **The product with installs.** For bidding, what matters is the calibration of $P(\text{install}) \times E[\text{value} \mid \text{install}]$ by bid range, as in @sec-pricing-for-goals.
+- **Enough days.** A few large payers can swing any revenue metric, so evaluate over enough days, and report confidence intervals from a bootstrap over users.
+
+::: {.callout-tip title="Try it on the simulator"}
+Train a two-part value model and a ZILN head on simulated installs and purchases. Compare predicted D7 revenue with the true expected revenue from the ground truth, by decile and by country, and plot the cumulative gain curves of both models.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we predicted what installs are worth. D7 revenue labels, with studio-provided multipliers for longer horizons, come from purchase postbacks normalized for currency and fees. Two-part models, Tweedie losses, and ZILN handle sparse, heavy-tailed revenue, with non-attributed purchase signals from pretraining. D1 retention and ad revenue models cover the other value-based goals, and value models are evaluated on calibration by decile, ranking, and the product with install predictions.
+
+With value predicted well, the next place to improve the bid is the auction itself. In the next chapter, we predict the whole win rate curve, explore it safely, and correct for the winner's curse.
+
+[^c30-ziln]: Xiaojing Wang, Tianqi Liu, and Jingang Miao, "A Deep Probabilistic Model for Customer Lifetime Value Prediction," arXiv:1912.07753, 2019.
+
+[^c30-intent]: Ben Weber, "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, October 3, 2026, <https://bgweber.medium.com/pretrained-deep-learning-intent-signals-for-mobile-dsps-2eb1834c62db>

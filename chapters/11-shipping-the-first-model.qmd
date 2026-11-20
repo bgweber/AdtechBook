@@ -1,0 +1,144 @@
+# Shipping the First Model {#sec-shipping-the-first-model}
+
+A model that lives in a notebook doesn't bid. Getting it into the bidder means a training job that runs on its own every day, an artifact the bidder can load, a way to replace the running model without restarting, and a record of which model priced every bid. None of this is hard on its own, but each piece is easy to get slightly wrong, and the mistakes compound. A model trained with one hash seed and served with another, or loaded before it's warmed up, or swapped in at midnight with nobody watching, can cost more than the model will ever earn.
+
+The goal for crawl is a path from training script to bidder that's simple, versioned from the start, and tested where it matters most: at the boundary between Python and Go, where the same features have to be computed the same way. In Part III, we replace most of these pieces with a pipeline, a model registry, and canary deploys. The habits we build here carry over.
+
+In this chapter, we will train the click model end to end in a daily Python job, package it as a versioned artifact with a pointer to the current champion, and load, warm up, and hot-swap it in the Go bidder. We log the model version with every bid, set up a manual deploy checklist and deploy windows, walk through the complete crawl bid path in Go, and test the path with unit tests, a golden-file parity test, and a smoke test.
+
+## Training a Baseline End to End in Python
+
+The first training pipeline is one script that runs once a day, on a schedule, with no manual steps. It does four things:
+
+1. **Build examples.** Join the previous days' impressions, bid ledger records, and clicks into click examples, as in @sec-a-click-model, skipping any impression whose click window hasn't closed and any row from invalid traffic.
+2. **Train.** Train the logistic regression model with FTRL on the most recent days, for example the last 14, holding out the most recent full day for evaluation.
+3. **Evaluate.** Compute log loss, AUC, and calibration on the held-out day, overall and by exchange and placement, and compare them with the current champion on the same day.
+4. **Write an artifact.** If the model passes its checks, write it to a new versioned location in object storage.
+
+A single machine is enough at crawl volumes. FTRL reads examples as a stream and keeps two numbers per bucket, so even billions of rows fit comfortably. When the data outgrows one machine, the example-building step moves to Spark first, since that's where most of the time goes, and training follows later if it needs to.
+
+Run the script with the same code, container, and dependency versions every day, and record them with each artifact. In crawl, a scheduler such as cron or a managed equivalent is enough. We move to a proper orchestrator in @sec-pipelines-validation-and-publishing, when there are several models and their jobs depend on each other.
+
+## Packaging the Model Artifact
+
+Each training run writes a **bundle**: everything the bidder needs to use the model, in one place.
+
+- **Weights:** the nonzero weights, stored sparsely as bucket index and value.
+- **Hash settings:** the hash algorithm, seed, and number of buckets.
+- **Feature specification:** the list of features and crosses, the numeric bucket boundaries, and the FeatureVector schema version the model expects.
+- **Corrections:** the negative downsampling rate, so the bidder can correct predictions as in @sec-a-click-model.
+- **Metadata:** the training window, the code commit and container version that built it, the evaluation metrics, and a version ID.
+- **Golden vectors:** a small set of FeatureVectors with the exact hashed indexes and predictions the model should produce, for the parity test later in this chapter.
+
+Start simple with versioning. Write each bundle to its own path in object storage, named by version, such as `models/click/2026-11-19-0600/`, and never overwrite a bundle once it's written. A separate small file, the **champion pointer**, names the version the bidder should use. Deploying a model means changing the pointer, and rolling back means changing it back. The old bundles are still there, so a rollback is as fast as a deploy. In @sec-pipelines-validation-and-publishing, we replace the pointer file with a model registry, where the champion is an alias on a registered version, but the idea is the same.
+
+The training job checks each new model before it writes a bundle, and refuses to publish one that fails. Simple checks catch a lot:
+
+- **Metrics above a floor,** such as AUC above 0.55 and log loss below the base-rate model's.
+- **A sane prediction distribution,** with the mean prediction close to the observed click rate and the spread of predictions not collapsed.
+- **A comparison with the champion** on the same evaluation day, with a limit on how much worse the new model can be.
+
+These checks matter more than they look. In one system I worked on, a daily retrain produced a model that predicted a 25% click rate for every request, with an AUC of 0.5, and it was deployed automatically. That kind of bad training run happened around 2% of the time, and the fix was a validation step with metric thresholds and a comparison against the prior model on the same data.[^c11-incidents] We build fuller validation gates in @sec-pipelines-validation-and-publishing.
+
+## Loading, Warming Up, and Hot-Swapping Models in Go
+
+The bidder loads the model in-process, as a data structure in its own memory. For logistic regression, that's a map or a sorted array from bucket index to weight. Scoring an impression means hashing its tokens, looking up a few dozen weights, summing them, and applying the sigmoid, which takes microseconds.
+
+In-process serving has a property that matters a lot for a model retrained every day: a new model can replace the old one in a single step. With a model served from a separate endpoint, a new version usually means a new endpoint or route, and for a while both versions have to be live while traffic moves over, with the feature encoding matched to whichever endpoint each request reaches. In-process, the bidder loads the new model, and then switches to it.[^c11-golang] The switch is the same pattern we used for campaign configuration in @sec-parsing-bid-requests-and-eligibility:
+
+1. **Poll the champion pointer.** The bidder checks the pointer file every minute or so. When it names a new version, the bidder starts loading it in the background, while the current model keeps serving.
+2. **Load and verify.** Read the bundle, check its schema version against the FeatureVector the bidder produces, and run its golden vectors through the Go code. If anything doesn't match, refuse the model, keep serving the current one, and alert.
+3. **Warm up.** Score a set of sample requests with the new model before it takes traffic, so memory is allocated and caches are warm. A freshly loaded model is often slow for its first requests, and slow requests are lost bids.
+4. **Swap.** Replace the model with a single atomic pointer swap. Requests that started with the old model finish with it, and new requests use the new one.
+
+<!-- CODE: replace with an include from code/dsp/model once it exists. -->
+
+```go
+type Server struct {
+    model atomic.Pointer[ClickModel]
+}
+
+func (s *Server) Swap(m *ClickModel) {
+    s.model.Store(m) // in-flight requests keep their old pointer
+}
+
+func (s *Server) PredictClick(fv *FeatureVector) (float64, string) {
+    m := s.model.Load()
+    return m.Predict(fv), m.Version
+}
+```
+
+## Logging Model Versions
+
+Every bid logs the version of the model that priced it, next to the configuration version from @sec-parsing-bid-requests-and-eligibility. It sounds like bookkeeping, and it's the first parity check a DSP has.
+
+During a rollout, a fleet of bidders polls the pointer at slightly different times, so for a few minutes, some bidders serve the new model and some the old one. If one bidder fails to load the new model, it can keep serving the old one for hours. Without the version in the bid log, all of this is invisible. With it, a dashboard of bids by model version shows the rollout as it happens, and a version that should be gone and isn't is an alert.
+
+The version also connects the training side to the serving side. When the training job evaluates a model offline, it records the version. When monitoring looks at the model's live predictions and outcomes, it filters by the same version. Comparing the two is how we find out whether a model behaves in production the way it did offline, which is the question behind every parity check in @sec-operating-a-competitive-dsp.
+
+## Manual Deploys and Deploy Windows
+
+In crawl, a person decides when a new model goes live. The daily job publishes a bundle, and an engineer moves the champion pointer after checking a short list:
+
+- **The training job passed its checks,** and the metrics are close to the previous model's.
+- **The parity test passed** in Go for this bundle's golden vectors.
+- **Nothing else is changing** at the same time, such as a bidder release or a large campaign launch, so that if something goes wrong, the cause is clear.
+- **Someone will watch** the prediction and spend dashboards for the first hour after the swap.
+- **The rollback is known:** the previous version is named, and moving the pointer back has been tested.
+
+Model deploys should happen when the people who can respond are awake. Deploy during the working hours of the on-call engineer and the team, which can include weekends if the rotation covers them, and never late at night or just before the on-call engineer goes offline. Automated rollback reduces the risk of a bad deploy, but it doesn't remove the need for someone to follow up, and many problems only appear hours later as traffic patterns change.
+
+A manual deploy every day gets tedious, and that's the point at which to automate it. In @sec-shadow-mode-canaries-and-ab-tests, deploys become canaries with automated checks and rollback. Until then, a manual step with a checklist is a reasonable price for knowing what changed and when.
+
+## A Complete Bid Path in Go
+
+We now have all the pieces of the crawl bidder. Here's the path a request takes, end to end:
+
+1. **Receive** the request, start a deadline timer from `tmax` minus a network allowance, and assign the request to a holdout or not, by hashing the device ID.
+2. **Parse and normalize** the request into the narrow struct from @sec-parsing-bid-requests-and-eligibility, rejecting malformed requests with a no-bid.
+3. **Read the profile** with a strict timeout, treating a timeout as a missing profile.
+4. **Filter** the campaigns in the current configuration snapshot, from cheapest to most expensive check.
+5. **Select** a campaign and creative with weighted random selection, and record the candidate set and the selection probability.
+6. **Compute the FeatureVector** from the request, profile, campaign, and creative.
+7. **Predict** the click rate with the current model, correct it for downsampling, and record the model version.
+8. **Price** the impression as in @sec-pricing-a-click: the advertiser value, the margin and fees, the shade, the random multiplier on the explored share, and the floor and cap checks.
+9. **Respond** with a bid or a no-bid, unless the device is in the holdout, in which case the bid is logged as a ghost bid and a no-bid is sent.
+10. **Log** the bid ledger record, with every input and output above, to the log stream.
+
+<!-- CODE: replace with an include of the crawl bid handler from code/dsp once it exists, about 60 lines, with each step as a call. -->
+
+Each step records its own latency, so a trace shows where the time goes. In crawl, almost all of it is in parsing and the profile read. The model and pricing together take a tiny share, which won't be true once there are several models per request, as we'll see in @sec-serving-models-in-the-bid-path.
+
+## Testing the First Model Path
+
+Most ML bugs in a DSP don't crash anything. They produce a slightly different feature value in serving than in training, and the model quietly gets worse. Tests are the cheapest place to catch them, before a deploy rather than after. The crawl DSP needs four kinds.
+
+**Unit tests for feature and hashing code, in both languages.** The feature code exists twice: in Go, in the bidder, which computes the FeatureVector and the hashed tokens, and in Python, in training, which computes the hashed tokens from the logged FeatureVector. Test both with the edge cases that cause incidents: empty fields, unknown values, Unicode in app bundles, very long strings, zero denominators in ratios, and missing profiles. In one incident on a team I worked on, a divide by zero was encoded as -1 in training and 0 in serving.[^c11-incidents] A unit test with a zero denominator in both languages would have caught it.
+
+**A golden-file test.** Take a fixed set of logged FeatureVectors, a few hundred covering the edge cases above, and run them through the Python training code and the Go serving code. The hashed indexes must match exactly, and the predictions must match to within floating point tolerance. The expected outputs are checked into the repository, and the test runs on every change. This is the single most valuable test in the crawl DSP. Many of the incidents I've written about were parity issues between training and serving pipelines, and each one would have shown up as a golden-file mismatch.
+
+**A smoke test.** Start the bidder with the new model and a test configuration, send it a handful of realistic requests, and check that bids come back, that prices are within the expected range for each campaign, and that latency is within the budget. This catches problems that unit tests can't, such as a model file that loads but scores everything as zero.
+
+**A minimal CI pipeline.** Run the unit tests, the golden-file test, and the smoke test on every change to feature code, model code, or bidder code, and block the merge if any fails. The tests are fast, so there's no reason to skip them.
+
+## First-Time Pitfalls
+
+- **Hot-swapping briefly holds two models in memory.** During the swap, the old model is still referenced by in-flight requests while the new one is loaded. Size the bidder's memory for two models, or the swap runs out of memory, usually during peak traffic.
+- **A freshly loaded model is slow until warmed up.** Route traffic to a new model only after warmup, and watch p99 latency during and right after every swap.
+- **A fleet mid-rollout runs two model versions at once.** That's normal for a few minutes. Log the version with every bid so the mix is visible, and alert if it lasts longer than a rollout should.
+
+::: {.callout-tip title="Try it on the simulator"}
+Train a new click model and publish it as a bundle. Move the champion pointer, and watch the bidders pick it up, warm it up, and swap, with bids by model version on the dashboard. Run the golden-file test after changing the hash seed in only the Python code, and watch it fail. Then publish a model that predicts a constant, and roll it back by moving the pointer.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we built the path from a training script to the bidder. A daily Python job builds examples, trains, evaluates, and publishes a versioned bundle with its weights, hash settings, feature specification, corrections, and golden vectors. A champion pointer names the version to serve, and the Go bidder loads, verifies, warms up, and hot-swaps models with an atomic pointer swap, logging the model version with every bid. Deploys are manual, with a checklist and deploy windows, and the path is tested with unit tests in both languages, a golden-file parity test, and a smoke test in CI.
+
+The crawl DSP can now bid with a trained model. Before it spends real money at scale, it needs the operations to keep that spending safe. In the next chapter, we add dashboards, alerts, spend caps, kill switches, and reconciliation with the exchanges.
+
+[^c11-incidents]: Ben Weber, "Machine Learning Incidents in AdTech," *Towards Data Science*, January 29, 2025, <https://medium.com/data-science/machine-learning-incidents-in-adtech-e3f48d858054>
+
+[^c11-golang]: Ben Weber, "Options for ML Serving with Golang," *Medium*, May 7, 2026, <https://medium.com/@bgweber/options-for-ml-serving-with-golang-3b1afa3a6182>

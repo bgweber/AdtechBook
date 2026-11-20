@@ -65,7 +65,7 @@ Last-touch attribution answers one question well: which platform touched this pl
 
 To measure the difference, an advertiser needs an experiment. The most common is a **holdout test**: a random group of devices doesn't see the ads, and the advertiser compares how many players in each group install. Some advertisers run geographic tests instead, turning spend off in some regions and comparing them with the rest. Either way, the difference between the groups is the **lift**, the installs the ads actually caused.
 
-A DSP can run these experiments itself. The trick, which we cover in @sec-incrementality-and-uplift, is the **ghost bid**: the DSP runs its full bid path for every device, but for a randomly chosen control group, it records the bid it would have made instead of sending it. Because both groups go through the same targeting and pricing, comparing their install rates shows how many installs the DSP's ads really caused. A DSP that runs ghost bids can report incremental results to its advertisers alongside the MMP's attributed numbers, and that's a strong position to sell from.
+A DSP can run these experiments itself. The trick, which we cover in @sec-measuring-incrementality, is the **ghost bid**: the DSP runs its full bid path for every device, but for a randomly chosen control group, it records the bid it would have made instead of sending it. Because both groups go through the same targeting and pricing, comparing their install rates shows how many installs the DSP's ads really caused. A DSP that runs ghost bids can report incremental results to its advertisers alongside the MMP's attributed numbers, and that's a strong position to sell from.
 
 ## Post-Install Events
 

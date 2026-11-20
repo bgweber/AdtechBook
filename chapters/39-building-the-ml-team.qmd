@@ -1,0 +1,96 @@
+# Building the ML Team {#sec-building-the-ml-team}
+
+Most of the failures in this book weren't caused by a bad algorithm. A feature computed one way in training and another way in serving, a model nobody noticed had gone stale, an alert that went to someone who couldn't act on it, a manual lever that nobody owned, and a question about a campaign that bounced between teams for a week. These are organizational failures as much as technical ones, and the structure of the team decides how often they happen.
+
+The quality of a DSP's models directly determines its advertisers' results and its own revenue, so getting the team's structure right matters as much as getting the architecture right.[^c39-pods] This chapter is about the team that builds and runs the systems in this book: how to organize it, what it owns, how it records decisions and works with coding agents, how it shares the work of measurement and on-call, who to hire first, and what to build versus buy.
+
+## Pods vs. Silos
+
+The most common structure at a DSP is two teams: a data science team that trains models in Python, and a bidder engineering team that serves them in Go, Rust, or Java and computes the features at request time. The logic is reasonable. The two kinds of work have different tools, languages, and rhythms. When models are simple and stable, the handoff works.
+
+When models change often, or get more complex, three problems recur:[^c39-pods]
+
+- **Feature parity.** Features are computed in Python for training and again in Go for serving, by different people, often weeks apart. The implementations drift, and the drift degrades models silently. It's the root cause of most of the parity incidents in @sec-logging-at-bid-time, and the two-team structure produces it by design.
+- **Architecture changes are hard to ship.** A model that returns one score is easy to hand off. A two-tower model that returns a vector, to be compared with precomputed campaign vectors, needs the serving team to understand the architecture, and compositions of models get harder to implement correctly with every step.
+- **Ownership of performance is ambiguous.** When a model gets worse in production, the data science team checks the model and finds nothing, the engineering team checks the serving code and finds nothing, and the interaction between the two takes a long time to surface. No one is accountable for the outcome.
+
+The structure I recommend keeps separate bidder engineering and ML teams, but makes the ML team responsible for models from training through serving through monitoring. Within the ML team, people are organized into cross-functional **pods** aligned to model types, rather than to roles. A conversion pod owns click, install, and purchase prediction end to end. A pricing pod owns win rate and shading. A ranking pod owns campaign and creative selection. Each pod has backend engineers, ML engineers, and data scientists, with shared ownership of the whole lifecycle. The titles matter less than the structure: one pod, one set of models, clear accountability for how they perform.
+
+Start with one pod, for conversion models, and one prediction service. Get it working end to end before adding a second.
+
+## What the ML Team Owns
+
+In the pod structure, the ML team owns a **prediction service**: the code that computes features at bid time, runs inference, and returns predictions to the bidder. It can be a separate microservice, or a clearly owned module inside the bidder, but the ML team writes it, reviews it, deploys it, and is on call for it.
+
+That puts feature definitions where @sec-logging-at-bid-time said they belong: in the serving path, first. The bidder computes features and logs them, and training reads what was logged, so there's one definition of each feature, owned by the team that trains on it. The cost is real: adding a feature means changing Go code first, so ML engineers and data scientists need to be comfortable working in Go as well as Python. That's the right bar. The team that defines the features should be the team that trains on them. Go helps here: it's a small language with good ONNX Runtime bindings, and much easier for people with ML backgrounds to pick up than Rust or Scala.
+
+Concretely, the ML team owns:
+
+- The feature code in the bid path, the FeatureVector schema, and the logging of features and predictions.
+- Training, validation, and publishing pipelines, the model registry, and the model artifacts.
+- Model inference in the bid path, with its latency budget, parity tests, and fallbacks.
+- Model monitoring, alerting, and the ML on-call rotation.
+- The pricing terms that come from models, such as calibration and shading, in partnership with whoever owns pricing policy.
+
+Bidder engineering owns the request handling, exchange integrations, the profile store, and the overall latency budget, and the two teams agree on the boundary in a technical spec, as in @sec-where-trees-stop.
+
+## Decision Records and Working with Agents
+
+A team that ships many changes needs to remember why it made them. Three kinds of documents help, each with a different job:
+
+- **Architecture decision records** capture one decision each: the context, the decision, what was rejected and why, and the consequences. Accepted records never change. When a decision is revisited, a new record supersedes the old one, so the reasoning behind the original choice is preserved rather than relitigated every few months. The record of something tried and paused, such as a deep model that a simpler boosted model beat, belongs here too.
+- **Runbooks and a gotchas file,** from @sec-operating-a-competitive-dsp, for procedures under pressure and traps the team has already fallen into.
+- **A short "what must hold" file** at the root of the repository, listing the rules that are never broken, such as "features are defined in the serving path", "no resource identifiers in code", and "only CI writes to production registries". It's for new team members and for coding agents. Keep it short, keep it separate from the documents that explain why, and change it only when a rule changes.
+
+Coding agents are increasingly part of how an ML team works, and they need the same guardrails as people, plus a few more. Give agents read-only access to cloud resources by default, with cost guards on anything that can spend money: dry runs and byte limits on warehouse queries, for example. Submitting jobs that spend GPU time, promoting models, and changing production configuration stay human decisions. The "what must hold" file is what the agent reads first, and the checks in CI are what catch it when it doesn't follow it, just as they catch people.
+
+## The Role of Analytics and Measurement
+
+There's still an important role for a separate analytics or data science function. That team builds standardized experiment readouts, provides the measurement infrastructure for A/B tests and incrementality, and does the exploratory analysis that explains changes in model performance and campaign results over time. Its job is to help the ML pods understand what's happening and why.
+
+What it shouldn't own is model architecture or tuning decisions. Those stay with the pod that owns the models. A central analytics team that also has opinions about model design creates the same ambiguity about accountability that the two-team structure did. Keeping analytics focused on measurement, and the pods focused on models, gives each a clear mandate.[^c39-pods]
+
+## On-Call and Operational Ownership
+
+If the ML team owns the prediction service, it's on call for it. In practice, that's the setup from @sec-operating-a-competitive-dsp: alerts routed by owner, an ML on-call rotation that responds to prediction, calibration, parity, and fallback alerts, and a chain of command for decisions that need someone with authority, such as switching off a model during peak hours.
+
+A few things keep on-call healthy for an ML team:
+
+- **Alerts the on-call engineer can act on,** with a playbook linked from each one, as in @sec-operating-a-competitive-dsp.
+- **Rotations big enough** that each person is on call rarely enough to recover, and a handoff that summarizes what changed and what's still open.
+- **Time to fix root causes.** An incident is only closed when the guardrail that prevents it from happening again is in place, which needs time on the roadmap, not just a ticket.
+- **Shared drills.** Running the incident drills from the simulator together, before they happen in production, is how a new team learns where the kill switches are and who to call.
+
+## Hiring for a Startup
+
+A new DSP can't hire a pod for every model type. The first ML hires need to cover the whole lifecycle between them, so the skills that matter most are breadth and ownership:
+
+- **Comfort across languages and systems:** Python and SQL for data and training, and enough Go to own the feature and inference code in the bid path.
+- **Production instincts:** logging, testing, monitoring, and a habit of checking that offline results hold online.
+- **Statistical judgment:** calibration, experiment design, delayed and biased labels, and knowing when a result is noise.
+- **Ownership:** willingness to be on call for what they ship, and to follow a problem across the boundary between training and serving.
+
+Ad tech experience helps, but it can be learned, and Part I of this book is meant to help with exactly that. A strong ML engineer who has never worked in ad tech, paired with someone who has, is often a better first team than two ad tech specialists who have never run a model in production.
+
+## Build vs. Buy, and GCP vs. On-Prem
+
+A small team can't build everything, and shouldn't. A reasonable split for a DSP's ML platform:
+
+- **Buy or use managed services** for undifferentiated infrastructure: the warehouse, managed Spark, orchestration, experiment tracking, the model registry, and monitoring, at least to start.
+- **Build** what's specific to the DSP: the feature code and FeatureVector, the prediction service, pricing, the simulator and replay tools, and the validation and parity checks that encode the team's hard-won lessons.
+
+Where to run it is a related question. Public cloud makes it easy to start, to experiment, and to get GPUs on demand. On-premise hardware is cheaper for steady, high-volume work, which describes a DSP's bidders well, and, for stable and predictable training workloads, owned GPUs typically pay off after roughly two years compared with renting.[^c39-onprem] On-prem also brings its own operating costs: someone runs the machines, upgrades their operating systems, and keeps them in sync with the libraries the models need.
+
+For many DSPs, the most practical answer is a hybrid: train in the cloud, where GPUs are elastic and managed tools save time, and serve on-prem or in the trading locations, where steady load makes owned hardware cheaper. ONNX is what makes the hybrid work. Because training and serving agree on ONNX as the exchange format, a model trained on a cloud GPU cluster can be deployed to an on-prem Go or Rust bidder without either side knowing about the other.[^c39-onprem][^c39-outofcloud]
+
+## Conclusion
+
+In this chapter, we looked at the team behind the DSP. Two teams with a handoff produce feature parity problems, slow architecture changes, and ambiguous ownership, so the ML team owns models from training through serving through monitoring, organized in pods by model type, with analytics focused on measurement. Decision records, runbooks, a gotchas file, and a short list of rules that must hold keep the team's knowledge, for people and for coding agents, whose access is read-only and cost-guarded by default. On-call belongs to whoever ships the model, early hires need breadth and ownership, and the platform buys what's undifferentiated, builds what's specific, and often trains in the cloud while serving on owned hardware.
+
+In the last chapter, we step back and look at where ad tech ML is heading.
+
+[^c39-pods]: Ben Weber, "Structuring an ML Org for a DSP: Pods not Silos for Effective Model Delivery," *Data Science Collective*, May 19, 2026, <https://medium.com/data-science-collective/structuring-an-ml-org-for-a-dsp-9fae5a01c671>
+
+[^c39-onprem]: Ben Weber, "OnPrem vs Public Cloud for AdTech ML," *Data Science Collective*, May 15, 2026, <https://medium.com/data-science-collective/on-prem-vs-public-cloud-for-ml-3fb4568bd589>
+
+[^c39-outofcloud]: Ben Weber, "Out of the Cloud: Building On-Prem Machine Learning Pipelines," *Data Science Collective*, September 27, 2025, <https://medium.com/data-science-collective/out-of-the-cloud-building-on-prem-machine-learning-pipelines-597d5603502f>

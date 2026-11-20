@@ -1,0 +1,128 @@
+# Serving Models in the Bid Path {#sec-serving-models-in-the-bid-path}
+
+In the crawl DSP, the model was the cheapest part of a bid. Scoring a logistic regression model took microseconds, and almost all of the latency went to parsing and the profile read. Walk changes that. The bidder now runs a click model, two install models, and a value model, plus a win rate model in @sec-win-rate-and-bid-shading, for every candidate campaign on every request. Each is a tree ensemble with hundreds of trees. Suddenly the models are a large share of the latency budget, and of the DSP's compute bill.
+
+Latency in a DSP isn't a nice-to-have. A bid that arrives after the exchange's deadline is a lost bid, and an exchange that sees too many late responses sends less traffic. And because a DSP handles a very large number of requests, every microsecond of model time per request multiplies into servers. This is the practical chapter on latency. We cover deep models in @sec-serving-deep-models, and the habits we build here carry over.
+
+In this chapter, we will split the latency budget across the stages of the bid path, count the model calls a request needs and reduce them, and compare ways to serve LightGBM in Go. We then tune ONNX Runtime, keep Go fast in the hot path, keep data access to one network read, degrade gracefully when a request runs over budget, and measure all of it with benchmarks, load tests, and production histograms.
+
+## The Latency Budget
+
+The exchange's `tmax` is the time from when it sends the request to when it must receive the response. The bidder's own budget is smaller, because the network round trip comes out of it. If `tmax` is 200 ms and the round trip to the exchange is 40 ms in the worst case, the bidder has about 160 ms, minus a safety margin. Bidders placed close to the exchanges, in the trading locations from @sec-inside-a-demand-side-platform, keep more of the budget for themselves.
+
+Split the budget by stage, so each has a target and an owner:
+
+| Stage | What it does |
+|-------|--------------|
+| Parse | Decode and normalize the request |
+| Profile read | One read from the profile store |
+| Eligibility | Filter campaigns and select candidates |
+| Features | Compute the FeatureVector once, plus per-candidate features |
+| Models | Score every candidate with every model |
+| Pricing | Calibration, margin, shading, floors, internal auction |
+| Response | Build and send the bid response, and log |
+
+: Stages of the bid path, each with its own share of the latency budget. {#tbl-c17-stages}
+
+<!-- RESULT: per-stage p50 and p99 latency from benchmarks on the reference DSP, to fill in the table above. -->
+
+Budget for the 99th percentile, not the median. At a high request rate, the slowest 1% of requests is a large number of lost bids, and tail latency usually comes from different causes than typical latency: garbage collection pauses, a slow profile read, or a request with many eligible campaigns.
+
+## Counting the Work
+
+The number of model calls per request is:
+
+$$\text{model calls} = \text{requests} \times \text{eligible candidates} \times \text{models}$$
+
+With 50 eligible campaigns and five models, that's 250 tree ensembles per request. Most of the speedup in a bid path comes from reducing these numbers, not from making each call faster:
+
+- **Filter before predicting.** Every eligibility filter that runs before the models removes candidates from every model call. Cheap filters on request fields first, then the profile, then models, as in @sec-parsing-bid-requests-and-eligibility.
+- **Cap the candidates.** Score only the top candidates by a cheap estimate, such as each campaign's recent value per impression in this segment. A cap of 20 or 30 candidates per request usually loses very little.
+- **Compute request and device features once.** Most features are the same for every candidate. Build them once per request, and only add the campaign and creative features per candidate.
+- **Skip models that can't matter.** A campaign whose maximum possible value is below the floor doesn't need a value model call.
+
+<!-- RESULT: model calls per request before and after each step, on simulated traffic. -->
+
+## Serving LightGBM
+
+There are three common ways to serve LightGBM models from a Go bidder:
+
+- **Export to ONNX and run it with ONNX Runtime.** LightGBM models can be converted to the ONNX format, and ONNX Runtime, called from Go through a wrapper such as `onnxruntime_go`, runs them in-process. It's fast, well tested, and it's the same runtime we use for deep models in Part IV.
+- **Native Go inference.** Pure Go libraries, such as `leaves`, read LightGBM model files and evaluate the trees directly. There's no C dependency and no cgo overhead, which makes deploys simple, but they support fewer model features and need their own parity checks.
+- **Compile the trees to code.** Tools such as Treelite turn a tree ensemble into C code that's compiled into a library, which is often the fastest option, at the cost of a build step for every model.
+
+The cost of evaluating a tree ensemble grows with the number of trees and their depth. A model trained with 2,000 trees and 255 leaves each might be slightly better offline than one with 300 trees and 63 leaves, and many times slower to serve. Train with serving in mind: limit the number of trees and leaves, and measure how much accuracy that gives up. Often it's very little.
+
+For the reference DSP, we choose ONNX. It's not always the fastest option for trees alone, but it means the serving path, the parity checks, and the artifact format are already in place when deep models arrive in Part IV, where ONNX is the natural choice.
+
+## ONNX Runtime Settings
+
+ONNX Runtime works well in a bidder, but its defaults are tuned for running one large model as fast as possible, not for many small inference calls in parallel. A few settings matter:
+
+- **Threads.** By default, ONNX Runtime parallelizes each inference call across threads. In a Go bidder, concurrency already comes from goroutines, one per request, so per-call parallelism mostly adds contention. I had to reduce the default parallelism to get good latency when serving ONNX models from Go.[^c17-golang] Set intra-op and inter-op threads to one, and let Go handle concurrency.
+- **Graph optimization.** Enable the runtime's graph optimizations, and create sessions once, at model load time, never per request.
+- **Batch the candidates.** Score all candidates for a request in one call, with one row per candidate, rather than one call per candidate. Calling from Go into ONNX Runtime goes through cgo, which has a fixed overhead per call, so batching pays it once per request instead of once per candidate.
+- **Reuse buffers.** Allocate input and output tensors once and reuse them, rather than allocating per request.
+
+## Keeping Go Fast in the Hot Path
+
+Go is a good language for bidders, but its garbage collector and convenience features can add latency in ways that only show at the tail. A few habits keep the hot path fast:
+
+- **No allocations per request where possible.** Reuse request structs, feature buffers, and tensors with `sync.Pool` or preallocated arrays. Fewer allocations mean less garbage collection, and fewer pauses at p99.
+- **No JSON or reflection in the hot path,** beyond parsing the request with a fast decoder, as in @sec-parsing-bid-requests-and-eligibility. Log records are serialized as protocol buffers, off the request goroutine where possible.
+- **Tune the garbage collector.** `GOGC` sets how much the heap grows before a collection, and `GOMEMLIMIT` sets a soft memory limit. A bidder with plenty of memory can run with a higher `GOGC` and a `GOMEMLIMIT` near its container limit, so it collects less often without running out of memory.
+- **Profile, don't guess.** Go's `pprof` shows where CPU time and allocations go, under real load. The slowest part of the path is often not the one anyone expected.
+
+## Data Access
+
+Every network call in the bid path is a chance to blow the latency budget. The rule for walk is one network read per device per request: the profile read, with everything the models need in it, or computed from it.
+
+Data that's small and the same for every request stays in memory: app metadata, vocabularies, segment rates, calibration tables, and campaign configuration. It's loaded at startup and refreshed in the background as versioned snapshots, the same way as models.
+
+Data that's per device lives in the profile store. Choosing that store is a tradeoff between latency, schema flexibility, cost, and how the bidder talks to it. Options range from in-memory stores such as Redis, to Aerospike, which is popular in ad tech for its low latency on SSDs, to managed wide-column stores such as Bigtable.[^c17-nosql] Whichever you choose, the read gets a strict timeout, and a timeout is treated as a missing profile, as in @sec-parsing-bid-requests-and-eligibility. A slow store should make a few bids less accurate, never late.[^c17-intent]
+
+## Degrading Gracefully
+
+Some requests will run long: a profile read that takes the whole timeout, a request with an unusually large number of candidates, or a burst of traffic that queues requests. The bidder should notice and do less work, rather than finish late.
+
+- **A deadline per request.** Every request carries a deadline derived from `tmax`, and every stage checks it. When a request is running out of time, later stages take shortcuts.
+- **Skip expensive models when over budget.** If the deadline is close, skip the value model and price on install predictions with a segment value, or skip the win model and use the fixed shade. This connects directly to the fallback ladder in @sec-operating-a-competitive-dsp: an over-budget request steps down a level, and the step is logged.
+- **Shed load under spikes.** When the bidder is overloaded, respond no-bid to a share of requests immediately, rather than queuing everything and answering all of it late.
+
+## Measuring
+
+Latency work without measurements is guesswork. Measure at three levels:
+
+- **Go benchmarks for each stage,** run in CI, so that a change that makes feature computation twice as slow fails a check rather than reaching production.
+- **Load tests that replay logged requests** at increasing rates, to find the request rate where p99 latency starts to climb. Replayed requests have the real distribution of sizes and candidate counts, which synthetic ones usually don't.
+- **Per-stage latency histograms in production,** by exchange and trading location, next to the end-to-end latency the exchange sees.
+
+The number that ties it together is **cost per million requests**: the compute cost of the bidder fleet divided by the requests it handles. It turns latency and efficiency into money, and makes it possible to ask whether a new model is worth what it costs to serve. All numbers in this chapter come from benchmarks on the reference DSP, and the book's numbers will differ from yours, so measure your own.
+
+<!-- RESULT: cost per million requests for the walk bidder on the reference DSP, by model configuration. -->
+
+## First-Time Pitfalls
+
+- **Garbage collection pauses and cold starts show up first in p99 after a deploy.** Measure p99 during and right after rollouts, not only in steady state.
+- **Hot-reloading configuration while requests are in flight.** Swap whole snapshots atomically, never field by field, as in @sec-parsing-bid-requests-and-eligibility.
+- **Benchmarking the wrong thing.** A benchmark on one candidate per request says little about a request with 50. Benchmark with the real distribution of candidates.
+
+::: {.callout-tip title="Try it on the simulator"}
+Profile the walk bidder under load with replayed simulated traffic. Find the slowest stage at p99, then cap the candidates per request and batch the model calls, and measure the change. Compare LightGBM served through ONNX Runtime with a native Go implementation on the same model.
+
+<!-- TODO: add the exact commands once the simulator exists. -->
+:::
+
+## Conclusion
+
+In this chapter, we made the walk bid path fast enough, measurably. We split the latency budget by stage and budgeted for p99, reduced model calls by filtering first, capping candidates, and computing shared features once, and served LightGBM through ONNX Runtime with settings tuned for many small calls from Go. We kept the hot path free of allocations and reflection, limited data access to one profile read with a strict timeout, degraded gracefully when requests ran long, and measured everything, down to cost per million requests.
+
+With several models in the bid path and more on the way, a daily training script is no longer enough. In the next chapter, we build pipelines that train, validate, and publish models safely.
+
+[^c17-golang]: Ben Weber, "Options for ML Serving with Golang," *Medium*, May 7, 2026, <https://medium.com/@bgweber/options-for-ml-serving-with-golang-3b1afa3a6182>
+
+<!-- TODO: verify that B14/B11 support the NoSQL trade-off claim; Aerospike-in-ad-tech is general knowledge, cite a source or soften. -->
+
+[^c17-nosql]: Ben Weber, "Technologies for Applied Data Science," *Towards Data Science*, June 2021, <https://medium.com/data-science/technologies-for-applied-data-science-f806f88d4b61>
+
+[^c17-intent]: Ben Weber, "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, October 3, 2026, <https://bgweber.medium.com/pretrained-deep-learning-intent-signals-for-mobile-dsps-2eb1834c62db>

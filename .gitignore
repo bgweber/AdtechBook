@@ -14,6 +14,9 @@ venv/
 
 # Data and model files produced by examples
 /data/
+/out/
+code/sim/out/
+.pytest_cache/
 *.pt
 *.pth
 *.ckpt

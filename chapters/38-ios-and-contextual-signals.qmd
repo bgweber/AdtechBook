@@ -1,0 +1,126 @@
+# iOS and Contextual Signals {#sec-ios-and-contextual-signals}
+
+Everything in Parts II to IV assumed a device ID on most requests. On Android, that's still mostly true: the advertising ID is present unless the user has deleted it, and the DSP can build profiles, cap frequency, join postbacks to impressions, and run a device holdout. On iOS, it's mostly not true. Since App Tracking Transparency, an app can only read the IDFA after the user agrees to be tracked in a system prompt, and many users don't. Most iOS bid requests arrive with no usable device ID, and installs are reported through Apple's own aggregated, delayed postbacks rather than device-level MMP postbacks.
+
+That changes almost every system in this book. Device profiles are empty for most requests, labels arrive in aggregate, frequency caps can't be enforced per device, and incrementality can't be measured with a device holdout. The DSP has to rely on what's in the request itself, and on the minority of users who consent.
+
+In this chapter, we will cover ATT consent and the IDFV, how iOS measurement works with SKAdNetwork and AdAttributionKit, and what that means for labels. We then turn to contextual and placement-level signals, modeling with limited device signals, measuring incrementality without device IDs, keeping consent status in training data, and preparing for a future with fewer device IDs on Android.
+
+## ATT and IDFA Consent
+
+On iOS, the advertising identifier is the IDFA. Under App Tracking Transparency (ATT), an app must ask the user's permission, through a system prompt, before it can read the IDFA or track the user across other companies' apps. If the user declines, or is never asked, the IDFA is all zeros, the same way a limited-ad-tracking Android device sends one, as we saw in @sec-parsing-bid-requests-and-eligibility.
+
+Consent has to be given in both places for device-level data to exist: the publisher app where the ad is shown has to have consent to pass the IDFA in the bid request, and the advertiser's app has to have consent for the MMP to report a device-level install. Requests where both hold are a small share of iOS traffic, and they're not a random sample. Users who allow tracking differ from those who don't, and so do the apps that ask, and how they ask.
+
+For the DSP, iOS traffic splits into two populations:
+
+- **Consented traffic,** with an IDFA, which can be handled much like Android: profiles, frequency caps, device-level postbacks, and device-level models. It's valuable, and it's a minority, so models trained on it don't represent everyone else.
+- **Non-consented traffic,** with no device ID, which the rest of this chapter is mostly about.
+
+Every system that keys on the device ID needs an explicit route for requests without one, as we said in @sec-parsing-bid-requests-and-eligibility. On iOS, that route carries most of the traffic.
+
+## The IDFV
+
+iOS also gives apps an identifier for vendor (IDFV) without asking for consent. It's the same value for every app from the same developer on a device, different for apps from different developers, and it resets when the user deletes all of that developer's apps.[^c38-idfv]
+
+That makes the IDFV useful within one company's apps, and not across them. A studio with several games can use it to link a player's activity across its own titles, for analytics and for cross-promotion campaigns between its own apps, which MMPs can attribute by IDFV.[^c38-af-idfv] It's not an advertising identifier. A DSP can't use a publisher's IDFV to recognize a device in another publisher's app, and it shouldn't try to combine IDFVs, or anything else, into a cross-app identifier for users who declined tracking, which is exactly what ATT is designed to stop.
+
+## How iOS Measurement Works: SKAdNetwork and AdAttributionKit
+
+For users who don't consent, Apple provides its own attribution system: SKAdNetwork, and its successor, AdAttributionKit. Instead of the MMP matching a device's install to a click, the device itself records which ad network's ad led to the install, and Apple sends the network a **postback** that says an install happened, without saying who installed.
+
+The design is built to prevent tracking, and that shows up in every part of it. As of the SKAdNetwork 4 design, which AdAttributionKit keeps almost unchanged:[^c38-apple][^c38-adjust-aak]
+
+- **Postbacks are aggregated and anonymous.** A postback identifies the campaign through a short source identifier, not the device or the impression. How much detail it carries depends on **crowd anonymity**: tiers based on how many installs share the same attributes, so small campaigns get less detail, or none.
+- **Postbacks are delayed.** There are up to three measurement windows, covering roughly days 0 to 2, 3 to 7, and 8 to 35 after install, and each postback arrives after a random delay of a day or more.[^c38-ppcland]
+- **Post-install behavior is a small number.** The advertiser's app reports a **conversion value**: a fine value from 0 to 63, available only in the first postback and only at a high enough crowd anonymity tier, or a coarse value of low, medium, or high. The advertiser decides what the values mean, such as revenue buckets or events reached.
+- **One network wins.** The postback that credits the install goes to the winning network, and others may get a non-winning postback without a conversion value.
+
+Apple's documentation is the source to check before building on any of this, because the mechanics have changed with almost every version.
+
+For a DSP's models, the consequences are concrete:
+
+- **No per-impression labels.** A postback can't be joined to an impression or a device, so the conversion models from Parts III and IV can't be trained on it directly. Labels exist only as counts per campaign and source identifier, which is a learning problem with aggregated labels, the subject of research on learning from bags of examples.[^c38-bags]
+- **Slow and coarse labels.** Install counts arrive days late, value arrives as a bucket, and small campaigns get little detail. Calibration and pacing on iOS run on aggregates and on longer loops than on Android.
+- **Pricing on aggregates.** The calibration multiplier $\kappa$ from @sec-pricing-for-goals works naturally with aggregated data, since it's a ratio of realized to predicted outcomes by segment. That's often the main way aggregated postbacks reach the bid.
+
+The simulator doesn't model SKAdNetwork or AdAttributionKit postbacks. This section is a conceptual map, and @sec-conclusion points to the literature for going further.
+
+## Contextual and Placement-Level Signals
+
+Without a device ID, the bid request is most of what the DSP knows. It's more than it seems:
+
+- **The publisher app and placement,** the strongest features in every model in this book, are present on every request.
+- **Format and creative fit:** rewarded or not, video or playable, orientation, and size.
+- **Time and place:** hour and day in the device's local time, country, and region where present.
+- **The device itself:** OS version and device model, which carry price tier and age.
+- **Connection type and carrier.**
+- **Session context,** where the exchange sends it, such as how long the app has been open.
+
+The models also have aggregate knowledge that doesn't depend on any device: how each placement converts for each campaign, how each publisher app's audience responds to each genre, and the placement affinity from @sec-sequences-and-transformers, which scores publisher placements against advertised apps without a device. These become the main inputs on iOS.
+
+## Modeling with Limited Device Signals
+
+The models from Parts III and IV can handle requests without device signals, as long as they're trained to. Three practices matter:
+
+- **Train with realistic missingness.** Device features are missing for most iOS requests, so the training data has to include requests without them at the rate they occur. Missing is a value, as in @sec-logging-at-bid-time, and the model learns how to price without device history.
+- **Evaluate on the population you'll serve.** A model trained mostly on consented devices, where labels are device-level, can look good offline and be miscalibrated on non-consented traffic, whose users differ. Evaluate separately on requests without IDs, against aggregated outcomes.
+- **Calibrate on aggregates.** With aggregated postbacks as the only labels for most traffic, calibration multipliers by campaign, placement, and source identifier carry much of the weight that per-impression models carry on Android.
+
+Device-free models are also useful on Android, for the requests that arrive without an ID, and as a fallback level when the profile store is unavailable.
+
+## Incrementality on iOS
+
+Without a device identifier, users can't be randomized, and outcomes can't be joined per user. Two designs still work:
+
+- **Geo holdouts.** Randomize regions, such as US designated market areas, into treatment and control, and compare total installs and revenue per region from the advertiser's data. Use matched pairs or synthetic controls to reduce noise, and run long enough to cover weekly cycles.
+- **Switchback tests.** Turn the DSP on and off in alternating time blocks within a region, and compare outcomes across blocks. This works when effects fade quickly, and is weaker for goals with long windows.
+
+Both designs give lift for a campaign or a region rather than per user, so they support segment-level ratios but not per-impression uplift models.
+
+These designs are also a check on the device holdout from @sec-measuring-incrementality on Android, since a geo test measures the same lift in a completely different way.
+
+## Consent in Training Data
+
+Consent isn't a property of the traffic in general. It's a property of each device, and it can change. Keep each device's consent status in the logs, with the time it was observed, and carry it into training data, so every use of the data can be checked against it.
+
+This matters most for pooled models. As we saw in @sec-sequences-and-transformers, pretrained models built from advertisers' non-attributed data combine a device's activity across many apps. On iOS, that's only appropriate for devices whose users allowed tracking. The dataset build should filter on consent the same way it filters on advertisers' data rights in @sec-building-training-datasets, as a rule in the pipeline rather than a convention.[^c38-intent]
+
+## Preparing for a Future Without Device IDs on Android
+
+On Android, the advertising ID is still available for most users, and the path away from it is less clear than it once seemed. Google announced Privacy Sandbox on Android in 2022 as a way to replace cross-app identifiers, and in October 2025 it said it would retire most of its technologies, including the Attribution Reporting, Topics, and Protected Audience APIs on Android.[^c38-sandbox] The advertising ID remains, and users can still delete it.
+
+None of that makes the GAID permanent. Regulation, platform policy, or user behavior could change its availability quickly. A DSP that has followed this book is already in a good position: its models handle missing device features, it logs which requests have IDs, its contextual and placement signals are strong, and its fallback ladder includes device-free levels. A few habits keep it that way:
+
+- **Track ID coverage** by exchange and geo, and alert on changes.
+- **Keep device-free models competitive,** with their own evaluation, rather than letting them become an afterthought.
+- **Avoid features and systems that only work with an ID** where a device-free alternative exists, such as frequency estimates by placement as well as by device.
+- **Keep the geo and switchback designs from earlier in this chapter ready,** so incrementality can still be measured if device holdouts stop working.
+
+::: {.callout-tip title="Try it on the simulator"}
+Once the simulator supports it, turn on ATT-style missing device IDs for a share of traffic. Compare a model trained with realistic missingness against one trained only on devices with IDs, on calibration for requests without IDs, against the true rates.
+
+<!-- TODO: the simulator doesn't have an iOS or ATT mode yet. -->
+:::
+
+## Conclusion
+
+In this chapter, we looked at what changes without device IDs. On iOS, ATT makes the IDFA available only for consenting users, the IDFV links only one developer's apps, and SKAdNetwork and AdAttributionKit report installs as aggregated, delayed, anonymous postbacks with small conversion values, so models can't train on per-impression labels for most traffic. Contextual and placement signals, models trained with realistic missingness, calibration on aggregates, and geo and switchback tests take the place of device-level methods. Consent status travels with the data, and on Android, where the advertising ID remains for now, tracking ID coverage and keeping device-free models strong is the preparation.
+
+The systems in this book are only as good as the team that builds and runs them. In the next chapter, we look at how to build that team.
+
+[^c38-idfv]: Apple Developer Documentation, "identifierForVendor," <https://developer.apple.com/documentation/uikit/uidevice/identifierforvendor>
+
+[^c38-af-idfv]: AppsFlyer, "IDFV attribution and test-device registration," AppsFlyer support, <https://support.appsflyer.com/hc/en-us/articles/17798709514001>
+
+[^c38-apple]: Apple Developer Documentation, "AdAttributionKit," <https://developer.apple.com/documentation/adattributionkit>
+
+[^c38-adjust-aak]: Adjust, "What is AdAttributionKit?," Adjust glossary, <https://www.adjust.com/glossary/adattributionkit/>
+
+[^c38-ppcland]: "SKAdNetwork," PPC Land, <https://ppc.land/skadnetwork/>
+
+[^c38-bags]: "Learning from Aggregated Data: Curated Bags versus Random Bags," arXiv:2305.09557, 2023, <https://arxiv.org/abs/2305.09557>
+
+[^c38-intent]: Ben Weber, "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, October 3, 2026, <https://bgweber.medium.com/pretrained-deep-learning-intent-signals-for-mobile-dsps-2eb1834c62db>
+
+[^c38-sandbox]: Anthony Chavez, "Update on Plans for Privacy Sandbox Technologies," Privacy Sandbox blog, October 17, 2025, <https://privacysandbox.google.com/blog/update-on-plans-for-privacy-sandbox-technologies>

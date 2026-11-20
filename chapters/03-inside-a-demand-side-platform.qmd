@@ -29,7 +29,7 @@ DSPs also differ in who operates the campaigns. On a **managed** platform, the D
 
 If I were launching a DSP today, I'd make proving incremental value the core of the product, as we argued in @sec-introduction, and I'd start managed while building as if it were self-serve:
 
-- **Hold out from day one.** Keep a small, random control group of devices for every advertiser, so that every campaign produces an incrementality measurement as a matter of course.
+- **Hold out from day one.** Keep a small, random control group of devices for every advertiser, using the ghost bids we saw in @sec-measurement-and-mmps, so that every campaign produces an incrementality measurement as a matter of course.
 - **Report incremental results next to attributed ones.** Show incremental CPI and ROAS alongside the MMP's numbers, so advertisers can see what their budget actually bought.
 - **Build the campaign API before the UI, and validate settings in software.** Every check an account manager does by hand should become a rule, which also keeps bad settings from poisoning training data.
 - **Keep the ML universal.** Per-campaign multipliers and manual overrides, such as the overbids we'll see below, don't scale, and they hide problems with the models.
@@ -146,7 +146,7 @@ Real bidders adjust this value before they bid. Here's the vocabulary the rest o
 - **Surplus.** The media value minus the price paid. The bid that maximizes expected surplus balances the win rate against the price.
 - **Clear rate.** The share of wins that become billable impressions.
 - **Internal auction.** The comparison between the DSP's own candidate campaigns for a request, which picks the one campaign that bids.
-- **Lift.** The extra chance of an install that an impression causes: the install rate with the ad minus the rate without it. Pricing on lift is how a DSP bids on incremental value, which we build up in @sec-incrementality-and-uplift.
+- **Lift.** The extra chance of an install that an impression causes: the install rate with the ad minus the rate without it. Pricing on lift is how a DSP bids on incremental value, which we build up in @sec-uplift-modeling.
 
 [^c3-view-through]: Splitting the prediction into a click and an install after the click keeps the example simple. Some installs come from users who saw an ad without tapping it, called view-through installs, so production models often predict installs per impression directly, or combine a click path and a view-through path.
 
@@ -236,9 +236,9 @@ Suppose the DSP wins 100,000 impressions like this one over the day, and the exc
 
 Three things are worth noticing. First, calibration and shading did real work: without $\kappa$, the DSP would have paid for 100 installs and received 90, and without shading it would have paid the full media value. Beating the target also isn't free money. It's a sign the DSP could bid higher and win more of the impressions it's losing, and balancing that against the target is the job of the pacing and shading models.
 
-Second, the 51% is an attributed number. Suppose a holdout shows that a third of those 90 installs would have happened anyway. Only 60 were incremental, so the incremental CPI is about \$5.92, and the incremental D7 ROAS is \$120 on \$355, about 34%, below the target. A campaign that looked like a success on the MMP's report missed its goal once you account for the installs it didn't cause.
+Second, the 51% is an attributed number. Suppose the DSP's ghost bid holdout shows that a third of those 90 installs would have happened anyway. Only 60 were incremental, so the incremental CPI is about \$5.92, and the incremental D7 ROAS is \$120 on \$355, about 34%, below the target. A campaign that looked like a success on the MMP's report missed its goal once you account for the installs it didn't cause.
 
-Third, nothing here was known for certain at bid time. The click rate, the install rate, the revenue, the calibration, and the win rate were all predictions, and the realized ROAS only became known a week later, through MMP postbacks. Every model in this book is about getting one of those numbers right.
+Third, nothing here was known for certain at bid time. The click rate, the install rate, the revenue, the calibration, and the win rate were all predictions, and the realized ROAS only became known a week later, through MMP postbacks. Every model in this book is about getting one of those numbers right. From Part II on, you can trace a bid like this one step by step in the companion bid simulator, and compare each prediction with the true value.
 
 ## Conclusion
 
