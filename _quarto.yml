@@ -10,7 +10,7 @@ execute:
 book:
   title: "Machine Learning in Mobile AdTech"
   subtitle: "Training and Serving Models for a Demand Side Platform"
-  author: "Ben Weber"
+  author: "Ben G Weber"
   date: last-modified
   output-file: "ml-in-mobile-adtech"
   site-url: https://bgweber.github.io/AdtechBook/

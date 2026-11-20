@@ -1,3 +1,123 @@
 # Further Reading: Books, Papers, Posts, and Podcasts {#sec-further-reading}
 
-<!-- TODO: draft -->
+The Preface lists the books and surveys that cover the field as a whole. This appendix goes part by part, collecting the papers, documentation, and posts that each part draws on, with a sentence on why each is worth reading. Full citations are in each chapter's footnotes. Entries already in the Preface aren't repeated here unless a part leans on them heavily.
+
+<!-- TODO: verify every entry against its source before publishing, as with the Preface footnotes. -->
+
+## Part I: The Mobile Programmatic Ecosystem
+
+**Standards and exchange documentation**
+
+- IAB Tech Lab, *OpenRTB 2.6* and *AdCOM 1.0*, on GitHub. The protocol every exchange in this book speaks. @sec-openrtb-fields lists the fields that matter for models.
+- IAB Tech Lab, *VAST*, *app-ads.txt*, *sellers.json*, and the *SupplyChain* object. How video ads are described and how supply paths are declared.
+- Exchange integration guides, such as Google Authorized Buyers' real-time bidding documentation, AppLovin's ORTB specification for demand partners, and Unity Exchange's guides. They show how each exchange departs from the spec, and they're where macros, latency limits, and trading locations are documented.
+
+**Measurement**
+
+- AppsFlyer and Adjust support documentation on attribution lookback windows, deduplication, and migrating between MMPs. The most precise descriptions of how last-touch attribution actually works.
+- Apple Developer Documentation, *AdAttributionKit* and *identifierForVendor*. The primary sources for iOS attribution and identifiers.
+
+**Industry context**
+
+- AppsFlyer, *Performance Index*, published annually. Rankings of media sources by install volume and retention, and a useful read on which networks and DSPs matter in a given year.
+- Public company filings and earnings calls from AppLovin, Unity, and Digital Turbine. Most of what's publicly known about the scale of the largest mobile ad platforms comes from them.
+
+## Part II: A First DSP
+
+- H. Brendan McMahan et al., "Ad Click Prediction: a View from the Trenches," KDD, 2013. FTRL, per-coordinate learning rates, and many practical lessons from serving logistic regression at scale. The basis for @sec-a-click-model.
+- Xinran He et al., "Practical Lessons from Predicting Clicks on Ads at Facebook," ADKDD, 2014. Calibration, data freshness, and normalized entropy.
+- Kilian Weinberger et al., "Feature Hashing for Large Scale Multitask Learning," ICML, 2009. The hashing trick.
+- D. Sculley et al., "Hidden Technical Debt in Machine Learning Systems," NeurIPS, 2015. Why the system around the model is most of the work, which is the theme of @sec-shipping-the-first-model and @sec-operating-the-first-dsp.
+
+## Part III: A Competitive DSP
+
+**Conversion models and training data**
+
+- Olivier Chapelle, "Modeling Delayed Feedback in Display Advertising," KDD, 2014. The standard treatment of labels that arrive late.
+- Guolin Ke et al., "LightGBM: A Highly Efficient Gradient Boosting Decision Tree," NeurIPS, 2017, and the LightGBM documentation, especially monotone constraints and categorical features.
+
+**Experimentation**
+
+- Diane Tang et al., "Overlapping Experiment Infrastructure: More, Better, Faster Experimentation," KDD, 2010. Layers, the basis for running many experiments at once in @sec-shadow-mode-canaries-and-ab-tests.
+- Alex Deng et al., "Improving the Sensitivity of Online Controlled Experiments by Utilizing Pre-Experiment Data," WSDM, 2013. CUPED variance reduction.
+
+**Bidding and shading**
+
+- Shengjun Pan et al., "Bid Shading by Win-Rate Estimation and Surplus Maximization," AdKDD, 2020. Production bid shading for first-price auctions.
+- Djordje Gligorijevic et al., "Bid Shading in The Brave New World of First-Price Auctions," CIKM, 2020.
+- Wush Chi-Hsuan Wu, Mi-Yen Yeh, and Ming-Syan Chen, "Predicting Winning Price in Real Time Bidding with Censored Data," KDD, 2015. Learning from losses where the winning price isn't observed.
+
+**Incrementality**
+
+- Garrett A. Johnson, Randall A. Lewis, and Elmar I. Nubbemeyer, "Ghost Ads: Improving the Economics of Measuring Online Ad Effectiveness," *Journal of Marketing Research*, 2017. The design behind the holdouts in @sec-measuring-incrementality.
+- Brett R. Gordon et al., "A Comparison of Approaches to Advertising Measurement: Evidence from Big Field Experiments at Facebook," *Marketing Science*, 2019. How far observational estimates can be from experiments.
+
+**Operations**
+
+- Betsy Beyer et al., eds., *Site Reliability Engineering*, O'Reilly, 2016, especially the chapters on monitoring, on-call, and postmortems.
+- Chuan Guo et al., "On Calibration of Modern Neural Networks," ICML, 2017. Expected calibration error and temperature scaling.
+
+## Part IV: A State-of-the-Art DSP
+
+**Deep models and sequences**
+
+- Ruoxi Wang et al., "Deep & Cross Network for Ad Click Predictions," AdKDD, 2017, and "DCN V2," WWW, 2021.
+- Paul Covington, Jay Adams, and Emre Sargin, "Deep Neural Networks for YouTube Recommendations," RecSys, 2016. Two-stage retrieval and ranking.
+- Xinyang Yi et al., "Sampling-Bias-Corrected Neural Modeling for Large Corpus Item Recommendations," RecSys, 2019. Training two-tower models with in-batch negatives.
+- Engineering at Meta, "From User Sequences to Scaling Laws" and "Meta's Generative Ads Model (GEM)," 2025. How the largest ad platform describes its sequence models and foundation model.
+- Lee Xiong et al., "LLaTTE: Scaling Laws for Multi-Stage Sequence Modeling in Large-Scale Ads Recommendation," arXiv, 2026.
+
+**Retraining and delayed feedback**
+
+- Jia-Qi Yang et al., "Capturing Delayed Feedback in Conversion Rate Prediction via Elapsed-Time Sampling," AAAI, 2021.
+- Siyu Gu et al., "Real Negatives Matter: Continuous Training with Real Negatives for Delayed Feedback Modeling," KDD, 2021.
+
+**Value, auctions, and uplift**
+
+- Xiaojing Wang, Tianqi Liu, and Jingang Miao, "A Deep Probabilistic Model for Customer Lifetime Value Prediction," 2019. The zero-inflated lognormal loss used for value models.
+- Kan Ren et al., "Deep Landscape Forecasting for Real-time Bidding Advertising," KDD, 2019.
+- E. C. Capen, R. V. Clapp, and W. M. Campbell, "Competitive Bidding in High-Risk Situations," *Journal of Petroleum Technology*, 1971. The original description of the winner's curse, from oil lease auctions.
+- Susan Athey and Guido Imbens, "Recursive Partitioning for Heterogeneous Causal Effects," *PNAS*, 2016, and Nicholas Radcliffe, "Using Control Groups to Target on Predicted Lift," 2007. The foundations of uplift modeling and Qini curves.
+
+**Pacing, selection, and creatives**
+
+- Santiago Balseiro et al., "A Field Guide for Pacing Budget and ROS Constraints," ICML, 2024.
+- "AuctionNet: A Novel Benchmark for Decision-Making in Large-Scale Games," NeurIPS Datasets and Benchmarks, 2024. A public environment for learned bidding and pacing.
+- Olivier Chapelle and Lihong Li, "An Empirical Evaluation of Thompson Sampling," NeurIPS, 2011. Thompson sampling in display advertising, with delayed feedback.
+- Liang Tang et al., "Automatic Ad Format Selection via Contextual Bandits," CIKM, 2013.
+- "Parallel Ranking of Ads and Creatives in Real-Time Advertising Systems," AAAI, 2024.
+
+## Part V: The Frontier
+
+- Apple Developer Documentation, *AdAttributionKit*. Postback windows, conversion values, and crowd anonymity.
+- "Learning from Aggregated Data: Curated Bags versus Random Bags," 2023. Training conversion models from aggregate labels.
+- Google, "Update on Plans for Privacy Sandbox Technologies," October 2025.
+- Xiao Ma et al., "Entire Space Multi-Task Model," SIGIR, 2018, and Jiaqi Ma et al., "Multi-gate Mixture-of-Experts," KDD, 2018. Multi-task models for the click-to-install-to-purchase funnel.
+- Recent work on generative recommendation for advertising, such as "Generative Recommendation for Large-Scale Advertising" (2026) and "One Model, Two Markets: Bid-Aware Generative Recommendation" (2026), cited in @sec-conclusion.
+
+## My Posts
+
+These are the posts I've written on ML in mobile ad tech, which several chapters build on. They're shorter and more informal than the chapters, and some include code.
+
+- "Approaches for Building Real-Time ML Systems," *Towards Data Science*, 2021.
+- "Deep Learning for Click Prediction in Mobile AdTech," *Towards Data Science*, 2025.
+- "Machine Learning Incidents in AdTech," *Towards Data Science*, 2025.
+- "Serving Deep Learning in AdTech," *Data Science Collective*, 2025.
+- "Out of the Cloud: Building On-Prem Machine Learning Pipelines," *Data Science Collective*, 2025.
+- "Options for ML Serving with Golang," *Medium*, 2026.
+- "OnPrem vs Public Cloud for AdTech ML," *Data Science Collective*, 2026.
+- "Structuring an ML Org for a DSP: Pods not Silos," *Data Science Collective*, 2026.
+- "Using DNN Embedding Models in PySpark at AdTech Scale," *Data Science Collective*, 2026.
+- "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, 2026.
+- "Transformers for Mobile User Acquisition," *AI Advances*, 2026.
+
+<!-- TODO: Ch 8 and Ch 39 give different subtitles for the "Structuring an ML Org" post ("Effective Model Development" vs. "Effective Model Delivery"); check the post and make both match. -->
+
+## Podcasts and Newsletters
+
+- **MobileGroove**, hosted by Peggy Anne Salz. Interviews across mobile marketing and app growth. I talked about the AI and infrastructure behind mobile advertising, and why "set it and forget it" AI is dangerous, in the episode "Set It and Forget It AI? Here's Why That's Dangerous," recorded after my time as VP of ML at RZR.
+- **Mobile Dev Memo**, by Eric Seufert. A newsletter and podcast on mobile advertising strategy, measurement, and platform policy, and one of the best sources on how privacy changes affect ad platforms.
+- **AdExchanger** and **PPC Land**. News sites that cover ad tech deals, exchange changes, and privacy policy. Several chapters cite them for events and dates.
+- Company engineering blogs, such as Engineering at Meta, Moloco's blog, and Digital Turbine's blog. Rare public descriptions of how production ad systems are built.
+
+<!-- TODO: add the MobileGroove episode date and link, and Ben's other public talks or podcast appearances. -->

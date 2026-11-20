@@ -1,5 +1,1 @@
 # A First DSP {.unnumbered}
-
-In this part, we build the simplest DSP that closes the loop. It receives bid requests, picks a campaign, predicts a click, prices the impression, bids, and learns from what happens. This is the crawl stage of the book. Everything is deliberately basic, from a logistic regression click model to CPC pricing on low-CPM inventory, but the logging, safety, and operations are built to last, because those are the decisions that are hardest to retrofit.
-
-Every chapter in this part has a working example on the companion bid simulator, a reference DSP and a simulated market that run end to end on mocked data. @sec-starting-from-scratch shows how to run it, read a bid trace, and replay traffic. By the end of the part, you'll have a working DSP with a Go bidder, a click model, a first CPI campaign, and the dashboards, alerts, and kill switches needed to spend real money safely.

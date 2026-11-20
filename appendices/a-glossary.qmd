@@ -1,6 +1,8 @@
 # Glossary of Ad Tech Terms {#sec-glossary}
 
-This glossary covers the terms introduced in Part I. Where a term is defined in more depth in a chapter, the entry points to it.
+This glossary covers the ad tech and machine learning terms used throughout the book. Where a term is defined in more depth in a chapter, the entry points to it.
+
+**A/B test.** A randomized comparison of a champion and a challenger on live traffic, usually by device, measured on the advertiser's goal metrics. See @sec-shadow-mode-canaries-and-ab-tests.
 
 **Ad network.** A company that sells ads into apps where its own SDK is installed, often alongside an exchange or DSP of its own.
 
@@ -10,27 +12,33 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Ad slot (placement).** A place in an app where an ad can be shown, such as a rewarded video for extra moves or an interstitial between levels.
 
+**AdAttributionKit.** Apple's privacy-preserving attribution framework, the successor to SKAdNetwork, which reports installs as aggregated, delayed postbacks with small conversion values. See @sec-ios-and-contextual-signals.
+
 **Advertiser value ($A$).** What an impression is worth to the advertiser per thousand impressions, given the model's predictions and the campaign's goal. See @sec-inside-a-demand-side-platform.
 
 **Advertising ID.** The device identifier used for advertising: the GAID on Android and the IDFA on iOS. See @sec-measurement-and-mmps.
+
+**As-of join.** A join that uses the value a table held at a given time, such as the time of a bid, rather than its current value. See @sec-building-training-datasets.
+
+**ATT (App Tracking Transparency).** Apple's framework that requires a user's permission before an app can read the IDFA. Most users decline.
 
 **Attribution.** Deciding which ad, if any, gets credit for an install or in-app event. Done by the MMP, usually with a last-touch rule within an attribution window.
 
 **Attribution window.** How far back the MMP looks for a click or impression to credit for an install, such as 7 days for clicks.
 
-**ATT (App Tracking Transparency).** Apple's framework that requires a user's permission before an app can read the IDFA. Most users decline.
-
 **Bid cap.** The most a campaign will pay for an impression, as a CPM.
 
 **Bid ledger.** The DSP's record of every bid it makes, with the features, predictions, model versions, and price. See @sec-inside-a-demand-side-platform.
-
-**Bid shading.** Bidding below what an impression is worth to win it at a lower price, which makes sense in a first-price auction. See *Shaded bid* and @sec-win-rate-and-bid-shading.
 
 **Bid path.** The steps the bidder takes for each bid request, from parsing the request to sending a response. See @sec-inside-a-demand-side-platform.
 
 **Bid request and bid response.** The OpenRTB messages an exchange sends to describe an ad opportunity, and that a bidder returns with its price and ad. See @sec-the-auction-lifecycle.
 
+**Bid shading.** Bidding below what an impression is worth to win it at a lower price, which makes sense in a first-price auction. See *Shaded bid* and @sec-win-rate-and-bid-shading.
+
 **Billing notification.** The exchange's message telling the DSP that an impression it won was actually shown and is billable.
+
+**Budget-split design.** An A/B test design that splits each campaign's budget between arms in proportion to their traffic, so the arms can't spend each other's money. See @sec-shadow-mode-canaries-and-ab-tests.
 
 **Calibration.** Getting predicted probabilities right, not just their order. A model that predicts 2% when the true rate is 1% is badly calibrated, even if it ranks impressions well.
 
@@ -38,11 +46,17 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Campaign.** An advertiser's unit of buying, with a goal, a target, a budget, targeting rules, and a set of creatives. See @sec-inside-a-demand-side-platform.
 
+**Canary.** A staged rollout that sends a new model or configuration a small share of traffic first, with guardrails and automated rollback. See @sec-shadow-mode-canaries-and-ab-tests.
+
+**Champion and challenger.** The model version currently serving, and a candidate to replace it, usually marked with aliases in a model registry. See @sec-pipelines-validation-and-publishing.
+
 **Clear rate.** The share of auction wins that become billable impressions. See @sec-the-auction-lifecycle.
 
 **Click tracking.** How a click is reported to the MMP, either by sending the device through the MMP's URL (client to server) or by reporting it from the DSP's servers (server to server). See @sec-measurement-and-mmps.
 
 **Cohort.** The group of players acquired in the same period, such as a week, tracked together to measure retention and ROAS over time.
+
+**Contextual bandit.** A method that picks an action, such as a creative, using features of the request, while exploring actions it's uncertain about. See @sec-personalized-creative-selection.
 
 **CPA (cost per action).** What an advertiser pays, or targets paying, for a chosen in-app event, such as a first purchase.
 
@@ -52,23 +66,39 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Creative.** The ad itself, such as a video, a playable, or an end card.
 
+**Crowd anonymity.** Apple's volume tiers that decide how much detail an AdAttributionKit or SKAdNetwork postback carries. See @sec-ios-and-contextual-signals.
+
 **CTR (click-through rate).** Clicks divided by impressions.
 
 **Cumulative ROAS.** A cohort's revenue to date divided by what it cost to acquire, tracked day by day. See @sec-introduction.
 
 **D7 ROAS.** Return on ad spend after seven days: revenue from installed users in their first week, divided by what the advertiser spent.
 
+**Delayed feedback.** The problem that conversion labels arrive long after the impression, so recent examples look like negatives until their labels arrive. See @sec-retraining-and-real-time-learning.
+
 **Demand side platform (DSP).** The system that bids on ad impressions on behalf of advertisers. See @sec-inside-a-demand-side-platform.
 
 **Device profile.** What the DSP knows about a device from past interactions, stored in a fast key-value store and read on every bid request.
+
+**Distillation.** Training a small student model to match a large teacher model's outputs, usually to make it cheap enough to serve. See @sec-serving-deep-models.
 
 **Dynamic margin.** A margin that varies from impression to impression, as long as the campaign as a whole meets its target.
 
 **eCPM.** Effective revenue per thousand impressions, the publisher's main yield metric.
 
+**Embedding.** A learned vector for a value of a categorical feature, such as an app or a device, where similar values end up close together. See @sec-deep-models-with-embeddings.
+
 **End card.** The screen shown after a video ad, usually with an install button.
 
 **Exchange.** The marketplace that runs auctions between the supply side and bidders.
+
+**Exploration multiplier.** A random factor applied to a small share of bids so that the win model can learn how the win rate changes with the bid. See @sec-pricing-a-click.
+
+**Fallback ladder.** An ordered list of simpler pricing methods the bidder steps down to when a model fails, ending at segment rates. See @sec-operating-a-competitive-dsp.
+
+**Feature parity.** Agreement between the feature values used in training and the values computed at serving time. Its absence is training-serving skew. See @sec-logging-at-bid-time.
+
+**FeatureVector.** The model-agnostic record of features that the bidder logs at bid time, which every model trains on. See @sec-logging-at-bid-time.
 
 **Fill rate.** The share of ad opportunities that get filled with an ad.
 
@@ -78,7 +108,13 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Frequency cap.** A limit on how often the same device can see a campaign's ads.
 
+**FTRL.** Follow The Regularized Leader, an online learning algorithm for logistic regression on sparse features, with per-coordinate learning rates and L1 sparsity. See @sec-a-click-model.
+
 **Ghost bid.** A bid the DSP computes but doesn't send, for a device in a random control group. Comparing the control group with devices that saw ads measures the lift. See @sec-measuring-incrementality.
+
+**Golden file.** A fixed set of inputs with their expected outputs, used to check that the training and serving code compute the same features and predictions. See @sec-shipping-the-first-model.
+
+**Hashing trick.** Mapping feature tokens to a fixed number of buckets with a hash function, so a model needs no vocabulary. See @sec-a-click-model.
 
 **Holdout test.** An experiment where a random group of devices doesn't see the ads, so the difference in installs between groups shows what the ads caused.
 
@@ -92,9 +128,17 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Internal auction.** The DSP's comparison between its own candidate campaigns for a request, which picks the one campaign that bids.
 
+**Inverse propensity weighting.** Estimating how a new policy would perform from logged data, by reweighting outcomes by the ratio of the new and logged policies' probabilities. See @sec-offline-evaluation-and-model-iteration.
+
 **IPM.** Installs per thousand impressions.
 
+**Kill switch.** A configuration flag that turns off a model, feature, exchange, campaign, or all bidding within seconds. See @sec-operating-the-first-dsp.
+
+**Layer (experiment).** A slice of the system, such as models or pacing, whose experiments hash devices with their own salt, so experiments in different layers run independently. See @sec-shadow-mode-canaries-and-ab-tests.
+
 **Lift (uplift).** The extra chance of an install that an impression causes: the install rate with the ad minus the rate without it.
+
+**LightGBM.** A fast gradient boosted tree library, used for the walk DSP's click, install, value, and win models. See @sec-gradient-boosted-conversion-models.
 
 **LTV (lifetime value).** The total revenue a player generates over the whole time they play, from purchases and ads. Usually predicted, since it takes months to observe.
 
@@ -106,7 +150,17 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Mediation.** The publisher-side platform and SDK that decides which demand source fills each ad slot.
 
+**Minimum bid to win.** The lowest bid that would have won an auction, which some exchanges report in win or loss notices. See @sec-win-rate-and-bid-shading.
+
 **MMP (mobile measurement partner).** The third party, such as AppsFlyer or Adjust, that attributes installs and in-app events to ad platforms. See @sec-measurement-and-mmps.
+
+**Model registry.** A system that records every model version, its lineage, and which version is serving. See @sec-pipelines-validation-and-publishing.
+
+**Negative downsampling.** Keeping only a share of negative examples for training, and correcting predictions afterward. See @sec-a-click-model.
+
+**Normalized entropy.** Log loss divided by the log loss of a model that always predicts the base rate, for comparing across datasets. See @sec-a-click-model.
+
+**ONNX.** A portable model format, and the runtime used to serve models trained in Python inside a Go or Rust bidder. See @sec-serving-models-in-the-bid-path.
 
 **OpenRTB.** The IAB Tech Lab standard for bid requests and responses.
 
@@ -120,21 +174,41 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 
 **Playable.** A small interactive ad that lets the user try a game before installing it.
 
+**Pod.** A cross-functional team that owns a set of models from training through serving and monitoring. See @sec-building-the-ml-team.
+
 **Pooled model.** One model trained on results from many advertisers, which lets new campaigns perform well from the start.
 
 **Postback.** A message from the MMP to an ad platform reporting an attributed install or in-app event.
 
-**Retention.** The share of new players who come back on a given day after install, such as day 1 (D1) or day 7 (D7).
+**Propensity.** The probability with which the logging policy took the action it took, such as choosing a campaign, logged for offline evaluation. See @sec-parsing-bid-requests-and-eligibility.
 
 **Retargeting.** Paying to re-engage people who already have an app installed, as opposed to user acquisition.
 
+**Retention.** The share of new players who come back on a given day after install, such as day 1 (D1) or day 7 (D7).
+
+**Retrieval.** A cheap first stage that narrows many candidates to a few for the expensive ranking models. See @sec-learned-campaign-selection.
+
 **Rewarded video.** A video the user chooses to watch in exchange for an in-game reward.
+
+**Sample ratio mismatch.** A difference between the traffic shares an experiment's arms were assigned and the shares they received, which means the experiment is broken. See @sec-shadow-mode-canaries-and-ab-tests.
 
 **Shaded bid.** A bid below the media value, chosen to trade some chance of winning for a lower price in a first-price auction. See @sec-win-rate-and-bid-shading.
 
+**Shadow mode.** Scoring live requests with a new model without letting it affect bids, to compare it with the champion. See @sec-shadow-mode-canaries-and-ab-tests.
+
+**SKAdNetwork (SKAN).** Apple's original privacy-preserving install attribution framework for iOS, succeeded by AdAttributionKit. See @sec-ios-and-contextual-signals.
+
 **Surplus.** The media value minus the price paid for an impression.
 
+**Thompson sampling.** A bandit method that samples from each option's posterior and picks the best sample, so options with uncertain results still get tried. See @sec-pricing-for-goals.
+
+**Throttling.** Bidding on only a share of eligible requests to slow spend, used for pacing in the crawl DSP. See @sec-operating-the-first-dsp.
+
 **Trading location.** A regional data center from which an exchange sends bid requests. See @sec-inside-a-demand-side-platform.
+
+**Two-tower model.** A model that learns vectors for two kinds of entity, such as devices and apps, so that their dot product scores how well they match. See @sec-sequences-and-transformers.
+
+**Uplift model.** A model that predicts the lift an impression causes, rather than the chance of an attributed conversion. See @sec-uplift-modeling.
 
 **User acquisition (UA).** Paying for ads to get new users to install an app.
 
@@ -143,3 +217,5 @@ This glossary covers the terms introduced in Part I. Where a term is defined in 
 **Waterfall.** The older form of mediation, where ad networks were called one at a time in order of their historical price.
 
 **Win rate ($W(b)$).** The chance that a bid of $b$ wins the auction.
+
+**Winner's curse.** The tendency to win the impressions whose value the DSP overestimated. See @sec-win-rate-curves-and-the-winners-curse.

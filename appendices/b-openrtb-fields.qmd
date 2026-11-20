@@ -1,3 +1,129 @@
 # OpenRTB Fields for Machine Learning {#sec-openrtb-fields}
 
-<!-- TODO: draft -->
+OpenRTB defines hundreds of fields, but only a few dozen matter to a DSP's models. This appendix lists them, grouped by object, along with how each is used and the quirks to expect. Field names follow OpenRTB 2.6, the version most mobile exchanges support today. Exchanges that are still on 2.5 put some of these fields in `ext` objects instead, and every exchange has its own extensions, so the parser in @sec-parsing-bid-requests-and-eligibility maps each exchange's fields into one internal schema before anything else reads them.
+
+Treat every field as optional, even ones the spec marks as required. A field that is present on one exchange is often missing on another, and a field that is present can still be empty, a placeholder, or in an unexpected format. The "Quirks" column lists the problems we've seen most often. The parser should count each problem by exchange, since a sudden change in those counts is usually the first sign that an exchange changed its integration.
+
+## Request and Impression
+
+| Field | ML use | Quirks |
+|---|---|---|
+| `id` | Join key from the request to the bid log, notifications, and impressions | Unique per exchange, not globally; prefix it with the exchange ID |
+| `tmax` | Not a feature; sets the latency budget | Missing on some exchanges; use a per-exchange default |
+| `at` | Auction type: 1 is first price, 2 is second price | Almost always 1 in mobile today; log it anyway, since a change alters the win model |
+| `cur` | Currency of the floor and the bid | Usually USD; convert floors before they become features |
+| `bcat`, `badv`, `bapp` | Eligibility: blocked categories, advertiser domains, and apps | Long lists; filter before scoring, not inside the model |
+| `imp.bidfloor`, `imp.bidfloorcur` | Feature for click and win models; a hard limit for pricing | Floors can be soft or dynamic; see @sec-win-rate-curves-and-the-winners-curse |
+| `imp.instl` | Interstitial or full-screen flag; part of the placement type | Some exchanges set it for every video |
+| `imp.rwdd` | Rewarded flag, new in 2.6; part of the placement type | Often still in `imp.ext` under an exchange-specific name |
+| `imp.tagid` | Placement ID within the app; a high-cardinality feature | Format differs by exchange; scope it by app |
+| `imp.secure` | Eligibility: whether the creative must use HTTPS | Treat missing as 1 in apps |
+| `imp.pmp` | Deals; routes the request to deal campaigns | Rare in performance UA |
+| `imp.banner.w`, `imp.banner.h`, `imp.banner.format` | Size, part of the placement type | Interstitials sometimes send screen size; banners send a list of sizes |
+| `imp.video.minduration`, `maxduration`, `mimes`, `protocols` | Eligibility for video creatives | Check every creative against them; a mismatch fails rendering, not the auction |
+| `imp.video.plcmt` | Video placement subtype | Replaces the deprecated `placement`; many exchanges still send the old field |
+| `imp.native.request` | Native assets requested; eligibility | A JSON string inside JSON; parse it once and cache it by hash |
+| `imp.ext.skadn` | iOS SKAdNetwork support and versions; see @sec-ios-and-contextual-signals | An IAB extension, not part of the core spec; versions and network IDs vary |
+
+: Request and impression fields. {#tbl-b-imp tbl-colwidths="[30,38,32]"}
+
+## App and Publisher
+
+| Field | ML use | Quirks |
+|---|---|---|
+| `app.bundle` | The publisher app; the most predictive single feature in most models | Android package names and iOS numeric store IDs; some exchanges add suffixes or send the app name |
+| `app.id` | The exchange's app ID | Exchange-specific; don't use it as a cross-exchange key |
+| `app.name` | Display only | Free text, localized, sometimes truncated |
+| `app.cat`, `app.pagecat` | Publisher category; a feature and a brand-safety filter | IAB codes, inconsistent across exchanges; prefer our own app metadata |
+| `app.storeurl` | Lets us join to store metadata | Sometimes missing or pointing to a web page |
+| `app.ver` | App version; detects updates that change ad placements | Rarely useful as a direct feature |
+| `app.publisher.id` | Publisher ID; a fallback for new apps from known publishers | Exchange-specific |
+| `source.schain` | Supply chain; detects resellers and duplicate paths to one impression | In `source.ext.schain` before 2.6; nodes may be incomplete |
+| `source.tid` | Transaction ID shared across exchanges for one opportunity | Used for deduplication when present; often missing |
+
+: App, publisher, and supply chain fields. {#tbl-b-app tbl-colwidths="[24,40,36]"}
+
+## Device and Geo
+
+| Field | ML use | Quirks |
+|---|---|---|
+| `device.ifa` | The advertising ID; the key for profiles, frequency caps, holdouts, and attribution | Empty, all zeros, or a per-session ID when tracking is limited; treat these as no ID |
+| `device.lmt` | Limit ad tracking flag | Deprecated in places; check it alongside the ID itself |
+| `device.ext.atts` | iOS App Tracking Transparency status | An extension; values follow Apple's authorization status codes |
+| `device.os`, `device.osv` | Platform and OS version; features and eligibility | Spelling and case vary; parse the version into major and minor |
+| `device.make`, `device.model`, `device.hwv` | Device model; a proxy for device price and screen quality | Model strings are messy; map them to a canonical model table |
+| `device.devicetype` | Phone or tablet | Often missing; infer it from the model |
+| `device.w`, `device.h`, `device.pxratio` | Screen size | Orientation can swap width and height |
+| `device.connectiontype`, `device.carrier`, `device.mccmnc` | Wi-Fi vs. cellular, carrier; features for video completion | Unknown values are common |
+| `device.language` | Language; a feature and a creative eligibility rule | ISO 639-1, sometimes with region codes |
+| `device.ip`, `device.ua` | Invalid traffic checks and geo lookups; not model features | Personal data in many jurisdictions; hash or truncate before storing |
+| `device.geo.country` | Country; the main geo feature and a campaign target | The spec says ISO 3166-1 alpha-3, but some exchanges send alpha-2 |
+| `device.geo.region`, `city`, `metro` | Finer geo features | Sparse; derived from IP and often wrong |
+| `device.geo.utcoffset` | Converts the request time to local time | Missing on some exchanges; derive it from the country and region |
+| `device.geo.lat`, `lon`, `type` | Rarely useful for UA | Precise location is sensitive; don't log it |
+
+: Device and geo fields. {#tbl-b-device tbl-colwidths="[30,36,34]"}
+
+## User and Regulations
+
+| Field | ML use | Quirks |
+|---|---|---|
+| `user.id`, `user.buyeruid` | Exchange user IDs and our cookie-synced ID | Rarely useful in apps; the IFA is the key |
+| `user.consent` | TCF consent string for GDPR | In `user.ext.consent` before 2.6; parse it to check our vendor and purposes |
+| `user.eids` | Extended IDs from identity providers | In `user.ext.eids` before 2.6; uncommon in performance UA |
+| `regs.coppa` | Child-directed traffic; eligibility | Don't bid, and don't log personal data, when it's 1 |
+| `regs.gdpr` | Whether GDPR applies | In `regs.ext.gdpr` before 2.6 |
+| `regs.us_privacy`, `regs.gpp`, `regs.gpp_sid` | US state privacy signals | GPP is replacing the older US privacy string; support both for now |
+
+: User and regulation fields. {#tbl-b-user tbl-colwidths="[30,36,34]"}
+
+Regulation fields decide what we may store and use, so they're read before any feature is computed. A request that limits processing still goes through the parser and the bid log, but with the device ID dropped and the profile lookup skipped.
+
+## Bid Response
+
+The response is what we control, and its fields are what the exchange and the MMP use to attribute the impression back to us.
+
+| Field | Use | Notes |
+|---|---|---|
+| `seatbid.bid.impid` | Which impression the bid is for | Must match `imp.id` |
+| `seatbid.bid.price` | The bid, in CPM | The output of the pricing ledger, after shading, floors, and caps |
+| `seatbid.bid.adm` | The ad markup: VAST, a native response, or HTML | Includes our impression and click trackers |
+| `seatbid.bid.crid`, `adid` | Creative ID | Log it; it's the join key for creative tests |
+| `seatbid.bid.adomain`, `bundle` | Advertiser domain and app | Exchanges check them against block lists |
+| `seatbid.bid.cat`, `attr` | Creative category and attributes | Must match what was approved |
+| `seatbid.bid.nurl` | Win notice URL | Called when the bid wins the exchange auction |
+| `seatbid.bid.burl` | Billing notice URL | Called when the impression is billable; this is what spend counts |
+| `seatbid.bid.lurl` | Loss notice URL | Called with a loss reason when the bid loses |
+| `seatbid.bid.ext.skadn` | iOS SKAdNetwork signature | Required for SKAN or AdAttributionKit attribution on iOS |
+
+: Bid response fields. {#tbl-b-response tbl-colwidths="[30,36,34]"}
+
+## Notification Macros
+
+Exchanges replace these macros in the win, billing, and loss URLs. They're the source of the labels for the win model and the clearing price for spend, as in @sec-win-rate-and-bid-shading.
+
+| Macro | Meaning | Notes |
+|---|---|---|
+| `${AUCTION_ID}` | The request ID | Join key |
+| `${AUCTION_IMP_ID}` | The impression ID | Join key |
+| `${AUCTION_PRICE}` | Clearing price | Often encrypted; decrypt it in the notification service |
+| `${AUCTION_CURRENCY}` | Currency of the clearing price | |
+| `${AUCTION_LOSS}` | Loss reason code | Distinguishes lost on price from filtered, timed out, or blocked |
+| `${AUCTION_MIN_TO_WIN}` | Minimum bid to win | Standardized in 2.6; some exchanges round it, send it only on losses, or don't send it |
+| `${AUCTION_MBR}` | Clearing price divided by the bid | Rarely used in first-price auctions |
+
+: Notification macros. {#tbl-b-macros tbl-colwidths="[30,32,38]"}
+
+Loss reason codes are worth parsing carefully. A loss because the bid was below the floor or lost to a higher bid is a price outcome, and the win model trains on it. A loss because the creative was blocked, the response arrived late, or the response was malformed isn't a price outcome. Those losses go to monitoring, and the win model shouldn't train on them, as in @sec-win-rate-and-bid-shading.
+
+## From Fields to Features
+
+The tables above are inputs. The features the models use are built from them by the parser and the FeatureVector rules in @sec-logging-at-bid-time:
+
+- **Placement type** combines `imp.instl`, `imp.rwdd`, the format objects, and the video placement subtype into one value: rewarded video, interstitial, banner, or native.
+- **Local time** combines the request time with `device.geo.utcoffset`, or with a lookup from country and region when the offset is missing.
+- **Device tier** maps `device.make` and `device.model` to a canonical model table with release year and price band.
+- **App features** join `app.bundle`, normalized, to store metadata and to our own app-level statistics.
+- **Supply path** combines the exchange, `source.schain`, and the seller to group requests that reach us through the same route.
+
+The spec itself is the reference for everything else: the IAB Tech Lab publishes OpenRTB 2.6 and the AdCOM 1.0 lists it refers to on GitHub. Each exchange's integration guide lists the fields it sends, its extensions, and which macros it supports. Those guides change, so the parser's per-exchange mapping should be checked against them when an exchange announces a new version.

@@ -1,3 +1,258 @@
 # Templates: Model Specs, Experiment Readouts, and Playbooks {#sec-templates}
 
-<!-- TODO: draft -->
+This appendix collects the documents the book recommends writing, as templates that can be copied into a repository or a wiki. Each one is short on purpose. A template that takes an hour to fill in gets skipped, and one that takes ten minutes gets used. Delete sections that don't apply rather than writing "N/A", and link to dashboards, queries, and code rather than pasting them.
+
+The templates are written in Markdown so they can live next to the code they describe. The same files are in the book's repository under `templates/`.
+
+<!-- TODO: add the templates/ folder to the repo once the code pass starts. -->
+
+## Model Spec
+
+A model spec describes everything that changes a model's behavior, as in @sec-pipelines-validation-and-publishing, and everything the bidder needs to serve it, as in @sec-where-trees-stop. It's reviewed by the ML team and the bidder team before the first training run, and kept up to date as the model changes.
+
+```markdown
+# Model spec: <model name>
+
+Owner: <team or pod>        Status: draft | review | serving | retired
+Registry name: <name>       Spec version: <n>
+
+## Purpose
+- What the model predicts, for which campaigns or goals.
+- Where the prediction enters the pricing ledger (A, κ, W(b), ...).
+- What it replaces, if anything, and what it falls back to.
+
+## Target and labels
+- Label definition, with the attribution window and source table.
+- Training window, label maturity cutoff, and how delayed labels are
+  handled.
+- Sampling: negative downsampling rate and the correction applied.
+
+## Inputs
+| Feature | Source (field or lookup) | Version | Default if missing |
+|---|---|---|---|
+
+## Transforms
+- Reference to the preprocessing spec in the model bundle.
+- Fitted artifacts (vocabularies, bucket boundaries) and where they're
+  stored.
+
+## Architecture and hyperparameters
+- Model type, key hyperparameters, and the seed.
+- Rendered training query hash: <hash>
+
+## Evaluation
+- Offline metrics: log loss, normalized entropy, AUC, calibration by
+  segment.
+- Slices that must not regress: <placements, geos, exchanges, top
+  campaigns>.
+- Validation gates that block publishing, with thresholds.
+
+## Serving contract
+- Input and output tensors, with types and shapes.
+- Budgets: p99 latency, memory, CPU per request, and how they're
+  measured.
+- Golden vectors: location and tolerance.
+
+## Fallbacks
+- Behavior when the model fails to load, times out, or returns out-of-
+  range values.
+- The next level on the fallback ladder.
+
+## Rollout
+- Shadow plan, canary stages, and A/B test design (link to the
+  experiment brief).
+- Guardrails and automated rollback conditions.
+
+## Monitoring
+- Alerts on prediction distribution, calibration, missing inputs, and
+  parity.
+- Dashboard links and the playbook for each alert.
+```
+
+## Experiment Brief
+
+Write the brief before an A/B test starts, as in @sec-shadow-mode-canaries-and-ab-tests. Most of the value is in deciding the primary metric, the guardrails, and the duration before seeing any results.
+
+```markdown
+# Experiment brief: <name>
+
+Owner: <name>
+Layer: <models | pricing | pacing | selection | creative>
+Start: <date>      Planned end: <date>      Salt: <experiment salt>
+
+## Hypothesis
+- What we expect to change, and why, in one or two sentences.
+
+## Design
+- Arms and traffic shares.
+- Randomization unit (device) and any exclusions.
+- Budget split: how each campaign's budget is divided between arms.
+- Other experiments running in the same layer, and why they don't
+  conflict.
+
+## Metrics
+- Primary metric, with its label window and the day it becomes
+  complete.
+- Guardrails: spend, win rate, CPI or ROAS by top campaign, latency,
+  fallback share.
+- Minimum detectable effect and the duration that gives enough power.
+
+## Stopping rules
+- Conditions for stopping early: a failed guardrail, a broken test,
+  clear losses.
+- We won't stop early because it looks like a win.
+```
+
+## Experiment Readout
+
+The readout turns the result into a decision, using the go/no-go checklist from @sec-shadow-mode-canaries-and-ab-tests. It's written for someone who didn't follow the test, so it leads with the decision.
+
+```markdown
+# Experiment readout: <name>
+
+Decision: ship | don't ship | rerun | extend
+Brief: <link>        Dates: <start> to <end>, complete days only
+
+## Summary
+- Two or three sentences: what changed, the primary result, and the
+  decision.
+
+## Validity
+- [ ] No sample ratio mismatch (p-value: <p>)
+- [ ] Each arm spent its share of budget
+- [ ] No other changes landed in this layer during the test
+- [ ] Labels complete for the reported window
+
+## Results
+| Metric | Control | Treatment | Change | 95% interval |
+|---|---|---|---|---|
+
+- Variance reduction used, if any.
+- Segments examined, with a correction for the number of comparisons.
+
+## Guardrails
+- Any guardrail or major segment that got worse, and by how much.
+
+## Does it make sense?
+- How the result compares with the offline evaluation and the shadow
+  comparison.
+- Anything surprising, and what we checked to explain it.
+
+## Next steps
+- Rollout plan if shipping, or what we'd change for a rerun.
+```
+
+## Go/No-Go Checklist
+
+For launches that aren't A/B tests, such as a new exchange, a new geo, or a new campaign type, the same questions apply in a lighter form.
+
+```markdown
+# Go/no-go: <launch>
+
+- [ ] Shadow or listen-only run completed; predictions match offline
+      within tolerance.
+- [ ] Parity checks and golden vectors pass in the target environment.
+- [ ] Kill switch tested for this launch's scope.
+- [ ] Spend caps and bid caps configured.
+- [ ] Alerts and dashboards in place; the on-call engineer knows it's
+      launching.
+- [ ] Rollback plan written and tested.
+- [ ] Launch during working hours, with an owner watching the first
+      hour.
+```
+
+## Playbook
+
+A playbook is linked from each paging alert, as in @sec-operating-a-competitive-dsp. It answers the five questions the on-call engineer has when the alert fires.
+
+```markdown
+# Playbook: <alert name>
+
+Alert: <link to definition>     Tier: 1 | 2     Owner: <team>
+
+## What it means
+- What the alert measures and what usually causes it.
+
+## Confirm
+- Dashboard panels to check, with links.
+- Queries that split the signal by model version, host, exchange, or
+  segment.
+
+## Safe first actions
+1. <for example, roll back the last deploy>
+2. <for example, switch the model to its fallback>
+3. <for tier 1: the kill switch for the affected scope>
+
+## Escalate
+- When: <conditions>
+- To whom: <team and rotation>
+
+## Verify recovery
+- Which signals return to which band, and for how long.
+```
+
+## Postmortem
+
+Every tier 1 incident, and any tier 2 incident with real impact, gets a blameless postmortem, as in @sec-operating-at-scale. The most important section is the last one: the guardrail that keeps the same class of incident from happening again.
+
+```markdown
+# Postmortem: <incident title>
+
+Date: <date>     Tier: <tier>     Author: <name>
+Status: draft | reviewed
+
+## Summary
+- What was the issue? Two or three sentences.
+
+## Impact
+- Duration, affected campaigns, exchanges, or geos.
+- Spend at risk, overspend, and lost delivery.
+
+## Timeline
+| Time | Event |
+|---|---|
+
+## Detection
+- How was it found? The alert, report, or person, and how long it
+  took.
+
+## Response
+- How was it fixed? Actions taken, in order, and which ones helped.
+
+## Root cause and contributing factors
+- The cause, and the conditions that let it reach production.
+
+## What we learned
+- What went well, what didn't, and where we got lucky.
+
+## Guardrails
+| Action | Type (alert, fallback, check, test, gate) | Owner | Due |
+|---|---|---|---|
+```
+
+## Decision Record
+
+A decision record captures one decision, as in @sec-building-the-ml-team. Once accepted, it doesn't change. A later decision that revisits it is a new record that supersedes it.
+
+```markdown
+# Decision <number>: <title>
+
+Date: <date>     Status: proposed | accepted | superseded by <number>
+Deciders: <names>
+
+## Context
+- The problem, the constraints, and what forced a decision now.
+
+## Decision
+- What we chose, in one or two sentences.
+
+## Options considered
+| Option | Why not |
+|---|---|
+
+## Consequences
+- What gets easier, what gets harder, and what we'll watch for.
+- What would make us revisit this.
+```
+
+A record for something tried and paused is worth writing too, such as a deep model that a boosted model beat. The context and the numbers are what keep the team from rerunning the same experiment a year later without knowing why it stopped.
