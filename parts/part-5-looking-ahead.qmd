@@ -1,3 +1,1 @@
-# Looking Ahead {.unnumbered}
-
-The DSP we built in Parts II to IV runs on Android, with device IDs available for most requests. This last part looks at what changes when they aren't, on iOS today and possibly on Android later, how to build and organize the team that runs a DSP's ML, and where ad tech ML is heading.
+# The Frontier {.unnumbered}

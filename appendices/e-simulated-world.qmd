@@ -1,3 +1,203 @@
 # The Simulated World and Its Schemas {#sec-simulated-world}
 
-<!-- TODO: draft. Documents the companion bid simulator's assumptions as equations (how true probabilities, lift, competitor bids, delays, and attribution are generated), a parameter table per part, and every format the DSP owns: BidRequest, BidLog, notification events, impression log, postback, DeviceProfile, training tables, and ground truth tables. See private/toc-proposal5.md, "Synthetic Data and Code to Build". -->
+The book's working examples run on `adsim`, a simulated mobile ad market in the repository under `code/sim`. This appendix documents how it works: what the world contains, the equations that generate every outcome, the presets for each part of the book, and the schema of every table it writes. The simulator is deliberately simple. It isn't a model of any real exchange or advertiser, and its parameters were chosen so that the methods in the book have something realistic to find, not to match any company's numbers.
+
+The simulator writes two sets of tables. The **logs** are what a DSP would see: bid requests, its own bid decisions, notifications, impressions, clicks, and postbacks. The **truth** tables hold what no DSP can see: each device's hidden traits, the true probability of every outcome, the highest competing bid in every auction, and whether each install was caused by our ad. Models train on the logs, and the truth tables let us check their calibration, lift estimates, and win curves exactly.
+
+<!-- NOTE: this appendix documents adsim v0.1 (crawl). Update the equations and tables when later versions change them, since chapters report results from specific versions. -->
+
+## Running the Simulator
+
+The simulator is a Python package that needs only NumPy, pandas, and PyArrow. One command runs a preset and writes Parquet files:
+
+```bash
+cd code/sim
+pip install -e .
+python -m adsim --preset crawl --scale laptop --days 1 --seed 7 --out out/crawl
+```
+
+A run is fully determined by its preset, scale, number of days, and seed, so the same command always produces the same tables. The laptop scale simulates 20,000 devices and takes about a minute per simulated day. From Python, `adsim.simulate(cfg, policy)` returns the same tables as data frames, with a pluggable bidding policy, so the examples can replace the built-in crawl policy with the models from each chapter.
+
+## Presets and Scales
+
+The presets follow the parts of the book. Each adds markets, exchanges, and campaign goals to the one before it.
+
+| Setting | Crawl (Part II) | Walk (Part III) | Run (Part IV) |
+|---|---|---|---|
+| Geos | India, Brazil, Indonesia | Adds Mexico, the US, Japan, and Germany | Same as walk |
+| Exchanges | Two | Three | Three |
+| Campaigns | 8 | 16 | 40 |
+| Goals | CPC and a first CPI campaign | CPI, ROAS, and CPC | CPI, ROAS, and CPA |
+| Creatives per campaign | 3 | 3 | 6 |
+| Apps (laptop scale) | 300 | 300 | 800 |
+| Advertisers sharing non-attributed installs | None | Half | 70% |
+
+: Presets. {#tbl-e-presets tbl-colwidths="[28,24,24,24]"}
+
+Scales multiply the number of devices: `tiny` has 2,000, `laptop` 20,000, `medium` 200,000, and `large` 2 million, which is meant for Spark. The app catalog grows more slowly than the device count, with the square root of the scale.
+
+## The World
+
+Everything in the world is generated once per run from the seed.
+
+**Devices.** Each device has a geo, an Android OS version, and a device model drawn from a list of real models with a price tier from 1 to 3. Devices in higher-CPM geos are more likely to have higher-tier models. Each device also has hidden traits that drive every outcome:
+
+| Trait | Distribution | What it does |
+|---|---|---|
+| Genre affinity | Dirichlet(0.4) over 8 genres | How much the device likes each genre; concentrated on one or two |
+| Style preference | Dirichlet(0.8) over 4 creative styles | Which creative styles appeal to it |
+| Click propensity | Lognormal(0, 0.6) | Scales its click rate |
+| Install propensity | Lognormal(0, 0.5) | Scales its install rate |
+| Payer probability | Beta(0.6, 12) × the geo's payer scale | The chance that an install leads to purchases |
+| Spend scale | Lognormal around the geo's typical purchase size, σ = 0.8 | The size of its purchases |
+| Activity | Lognormal around 25 requests per day, σ = 0.7 | How many bid requests it generates |
+| Bot flag | 1% of devices | Invalid traffic: 5× the activity, a 25% click rate, and no installs |
+
+: Hidden device traits. {#tbl-e-devices tbl-colwidths="[24,36,40]"}
+
+**Apps.** One catalog holds both publisher apps, which send bid requests, and advertiser apps, which run campaigns. Each app has a genre, a Pareto-distributed popularity, and hidden qualities: its appeal, its store page quality, its ad density, its monetization (in-app purchases, or ads for hypercasual games), its price level, and its retention. About 3% of publisher apps host the bots. Two apps recur through the book's examples: app 0 is Gem Garden, a popular puzzle game that publishes ads, and app 1 is Cozy Farm Tycoon, a farming game that runs the first campaign.
+
+**History.** Each device has 180 days of app installs and purchases before the simulation starts, sampled from its genre affinity and the apps' popularity. The installed apps decide which publisher apps the device sends requests from. The history is in the truth tables, and the parts of it a DSP could observe are what the device profiles in @sec-listening-before-bidding are built from.
+
+**Campaigns and creatives.** Each campaign promotes one advertiser app, with a goal, a target (a CPC, CPI, or ROAS target scaled to its geos), a daily budget, and a set of target geos. Each creative has a format (video, playable, or static), a style, an orientation, and a hidden quality.
+
+**Exchanges.** Each exchange has a traffic share and quirks that the parser has to handle:
+
+| Quirk | Alpha | Beta | Gamma (walk and run) |
+|---|---|---|---|
+| Country format | Alpha-3 | Alpha-2 | Alpha-3 |
+| Minimum bid to win | Exact | Rounded up | Losses only |
+| Rewarded flag | `imp.rwdd` | `imp.ext` | `imp.rwdd` |
+| Missing device model | 2% | 15% | 2% |
+| Junk suffixes on `app.bundle` | None | 5% | None |
+| Clear rate | 85% | 70% | 90% |
+| Competition | 1.0 | 1.0 | 1.2 |
+
+: Exchange quirks. {#tbl-e-exchanges tbl-colwidths="[28,24,24,24]"}
+
+## Bid Requests
+
+Each device generates requests at its activity rate, following a daily cycle in its local time, from the publisher apps it has installed and their placements. About 3% of requests have no advertising ID, and 2% of devices send the all-zeros ID. Each placement has a floor:
+
+$$\text{floor} = B_{\text{placement}} \cdot s_{\text{geo}} \cdot c_{\text{exchange}} \cdot (0.6 + 0.2 \ln(1 + \text{popularity})) \cdot \epsilon, \quad \epsilon \sim \text{Lognormal}(0, 0.35)$$
+
+where $B$ is a base CPM of \$6 for rewarded video, \$4 for interstitials, \$1.50 for native, and \$0.50 for banners, $s_{\text{geo}}$ is the geo's CPM scale (1.0 for the US, 0.12 for India), and $c$ is the exchange's competition. One request in ten has no floor.
+
+## The True Response Model
+
+For an impression of creative $k$ for advertiser app $a$, shown to device $d$ in placement $p$ of publisher app $u$, the true click probability is:
+
+$$p_{\text{click}} = \sigma\big(\beta_p + \ln \pi^c_d + 0.35\,t_{da} + 0.3\,q_k + 0.3\,f_{dk} + 0.5\,\delta_u - 0.25 \ln(1 + n) + 0.2\,\alpha_a\big)$$
+
+where $\sigma$ is the sigmoid function, $\beta_p$ is the placement's base (−3.2 for rewarded video, −3.6 for interstitials, −4.3 for native, and −5.0 for banners), $\pi^c_d$ is the device's click propensity, $t_{da}$ is the log of its affinity for the app's genre, $q_k$ is the creative's quality, $f_{dk}$ is its fit with the device's style preference, $\delta_u$ is the publisher app's ad density, $n$ is the number of times the device has seen the campaign today, and $\alpha_a$ is the advertiser app's appeal. Bots click 25% of the time, whatever they're shown.
+
+The ad can lead to an install along two paths. After a click:
+
+$$p_{\text{install}\mid\text{click}} = \sigma\big({-2.2} + 0.9\,t_{da} + \ln \pi^i_d + 0.8\,\alpha_a + s_a - 0.9\,\delta_u + 0.2\,q_k - 0.15 \ln(1 + n)\big)$$
+
+and after a view without a click:
+
+$$p_{\text{install}\mid\text{view}} = \sigma\big(\nu_p + 0.9\,t_{da} + \ln \pi^i_d + 0.8\,\alpha_a + 0.4\,f_{dk} + 0.3\,q_k - 0.3 \ln(1 + n)\big)$$
+
+where $\pi^i_d$ is the install propensity, $s_a$ is the app's store page quality, and $\nu_p$ is the placement's view-through base (−5.6 for rewarded video down to −8.5 for banners). The structure has a few deliberate features. Genre taste matters more for installs than for clicks, so a click model is a poor install model. Dense ad layouts raise clicks but lower installs after a click, which is how accidental clicks look. Fatigue lowers all three with repeated exposure.
+
+The probability that the ad leads to an install is:
+
+$$p_{\text{ad}} = p_{\text{click}} \cdot p_{\text{install}\mid\text{click}} + (1 - p_{\text{click}}) \cdot p_{\text{install}\mid\text{view}}$$
+
+## Organic Installs and Lift
+
+Every device also has a chance of installing each app on its own, without any ad. The organic rate per day is:
+
+$$r_{da} = 5 \times 10^{-4} \cdot \frac{\text{popularity}_a}{\text{median popularity}} \cdot e^{t_{da}} \cdot \pi^i_d \cdot e^{\alpha_a}$$
+
+The probability of an organic install within the 7-day attribution window is $p_0 = 1 - e^{-7 r_{da}}$, and the true lift of an impression is:
+
+$$\text{lift} = (1 - p_0) \cdot p_{\text{ad}}$$
+
+An install is marked as caused by our ad when it came through the ad's path and no organic install would have happened within the window around the impression. Popular apps and devices that already like the genre have high organic rates, so many of their attributed installs weren't caused by the ad. This is the gap @sec-measuring-incrementality and @sec-uplift-modeling measure.
+
+## Purchases and Value
+
+An install of an in-app purchase game pays with probability:
+
+$$p_{\text{pay}} = \min\big(0.95,\ \rho_d \cdot (0.6 + 0.4 \min(e^{t_{da}}, 3))\big)$$
+
+where $\rho_d$ is the device's payer probability. Installs of ad-monetized games never pay. A payer's first purchase comes after an exponential delay with a mean of 1.5 days, followed by a Poisson number of repeat purchases, with a mean of 2 over 30 days, spread uniformly. Purchase amounts are lognormal, with a median set by the device's spend scale and the app's price level and σ = 0.8. The truth tables include each impression's expected revenue within 7 days of an install, for checking the value models in @sec-value-prediction.
+
+## Auctions
+
+The highest competing bid for each request is:
+
+$$h = 3 \cdot B_{\text{placement}} \cdot s_{\text{geo}} \cdot c_{\text{exchange}} \cdot \exp\big(0.6 \ln \pi^c_d + 0.4 \ln(\pi^i_d + 0.05) + 2 \rho_d + \eta\big), \quad \eta \sim N(0, 0.45^2)$$
+
+with no competing bid in 8% of auctions. The common-value term means that competitors bid more for the same devices we'd value most, which is what creates the winner's curse in @sec-win-rate-curves-and-the-winners-curse. We win when our bid is at least $\max(h, \text{floor})$, and the auctions are first price, so we pay our bid. The minimum bid to win is $\max(h, \text{floor})$ plus one cent, reported according to the exchange's quirk. A won impression is shown with a probability set by the exchange's clear rate and the placement, after a delay that is usually about a minute.
+
+## Delays, Attribution, and Postbacks
+
+| Event | Delay |
+|---|---|
+| Click after the impression | Lognormal, median 4 seconds, capped at 1 minute; 1.5% arrive 1 to 30 minutes late |
+| Install after a click | Lognormal, median 15 minutes, σ = 1.8, within the 7-day window |
+| Install after a view | Lognormal, median 4 hours, σ = 1.2, within the 1-day window |
+| Postback after the event | Lognormal, median 2 minutes, σ = 1.5; 1% are delayed by 1 to 48 hours |
+
+: Delays. {#tbl-e-delays tbl-colwidths="[30,70]"}
+
+The MMP uses last-touch attribution: a click within 7 days beats a view within 1 day, and the latest touch wins. About 35% of installs also have a touch from another network, and the MMP credits whichever touch was last. Installs credited to a click less than 10 seconds before the install are rejected as likely click injection. The MMP sends postbacks for the installs, purchases, and day-1 opens credited to us, losing 0.5% and duplicating 0.5%. In the walk and run presets, some advertisers also share the installs credited to other sources or to no one, which is the non-attributed data used in @sec-measuring-incrementality.
+
+## The Crawl Policy
+
+The built-in policy is the crawl bidder from Part II, so the simulator can run before any model is trained:
+
+- Requests with no device ID, or from devices in the 5% holdout, get no bid. Holdout devices get a ghost bid instead, logged with the bid the policy would have made.
+- An eligible campaign is chosen at random, weighted by its remaining budget, and a creative is chosen uniformly among the campaign's creatives that fit the placement. The selection probability is logged.
+- The click prediction is a prior click rate by placement: 3.5% for rewarded video, 2.5% for interstitials, 1.2% for native, and 0.6% for banners.
+- The bid is $\min(A \cdot (1 - m) \cdot 0.7 \cdot x,\ \text{cap})$, with a margin $m$ of 20%, a fixed shade of 0.7, and an exploration multiplier $x$ that is 1 for 95% of bids and log-uniform between 0.6 and 1.5 for the rest.
+
+## Schemas: Logs
+
+These tables are what a DSP sees. Times are milliseconds since the epoch, in UTC.
+
+| Table | Columns |
+|---|---|
+| `bid_requests` | `request_id`, `ts_ms`, `exchange`, `tmax`, `at`, `ifa`, `os`, `osv`, `make`, `model`, `connectiontype`, `country`, `bundle`, `placement`, `instl`, `rwdd`, `ext_rewarded`, `bidfloor` |
+| `bid_log` | `request_id`, `ts_ms`, `action`, `reason`, `campaign_id`, `creative_id`, `n_eligible`, `selection_prob`, `p_click_pred`, `advertiser_value`, `media_value`, `explore_mult`, `bid`, `holdout`, `explored`, `policy_version` |
+| `notifications` | `request_id`, `type`, `price`, `loss_reason`, `mbtw`, `event_id` |
+| `impressions` | `impression_id`, `request_id`, `imp_ts_ms`, `campaign_id`, `creative_id`, `video_quartile` |
+| `clicks` | `click_id`, `impression_id`, `click_ts_ms` |
+| `postbacks` | `postback_id`, `event_name`, `event_ts_ms`, `received_ts_ms`, `revenue_usd`, `touch_type`, `click_id`, `impression_id`, `campaign_id`, `app_bundle`, `advertising_id` |
+| `nonattributed` | `advertising_id`, `app_bundle`, `event_name`, `event_ts_ms`, `revenue_usd`, `media_source` |
+| `campaigns` | `campaign_id`, `app_id`, `goal`, `target`, `daily_budget`, `geos`, `start_day` |
+| `creatives` | `creative_id`, `campaign_id`, `format`, `length_s`, `orientation`, `style`, `quality` |
+| `app_metadata` | `app_id`, `bundle`, `name`, `genre`, `monetization` |
+
+: Log tables. {#tbl-e-logs tbl-colwidths="[22,78]"}
+
+The `bid_requests` table is a flattened view of each request, with the exchange's quirks left in: `country` is alpha-2 or alpha-3 depending on the exchange, the rewarded flag is in `rwdd` or `ext_rewarded`, and `bundle` may carry junk suffixes. A sample of full OpenRTB JSON requests is written alongside it as `bid_requests_sample.jsonl`. The `action` column in `bid_log` is `bid`, `ghost`, or `nobid`, and `reason` says why a request got no bid. In v0.1, the `creatives` table includes each creative's true quality, as a stand-in for a creative score the DSP would compute itself. A later version will replace it with a noisy estimate, so models can't read the truth directly.
+
+<!-- TODO (sim): replace creatives.quality in the logs with a noisy score before the walk models use creative features. -->
+
+<!-- TODO: once the bidder logs FeatureVectors (Ch 8), add the FeatureVector, DeviceProfile, and training table schemas here. -->
+
+## Schemas: Ground Truth
+
+| Table | Columns |
+|---|---|
+| `devices` | `device_id`, `geo`, `os`, `osv`, `make`, `model`, `model_name`, `tier`, `lmt`, `is_bot`, `click_prop`, `install_prop`, `payer_prob`, `spend_scale`, `activity`, `favorite_genre` |
+| `apps` | `app_id`, `bundle`, `name`, `genre`, `is_publisher`, `is_advertiser`, `is_fraud`, `placements`, `popularity`, `appeal`, `store_quality`, `ad_density`, `monetization`, `price_level`, `retention` |
+| `history` | `device_idx`, `device_id`, `app_id`, `event`, `ts_ms`, `revenue` |
+| `requests` | `request_id`, `true_device_idx`, `true_app_id`, `true_geo`, `true_tier`, `true_invalid` |
+| `auctions` | `request_id`, `bid`, `win`, `true_highest_other` |
+| `impressions` | `impression_id`, `device_idx`, `adv_app_id`, `p_click`, `p_install_click`, `p_install_view`, `p_install_ad`, `p_organic_window`, `lift`, `expected_d7_revenue`, `n_seen_today` |
+| `installs` | `device_idx`, `device_id`, `app_id`, `ts_ms`, `source`, `ad_install_path`, `imp_ts_ms`, `impression_id`, `caused`, `credited_to`, `touch_type`, `click_id`, `impression_ref`, `campaign_id`, `rejected` |
+| `events` | `install_row`, `device_idx`, `app_id`, `event`, `ts_ms`, `revenue` |
+| `sharing_apps` | `app_id` |
+
+: Ground truth tables. {#tbl-e-truth tbl-colwidths="[22,78]"}
+
+The truth tables join to the logs by `request_id` and `impression_id`. The `true_` columns in `requests` hold the values behind each request, before the exchange's quirks were applied, so the parser's output can be checked against them.
+
+## What the Simulator Leaves Out
+
+Version 0.1 covers what Part II needs. It doesn't yet have a live interface for a Go bidder, so the policy runs inside the simulation loop. Device state such as fatigue only builds within a day, and the profile features have to be built from the logs. It doesn't model ad revenue for ad-monetized games, iOS and ATT, SKAdNetwork postbacks, or click injection beyond the 10-second rejection rule. These are added as the chapters that need them are built, and each addition is recorded here with the version that introduced it.

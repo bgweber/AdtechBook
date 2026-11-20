@@ -65,7 +65,7 @@ After Part I, the book builds a DSP three times, at three levels of ambition: cr
 - **Part II: A First DSP** builds the simplest DSP that closes the loop: a Go bidder with a logistic regression click model, CPC and a first CPI campaign, bidding on low-CPM inventory, with features and propensities logged from the first bid, and the dashboards, alerts, and kill switches needed to spend real money.
 - **Part III: A Competitive DSP** adds the goals advertisers actually buy: LightGBM models for click, install, purchase, and win rate, goal-based pricing, PI pacing, incrementality reporting, a model registry and pipelines, and shadow runs, canaries, and A/B tests for every change.
 - **Part IV: A State-of-the-Art DSP** builds deep and sequence models, pretrained on data beyond the DSP's own wins, and serves them on CPU within the latency budget. It brings every pricing term into one equation, and replaces hand-tuned pacing and selection with learned policies.
-- **Part V: Looking Ahead** covers iOS and contextual signals, building an ML team at a DSP, and where the field is heading.
+- **Part V: The Frontier** covers iOS and contextual signals, building an ML team at a DSP, and where the field is heading.
 
 If you already know ad tech, you can skip Part I. If you know ML well but are new to ad tech, start with Part I. It's also readable without an ML background, if you want to share it with colleagues. The online version of the book is designed so that chapters can be read on their own, with links back to the background they depend on.
 
