@@ -87,7 +87,7 @@ The Preface lists the books and surveys that cover the field as a whole. This ap
 - Liang Tang et al., "Automatic Ad Format Selection via Contextual Bandits," CIKM, 2013.
 - "Parallel Ranking of Ads and Creatives in Real-Time Advertising Systems," AAAI, 2024.
 
-## Part V: The Frontier
+## Part V: Beyond the Bidder
 
 - Apple Developer Documentation, *AdAttributionKit*. Postback windows, conversion values, and crowd anonymity.
 - "Learning from Aggregated Data: Curated Bags versus Random Bags," 2023. Training conversion models from aggregate labels.

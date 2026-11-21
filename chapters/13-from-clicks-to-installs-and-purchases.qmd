@@ -115,7 +115,9 @@ Expanding to tier-1 geos has three parts:
 ::: {.callout-tip title="Try it on the simulator"}
 Turn on postbacks and the tier-1 geo preset. Watch install labels arrive over the following days, and plot the share of each day's installs that have arrived by each hour since the impression. Then compare attributed installs with the true caused installs from the ground truth, by placement, and see how much of the view-through share was caused by the ads.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

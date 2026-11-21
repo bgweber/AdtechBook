@@ -41,11 +41,13 @@ The most useful property of the simulator is that it knows the truth. In a real 
 
 The ground truth is kept in separate tables and is never used as a model input. A model that trained on it would look perfect and teach us nothing.
 
-Three tools in the simulator come up in every chapter:
+Three tools are planned to sit on top of the simulator, and they come up throughout the book. They're part of the companion code that's being built alongside the book, and they aren't in adsim 0.1 yet:
 
 - **Bid trace mode** records each step of a single bid with its inputs and outputs: the parsed fields and any that were missing, the profile read, which campaigns were filtered and why, the FeatureVector, each model's prediction and version, the pricing terms, the auction result, and any postbacks that came back later. When a chapter says "trace a request", this is the tool.
 - **Replay** reruns logged requests, from one request to a day of traffic, through any version of the bidder, and compares bids, wins, spend, and outcomes between versions.
-- **Releases by part** let you run the DSP as it stands at the end of each part of the book. The crawl release runs on a laptop with one command, with sample data and trained models included.
+- **Releases by part** will let you run the DSP as it stands at the end of each part of the book, starting with a crawl release that runs on a laptop with one command.
+
+What exists today is the simulated market itself, which generates every log and ground truth table that the Part II exercises need. Its tables are documented in @sec-simulated-world, and the status line in each exercise box says what you can run now.
 
 A word of caution about what simulated results mean. A model trained on synthetic data learns whatever structure the generator put there. If the simulator makes device histories matter, a sequence model will look good on it, whether or not your real data has the same structure. Throughout the book, simulator results show how a method works and how to check it. They don't tell you how large its gains will be on your traffic. Where public datasets exist for a problem, such as click logs or bid landscapes, we use them as a reality check, and the gains that matter are the ones you measure in your own A/B tests.
 
@@ -61,7 +63,9 @@ The repository is organized so that each piece can be run on its own:
 ::: {.callout-tip title="Try it on the simulator"}
 Run the market and the crawl bidder for one simulated day. Then look at three things: the bid log, with one row per request; the impression and click logs, joined to it by request ID; and the ground truth table, with the true click probability for every impression that was shown. Pick one request and trace it from the parsed request to the click.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Start Managed, Build as if Self-Serve

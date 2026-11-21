@@ -8,7 +8,7 @@ The quality of a DSP's models directly determines its advertisers' results and i
 
 The most common structure at a DSP is two teams: a data science team that trains models in Python, and a bidder engineering team that serves them in Go, Rust, or Java and computes the features at request time. The logic is reasonable. The two kinds of work have different tools, languages, and rhythms. When models are simple and stable, the handoff works.
 
-When models change often, or get more complex, three problems recur:[^c39-pods]
+When models change often, or get more complex, three problems recur:
 
 - **Feature parity.** Features are computed in Python for training and again in Go for serving, by different people, often weeks apart. The implementations drift, and the drift degrades models silently. It's the root cause of most of the parity incidents in @sec-logging-at-bid-time, and the two-team structure produces it by design.
 - **Architecture changes are hard to ship.** A model that returns one score is easy to hand off. A two-tower model that returns a vector, to be compared with precomputed campaign vectors, needs the serving team to understand the architecture, and compositions of models get harder to implement correctly with every step.
@@ -48,7 +48,7 @@ Coding agents are increasingly part of how an ML team works, and they need the s
 
 There's still an important role for a separate analytics or data science function. That team builds standardized experiment readouts, provides the measurement infrastructure for A/B tests and incrementality, and does the exploratory analysis that explains changes in model performance and campaign results over time. Its job is to help the ML pods understand what's happening and why.
 
-What it shouldn't own is model architecture or tuning decisions. Those stay with the pod that owns the models. A central analytics team that also has opinions about model design creates the same ambiguity about accountability that the two-team structure did. Keeping analytics focused on measurement, and the pods focused on models, gives each a clear mandate.[^c39-pods]
+What it shouldn't own is model architecture or tuning decisions. Those stay with the pod that owns the models. A central analytics team that also has opinions about model design creates the same ambiguity about accountability that the two-team structure did. Keeping analytics focused on measurement, and the pods focused on models, gives each a clear mandate.
 
 ## On-Call and Operational Ownership
 
@@ -81,13 +81,13 @@ A small team can't build everything, and shouldn't. A reasonable split for a DSP
 
 Where to run it is a related question. Public cloud makes it easy to start, to experiment, and to get GPUs on demand. On-premise hardware is cheaper for steady, high-volume work, which describes a DSP's bidders well, and, for stable and predictable training workloads, owned GPUs typically pay off after roughly two years compared with renting.[^c39-onprem] On-prem also brings its own operating costs: someone runs the machines, upgrades their operating systems, and keeps them in sync with the libraries the models need.
 
-For many DSPs, the most practical answer is a hybrid: train in the cloud, where GPUs are elastic and managed tools save time, and serve on-prem or in the trading locations, where steady load makes owned hardware cheaper. ONNX is what makes the hybrid work. Because training and serving agree on ONNX as the exchange format, a model trained on a cloud GPU cluster can be deployed to an on-prem Go or Rust bidder without either side knowing about the other.[^c39-onprem][^c39-outofcloud]
+For many DSPs, the most practical answer is a hybrid: train in the cloud, where GPUs are elastic and managed tools save time, and serve on-prem or in the trading locations, where steady load makes owned hardware cheaper. ONNX is what makes the hybrid work. Because training and serving agree on ONNX as the exchange format, a model trained on a cloud GPU cluster can be deployed to an on-prem Go or Rust bidder without either side knowing about the other.[^c39-outofcloud]
 
 ## Conclusion
 
 In this chapter, we looked at the team behind the DSP. Two teams with a handoff produce feature parity problems, slow architecture changes, and ambiguous ownership, so the ML team owns models from training through serving through monitoring, organized in pods by model type, with analytics focused on measurement. Decision records, runbooks, a gotchas file, and a short list of rules that must hold keep the team's knowledge, for people and for coding agents, whose access is read-only and cost-guarded by default. On-call belongs to whoever ships the model, early hires need breadth and ownership, and the platform buys what's undifferentiated, builds what's specific, and often trains in the cloud while serving on owned hardware.
 
-In the last chapter, we step back and look at where ad tech ML is heading.
+A team's structure is only half of what makes it work. In the next chapter, we look at the other half: the culture it works in, and how to keep it healthy.
 
 [^c39-pods]: Ben Weber, "Structuring an ML Org for a DSP: Pods not Silos for Effective Model Delivery," *Data Science Collective*, May 19, 2026, <https://medium.com/data-science-collective/structuring-an-ml-org-for-a-dsp-9fae5a01c671>
 

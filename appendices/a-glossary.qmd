@@ -38,6 +38,8 @@ This glossary covers the ad tech and machine learning terms used throughout the 
 
 **Billing notification.** The exchange's message telling the DSP that an impression it won was actually shown and is billable.
 
+**Boosted LTV.** A studio's projected one-year LTV for recent installs, built from its own curves and early signals. Some studios judge DSPs on it more than on reported D7 LTV. See @sec-introduction.
+
 **Budget-split design.** An A/B test design that splits each campaign's budget between arms in proportion to their traffic, so the arms can't spend each other's money. See @sec-shadow-mode-canaries-and-ab-tests.
 
 **Calibration.** Getting predicted probabilities right, not just their order. A model that predicts 2% when the true rate is 1% is badly calibrated, even if it ranks impressions well.
@@ -80,6 +82,8 @@ This glossary covers the ad tech and machine learning terms used throughout the 
 
 **Device profile.** What the DSP knows about a device from past interactions, stored in a fast key-value store and read on every bid request.
 
+**Device state.** A transformer's summary of a device's history, computed offline and stored in the device profile with its model version. See @sec-sequences-and-transformers.
+
 **Distillation.** Training a small student model to match a large teacher model's outputs, usually to make it cheap enough to serve. See @sec-serving-deep-models.
 
 **Dynamic margin.** A margin that varies from impression to impression, as long as the campaign as a whole meets its target.
@@ -90,7 +94,11 @@ This glossary covers the ad tech and machine learning terms used throughout the 
 
 **End card.** The screen shown after a video ad, usually with an install button.
 
+**ESMM.** The entire space multi-task model, which trains every conversion head over all impressions by multiplying through the funnel, rather than training install heads only on clicked impressions. See @sec-deep-models-with-embeddings.
+
 **Exchange.** The marketplace that runs auctions between the supply side and bidders.
+
+**Expected calibration error.** The average gap between predicted and actual rates across bins of the prediction, here divided by the overall rate. See @sec-deep-models-with-embeddings.
 
 **Exploration multiplier.** A random factor applied to a small share of bids so that the win model can learn how the win rate changes with the bid. See @sec-pricing-a-click.
 
@@ -154,9 +162,13 @@ This glossary covers the ad tech and machine learning terms used throughout the 
 
 **MMP (mobile measurement partner).** The third party, such as AppsFlyer or Adjust, that attributes installs and in-app events to ad platforms. See @sec-measurement-and-mmps.
 
+**Model predictive control.** Re-solving for the best pacing multiplier every interval from the remaining budget and a forecast, with no learning. See @sec-pacing-with-reinforcement-learning.
+
 **Model registry.** A system that records every model version, its lineage, and which version is serving. See @sec-pipelines-validation-and-publishing.
 
 **Negative downsampling.** Keeping only a share of negative examples for training, and correcting predictions afterward. See @sec-a-click-model.
+
+**Neural-linear bandit.** A contextual bandit that uses a deep model's learned features and a linear model with a posterior over its weights for exploration. See @sec-personalized-creative-selection.
 
 **Normalized entropy.** Log loss divided by the log loss of a model that always predicts the base rate, for comparing across datasets. See @sec-a-click-model.
 
@@ -196,6 +208,8 @@ This glossary covers the ad tech and machine learning terms used throughout the 
 
 **Shadow mode.** Scoring live requests with a new model without letting it affect bids, to compare it with the champion. See @sec-shadow-mode-canaries-and-ab-tests.
 
+**Shadow price.** The value of one more dollar of budget. The optimal pacing multiplier is one over one plus the shadow price. See @sec-the-unified-pricing-equation.
+
 **SKAdNetwork (SKAN).** Apple's original privacy-preserving install attribution framework for iOS, succeeded by AdAttributionKit. See @sec-ios-and-contextual-signals.
 
 **Surplus.** The media value minus the price paid for an impression.
@@ -205,6 +219,8 @@ This glossary covers the ad tech and machine learning terms used throughout the 
 **Throttling.** Bidding on only a share of eligible requests to slow spend, used for pacing in the crawl DSP. See @sec-operating-the-first-dsp.
 
 **Trading location.** A regional data center from which an exchange sends bid requests. See @sec-inside-a-demand-side-platform.
+
+**Two-tower bid predictor.** A retrieval model whose user and campaign towers predict, with a dot product, the bid the full pipeline would make, so only the top campaigns are scored by the heavy models. See @sec-learned-campaign-selection.
 
 **Two-tower model.** A model that learns vectors for two kinds of entity, such as devices and apps, so that their dot product scores how well they match. See @sec-sequences-and-transformers.
 

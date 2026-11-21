@@ -110,7 +110,9 @@ The number that ties it together is **cost per million requests**: the compute c
 ::: {.callout-tip title="Try it on the simulator"}
 Profile the walk bidder under load with replayed simulated traffic. Find the slowest stage at p99, then cap the candidates per request and batch the model calls, and measure the change. Compare LightGBM served through ONNX Runtime with a native Go implementation on the same model.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: planned. This exercise needs the companion Go bidder and a replay harness, which isn't built yet.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

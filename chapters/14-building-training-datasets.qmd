@@ -158,14 +158,16 @@ In walk, a DSP holds months of device-level data, from several sources, under se
 ::: {.callout-tip title="Try it on the simulator"}
 Build an install training dataset with as-of joins and the label cutoffs above. Then add a feature that's computed from the device profile as it is today, rather than as of the bid, and train with it. Watch the offline metrics improve, and the live results on the simulator get worse.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
 In this chapter, we built training datasets that are correct and reproducible with delayed labels. We joined impressions to clicks, installs, and in-app events, with deduplication and monitoring for late and unmatched postbacks, and used as-of joins for anything the bidder didn't log. New features come from replay, validated against live logging. Each label gets a cutoff and a training window, every row carries its sampling weight, and every dataset gets a version that records its inputs, code, settings, and data rights. Checks before training, contracts with upstream sources, rules for evolving the schema, and governance in the pipelines keep bad and disallowed data out of the models.
 
-With good install and purchase datasets, we can train better models on them. In the next chapter, we replace logistic regression with LightGBM for click, install, and purchase prediction.
+With good install and purchase datasets, we can train better models on them. The next chapter replaces logistic regression with LightGBM for click, install, and purchase prediction.
 
 [^c14-intent]: Ben Weber, "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, October 3, 2026.
 

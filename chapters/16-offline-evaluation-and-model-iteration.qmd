@@ -17,6 +17,8 @@ The crawl DSP used log loss, AUC, and calibration. Walk keeps all three, and cha
 
 For models that feed a price, the most useful single check is often the calibration of the bid value: $P(\text{install}) \times E[\text{value}]$ by campaign and by bid range, compared with realized value. That's the number the bidder actually acts on.
 
+All of these metrics share one limit: they measure how well a model predicts attributed outcomes on impressions the DSP already won. They don't measure whether the ads caused those outcomes, and they don't see the impressions the new model would win instead. A model can improve on every offline metric and still make a campaign's ROAS worse, for example by getting better at finding devices that were going to install anyway, or by bidding more on supply where the logged data is thin. Offline metrics decide which models are worth testing. The A/B tests in @sec-shadow-mode-canaries-and-ab-tests and the holdouts in @sec-measuring-incrementality decide which ones are better.
+
 ## Out-of-Time Evaluation and Segment Breakdowns
 
 As in @sec-a-click-model, every evaluation is out of time: train on earlier days and evaluate on later ones, with the evaluation days' labels complete. For install and purchase models, that means evaluating on a period that ended at least one label cutoff ago.
@@ -72,11 +74,11 @@ Measure churn directly: score a fixed sample of requests with consecutive model 
 ::: {.callout-tip title="Try it on the simulator"}
 Replay a simulated day of traffic through two install model versions, and compare their bids by exchange and the volume each would win. Then evaluate a new campaign selection policy offline with the logged propensities, and compare the estimate with the result of running that policy on the simulator, where the true outcome is known.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
-In this chapter, we set up offline evaluation for the walk DSP. Metrics are normalized, computed within campaigns, weighted by spend, and focused on the calibration of the values that set bids. Every evaluation is out of time and broken down by segment. Model changes sit on a ladder from routine retrains to new model forms, with more evaluation for each rung. Replay estimates how a new model would change bids and spend, inverse propensity weighting estimates how a new selection policy would perform from logged data, and churn measures how much predictions move between training runs.
-
-Offline evaluation tells us which models are worth trying. Before we can try them, the bidder has to serve several models on every request within its latency budget. In the next chapter, we make the bid path fast enough, measurably.
+In this chapter, we set up offline evaluation for the walk DSP: normalized metrics within campaigns, focused on calibration, out of time and by segment, with more evaluation for bigger changes. Replay estimates the effect on spend, inverse propensity weighting evaluates selection policies, and churn measures stability. In the next chapter, we make the bid path fast enough to serve the models worth trying.

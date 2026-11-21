@@ -112,11 +112,13 @@ Pacing gets its own dashboard panels and alerts:
 ::: {.callout-tip title="Try it on the simulator"}
 Pace a campaign through a simulated day with the PI controller, starting from the replay forecast, and plot spend against plan and $\gamma$ over the day. Then give a second campaign a manual overbid, migrate it to the controller in steps, and compare its spend and CPI before and after.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
 In this chapter, we replaced throttling and manual levers with a controller on the pacing multiplier $\gamma$. Bid modification gives up the least valuable impressions first, so it beats throttling for the same spend. A PI controller in log space, with a gain from the win model's spend elasticity and a feedforward start from a replay forecast, keeps spend on plan. A slower goal controller holds bids back when spending the budget would miss the target, overbids migrate into the controller in steps, and new campaigns and weekly budgets get their own handling, with pacing monitored like any model.
 
-Pacing and pricing now work toward the advertiser's attributed goals. But attributed results include installs that would have happened anyway. In the next chapter, we measure how many installs the DSP actually causes.
+But attributed results include installs that would have happened anyway. Next, we measure how many installs the DSP actually causes.

@@ -119,7 +119,9 @@ The correction stops the losses, but it doesn't create an edge. A DSP whose info
 ::: {.callout-tip title="Try it on the simulator"}
 Train a win model with a parametric curve head on simulated bids and minimum bids to win, and compare it with the LightGBM win model from Part III. Then measure the winner's curse directly: compare the DSP's predicted value on won impressions with the true value from the ground truth, by margin. Apply the correction, and compare margins and spend before and after.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

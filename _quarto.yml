@@ -9,7 +9,7 @@ execute:
 
 book:
   title: "Machine Learning in Mobile AdTech"
-  subtitle: "Training and Serving Models for a Demand Side Platform"
+  subtitle: "From Foundations to the Frontier of Demand Side Platforms"
   author: "Ben G Weber"
   date: last-modified
   output-file: "ml-in-mobile-adtech"
@@ -68,7 +68,8 @@ book:
       chapters:
         - chapters/38-ios-and-contextual-signals.qmd
         - chapters/39-building-the-ml-team.qmd
-        - chapters/40-conclusion.qmd
+        - chapters/40-building-a-healthy-ml-culture.qmd
+        - chapters/41-conclusion.qmd
   appendices:
     - appendices/a-glossary.qmd
     - appendices/b-openrtb-fields.qmd

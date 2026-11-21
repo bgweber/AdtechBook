@@ -48,6 +48,62 @@ Most of the strong features in a DSP are categorical, and several have very high
 
 IDs can hurt as well as help. A campaign ID lets the model learn things specific to that campaign, but it also lets the model memorize the campaign's past, which may not hold when its targeting or creatives change, and it says nothing about a new campaign. Pair every ID with features that generalize, such as the app's genre and the creative's format, and watch out for IDs that dominate the feature importances.
 
+## App Embeddings as Tree Features: GloVe Clusters
+
+Publisher apps and advertised apps are the two most important categorical features in most DSP models, and they have the cold-start and sharing problems above at their worst. There are hundreds of thousands of publisher apps, new ones appear every day, and the model learns nothing about a new puzzle game from the puzzle games it already knows. Store genres help a little, but they're coarse and self-reported: a "casual" game can be anything from a word game to a slot machine.
+
+A better description of an app comes from who plays it. Two apps that are installed by the same devices are similar, whatever their store categories say. **App embeddings** turn that into a vector for every app, and **cluster IDs** turn the vectors into features a tree model can use. Some of the strongest signals I've used came from exactly this: GloVe embeddings trained on advertiser and publisher apps, grouped with k-means at several values of k, with the cluster IDs used as categorical features in a classic model.[^c15-intent] The embeddings were trained offline, and serving them was a lookup. It's also a gentle first step toward the deep models of Part IV, since it uses non-attributed data without putting a neural network anywhere near the bid path. @fig-c15-glove shows the pipeline.
+
+![From device app lists to tree features. App vectors are trained weekly from co-installs, clustered at several scales, and published as a versioned lookup table. At bid time, every feature is a lookup.](../images/p3-glove-pipeline.png){#fig-c15-glove width="100%"}
+
+### Training the Embeddings
+
+**The corpus.** For each device, collect the set of apps it's known to have: the apps the bidder has seen it in, from the bid stream, and its installs from MMP data that advertisers share. The bid stream is the larger source by far, and it covers every app that sells ads, which is exactly the set of publisher apps the model needs to describe. A device with 40 apps contributes evidence that those 40 apps go together.
+
+**Co-occurrence counts.** Count, for every pair of apps, how many devices have both. A device's apps are a set, not a sentence, so there's no window: every pair on the device counts. Weight each device's pairs by one over the number of other apps on the device, so a device with 300 apps, often a bot or a device farm, doesn't contribute 45,000 pairs of noise, and drop devices flagged as invalid traffic entirely.
+
+**GloVe.** GloVe learns a vector $w_i$ for each app $i$ so that the dot product of two apps' vectors approximates the log of how often they co-occur:[^c15-glove]
+
+$$J = \sum_{i,j} f(X_{ij}) \left( w_i^\top \tilde w_j + b_i + \tilde b_j - \log X_{ij} \right)^2$$
+
+where $X_{ij}$ is the weighted co-occurrence count, $\tilde w_j$ and the $b$ terms are a second set of vectors and biases, and $f$ down-weights rare pairs and caps the weight of very common ones. The final vector for each app is $w_i + \tilde w_i$. Thirty-two to 64 dimensions is enough. Keep only apps seen on at least a few hundred devices, since rare apps get noisy vectors. GloVe trains on the co-occurrence matrix rather than the raw data, so even with hundreds of thousands of apps, it trains in minutes on one machine. Word2vec-style skip-gram on app lists, or a PPMI matrix factored with SVD, work about as well, and any of them can be swapped in later without changing anything downstream.
+
+### Clustering
+
+Trees split on one feature at a time, so a 64-dimension vector is 64 weak columns that mean nothing on their own, and the dimensions change meaning every time the embedding is retrained. A cluster ID is one strong column. Normalize the vectors to unit length, so clustering groups apps by direction rather than popularity, and run k-means, assigning each app to its nearest centroid:
+
+$$c(a) = \arg\min_k \lVert e_a - \mu_k \rVert^2$$
+
+Run it at several scales, such as $k = 20$, 200, and 1,000. The coarse clusters are stable and well populated, and the fine ones separate subgenres, such as cozy farming games from farm-merge puzzles. Trees can use all three, and they'll pick the level that's supported by enough data in each part of the tree. Keep the distance to the centroid too: an app far from every centroid is a poor fit for its cluster, and the tree can learn to trust its cluster less. @fig-c15-appmap shows what the result looks like.
+
+![App embeddings projected to two dimensions. Apps that share players sit together, coarse clusters group genres, and fine clusters split them into subgenres. A new app lands in a cluster as soon as it has co-install data from the bid stream, before any campaign has run in it. Illustrative.](../images/p3-app-map.png){#fig-c15-appmap width="100%"}
+
+Before using the clusters, look at them. For each cluster, list its most popular apps and give it a readable name, such as "puzzle" or "casino". Check purity against store genres, without expecting it to be perfect, since the point is to find structure the genres miss. And check stability: retrain the embeddings on a different week, cluster again, and see how many apps change clusters. If a third of apps move every week, $k$ is too large for the data.
+
+### Features for the Trees
+
+The lookup table maps each app to its clusters and distances. From it, the walk DSP builds a handful of features:
+
+- **Publisher cluster and advertiser cluster,** at each scale, as categorical features. A new publisher app gets a cluster as soon as it has co-install data, which is usually within days of its first bid requests.
+- **Their cross,** publisher cluster by advertiser cluster at $k = 20$, which is only 400 values. It captures the interaction that matters most, how well this campaign's game fits this publisher's players, as @fig-c15-lift shows.
+- **The cosine** between the publisher app's vector and the advertised app's vector, a numeric feature that's comparable across apps.
+- **The device's cluster shares:** the share of the device's known apps in each coarse cluster, as 20 numeric features, plus the share in the advertised app's cluster. This is a compact, stable summary of what the device plays, and it's the walk DSP's first step toward the device models of Part IV.
+
+![Install rate by publisher cluster and advertised app's cluster, relative to each advertiser's average. Campaigns install best on publishers whose players already play similar games. The cross of the two cluster IDs lets a tree learn this table with 36 values instead of millions of app pairs. Illustrative.](../images/p3-cluster-lift.png){#fig-c15-lift width="85%"}
+
+These features earn their place. In the feature importance readout of an install model, the embedding-derived features typically land among the top features, next to placement type and country, as in @fig-c15-importance. The same readout, with embedding features marked, is worth surfacing in the DSP's admin tool, next to the model's metrics, so it's clear what each model relies on.
+
+![A feature importance readout for a LightGBM install model, as the share of total gain. Features derived from app embeddings, in black, are among the strongest. Illustrative values.](../images/p3-feature-importance.png){#fig-c15-importance width="100%"}
+
+### Keeping Them Honest
+
+A few rules keep embedding features from causing the incidents of @sec-logging-at-bid-time:
+
+- **Version everything.** An embedding table and its clusters are an artifact, published once with a version, and a model can only be served with the version it was trained on. Cluster 17 in this week's table has nothing to do with cluster 17 in last week's. @sec-serving-deep-models covers how to serve several versions at once and renumber clusters for continuity.
+- **Train on the past.** Train the embeddings only on data from before the model's training window, so co-installs that happened after an impression can't leak into its features.
+- **Log the lookup, not the vector.** The FeatureVector records the app and the table version, and the cluster features are rebuilt from the immutable table, as with every lookup.
+- **Handle unknown apps.** An app that's missing from the table gets an explicit "unknown" cluster, the same code in training and serving. A store description embedding, as in @sec-deep-models-with-embeddings, can place it in its nearest cluster until it has co-install data.
+
 ## A First Value Model
 
 ROAS goals need more than an install rate. They need the predicted revenue from each install, so walk includes a basic value model rather than waiting for the deep value models of Part IV.
@@ -57,22 +113,29 @@ Revenue is hard to predict. Most installers never pay anything, and a few pay a 
 - **A Tweedie objective** on D7 revenue. The Tweedie distribution has a point mass at zero and a continuous tail, which fits revenue data, and LightGBM supports it directly. One model predicts expected revenue per install.
 - **A two-part model:** one classifier for the probability that an install pays at all, and one regression for expected spend given that it pays, trained only on payers. Expected revenue is the product.
 
-Both work well with pretrained features, as we'll see in Part IV, and both are much simpler than stacks of models with a separate combiner.[^c15-intent] The two-part model is easier to debug, because each part can be checked on its own, and the payer classifier is often useful by itself for CPA goals.
+Both work well with pretrained features, as we'll see in Part IV, and both are much simpler than stacks of models with a separate combiner. The two-part model is easier to debug, because each part can be checked on its own, and the payer classifier is often useful by itself for CPA goals.
 
 Evaluate the value model on two things: the calibration of predicted revenue, by campaign and by country, and how well it ranks installs by value, for example by the share of total revenue in the top 10% of predicted value. Because revenue is so skewed, a few large payers can swing these metrics, so evaluate on enough days to see past them. We return to value prediction in @sec-value-prediction.
 
-## One Universal Model per Platform
+## Universal Models and Specialized Models
 
-The walk DSP trains one install model for Android across all campaigns and advertisers whose terms allow pooling, rather than one model per campaign. This is a design choice worth being explicit about, because per-campaign models are tempting: each campaign is different, and its own model can fit it closely.
+The walk DSP trains one install model for Android across all campaigns and advertisers whose terms allow pooling, rather than one model per campaign. This is a design choice worth being explicit about, because neither option is better in every case, and the right answer can change as the DSP grows.
 
-Universal models win for a DSP, for several reasons:
+A universal model has real advantages for a DSP:
 
 - **Data.** Most campaigns don't have enough installs to train a good model on their own. A universal model learns from all of them, and what it learns about devices and supply transfers across campaigns.
 - **Cold start.** A new campaign starts with everything the model knows about its app's genre, its creatives' formats, and the supply it targets, rather than with nothing.
-- **A fair internal auction.** As we'll see in @sec-pricing-for-goals, the bidder compares campaigns by their predicted value. If each campaign has its own model, the comparison mixes models of different quality and calibration, and the best-calibrated campaign doesn't necessarily win. With one model, every campaign is priced by the same predictions.
+- **A consistent internal auction.** As we'll see in @sec-pricing-for-goals, the bidder compares campaigns by their predicted value. If each campaign has its own model, the comparison mixes models of different quality and calibration, and the best-calibrated campaign doesn't necessarily win. With one model, every campaign is priced by the same predictions.
 - **Operations.** One model per model type is something a small team can train, validate, monitor, and roll back. Hundreds of per-campaign models are not.
 
-Campaign-specific behavior still gets in, through campaign and app features, and through calibration multipliers by segment, which correct a universal model for the campaigns it gets wrong.
+It also has real costs:
+
+- **Data rights.** A universal model can only pool data that advertisers have agreed to pool. Some will opt out, and their campaigns need a model trained on their own data plus whatever the terms allow.
+- **Heterogeneous behavior.** Install behavior differs a lot between a hypercasual game and a casino app, and between iOS and Android. A single model can average them badly, and segments that are a small share of training data get the least attention.
+- **Negative transfer.** Adding very different campaigns can make the model worse for the campaigns it was good at. It shows up as a regression for an important segment when the training set grows.
+- **Calibration by segment.** A universal model that's calibrated overall is rarely calibrated for every campaign, so it needs the segment-level corrections later in this chapter, and someone has to watch them.
+
+In practice, the choice isn't all or nothing. The common middle ground, and what the walk DSP uses, is one universal model per platform with campaign, app, and genre features, so campaign-specific behavior gets in through the features, plus calibration multipliers by segment. Specialize when the evidence says to: a large campaign with plenty of installs whose calibration stays off after segment correction, an advertiser whose terms don't allow pooling, or a vertical, such as casino, whose behavior is different enough that a separate model wins in an A/B test. Each specialized model is one more model to train, validate, monitor, and roll back, so add them one at a time, and only when a test shows the gain.
 
 ## Campaign and Creative IDs, and Cold Start
 
@@ -96,11 +159,23 @@ As we saw in @sec-a-click-model, calibration matters more than ranking for biddi
 
 There are a few standard tools for recalibration. **Platt scaling** fits a logistic regression on the model's output, and **isotonic regression** fits a monotone step function, both on a held-out set that the model didn't train on. Isotonic regression is more flexible and needs more data. Either is shipped as part of the model bundle and applied in the bidder.
 
-A few practices matter more than the choice of method:[^c15-intent]
+@fig-c15-calibration shows the effect on an install model. Trained on last month's impressions, it predicts about 30% more installs than happen, and most of the excess is in the top deciles, where the bids are highest. An isotonic fit on a held-out day brings the two lines together.
+
+![Calibration plots for a LightGBM install model, before and after isotonic calibration on a held-out day. Simulated data.](../images/ch15-calibration-install.png){#fig-c15-calibration width="100%"}
+
+A few practices matter more than the choice of method:
 
 - **Calibrate by segment.** A model that's calibrated overall can be 30% high on one exchange and 20% low on another. Check calibration by exchange, country, placement type, and campaign, and correct segments that are consistently off. The calibration multiplier $\kappa$ in @sec-pricing-for-goals does this continuously.
 - **Report normalized entropy, and AUC within each campaign.** Overall AUC is dominated by differences between placements and campaigns, which are easy to learn. AUC within each campaign shows whether the model ranks impressions well where the bidder actually has to choose.
 - **Check the calibration of the product.** For a ROAS goal, the bid depends on $P(\text{install}) \times E[\text{value}]$. Check the calibration of that product by campaign and by bid range, not only of each model on its own.
+
+## Predicted Installs Aren't Caused Installs
+
+The install models in this chapter predict attributed installs: the probability that a device installs and the MMP credits our impression. That's what CPI campaigns pay for, so it's the right target for pricing. But it isn't the same as the probability that the ad causes the install.
+
+Some devices would have installed anyway. A player who already loves farming games, and who has seen Cozy Farm Tycoon in the store, may install it this week whether or not they see our ad. If we win an impression first, the MMP credits us, and the install model learns that devices like this one install at a high rate. The model is right about that, and bidding on it is still a mistake if most of those installs would have happened without the ad: the DSP spends the advertiser's money on installs it didn't cause, and the advertiser's own measurements eventually show it.
+
+The higher the predicted install rate, the more likely this is, because the devices most likely to install are often the ones closest to installing on their own. So better prediction can make the problem worse. We measure how large the gap is in @sec-measuring-incrementality, and price on caused installs in @sec-uplift-modeling. Until then, it's worth remembering that every install prediction in this part answers "who will install?", not "who will install because of the ad?"
 
 ## Retraining Cadence
 
@@ -122,15 +197,17 @@ Both limits point to Part IV, where embeddings let related values share what the
 ::: {.callout-tip title="Try it on the simulator"}
 Train LightGBM click, install-after-click, install-after-view, and purchase models on a simulated month of tier-1 and low-CPM traffic. Compare their calibration by segment with the true rates from the ground truth, and compare the click model with the logistic regression model from Part II. Then hold out the campaigns that launched in the last week, and check cold-start calibration on them separately.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
-In this chapter, we replaced logistic regression with LightGBM. Trees learn interactions and nonlinear effects without hand-built crosses, handle missing values natively, and stay fast and calibratable. We trained separate models for clicks, installs after clicks and after views, and purchases or value, with a Tweedie or two-part value model for ROAS goals, as one universal model per platform. We handled high-cardinality features with native categorical splits, frequency thresholds, and careful target encoding, gave new campaigns and creatives descriptive features for cold start, and calibrated by segment, checking the calibration of the products that set prices.
-
-A better model is only worth deploying if we can tell that it's better. In the next chapter, we evaluate model changes offline, to decide which ones are worth an online test.
+In this chapter, we replaced logistic regression with LightGBM, which learns interactions without hand-built crosses and stays fast and calibratable. We trained models for clicks, installs by path, and value, handled high-cardinality features, turned GloVe app embeddings into cluster IDs that trees can split on, handled cold start, and calibrated by segment. In the next chapter, we evaluate model changes offline, to decide which ones are worth an online test.
 
 [^c15-intent]: Ben Weber, "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, October 3, 2026, <https://bgweber.medium.com/pretrained-deep-learning-intent-signals-for-mobile-dsps-2eb1834c62db>
 
 [^c15-moloco]: Moloco, "Inside Moloco's CARA: the AI that compounds," Moloco blog, 2026, <https://www.moloco.com/blog/inside-molocos-cara-the-ai-that-compounds>
+
+[^c15-glove]: Jeffrey Pennington, Richard Socher, and Christopher D. Manning, "GloVe: Global Vectors for Word Representation," EMNLP, 2014.

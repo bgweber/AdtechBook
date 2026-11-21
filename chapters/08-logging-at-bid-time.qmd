@@ -28,7 +28,7 @@ That's why the crawl DSP logs features before it has a model worth keeping. In t
 Every row in this table has bitten a team I've worked with. A few examples from the migration I mentioned:
 
 - **Divide by zero.** We had ratio features, such as a device's historical click rate (clicks divided by impressions). The training pipeline encoded a divide by zero as -1, and the serving pipeline encoded it as 0. Our parity checker caught it, but only after the model was live.
-- **String parsing.** Our vocabulary mapped `com.dreamgames.royalmatch` to an index, but in one pipeline the bundle arrived as `com.dreamgames.royalmatch$hl=en_US`, which mapped to the out-of-vocab (OOV) index. The fix that worked long term was cleaning app bundles once, at data ingestion, instead of in each pipeline.
+- **String parsing.** Our vocabulary mapped `com.dreamgames.royalmatch` to an index, but in one pipeline the bundle arrived with a locale suffix appended, as `com.dreamgames.royalmatch` followed by `$hl=en_US`, which mapped to the out-of-vocab (OOV) index. The fix that worked long term was cleaning app bundles once, at data ingestion, instead of in each pipeline.
 - **Time-relative features.** We tried a `weeks_ago` feature, computed in training as the number of weeks between the impression and the training date. At serving time, it was always 0. The feature ranked highly offline, and the model without it won the A/B test.
 
 The last row of the table, profile freshness, is the most dangerous, because it produces leakage rather than just noise. Suppose the training pipeline reads each device's profile from the NoSQL store at training time. That profile now includes the apps the device installed after the bid, including the advertised app, installed because of the impression we are trying to learn from. A feature like "has installed apps in this genre" becomes almost perfectly predictive offline and useless at bid time. Subtler versions include install counts, engagement aggregates, and recency features that absorb events after the bid. The model looks better offline than any honest model could, and then underperforms online.
@@ -76,7 +76,7 @@ A DSP usually runs several models on the same request, such as a LightGBM model 
 
 : The four value types in the FeatureVector. {#tbl-c9b-types}
 
-Strings stay strings in the FeatureVector. Mapping them to integer IDs depends on a model's vocabulary, which belongs to the model, so it happens after logging. This is also what would have prevented one of the incidents in my post: we had reused one vocabulary across a click model and an install model, and the install model, trained on a smaller dataset, ended up with embedding entries that never received a training update.[^c8-incidents] When vocabularies belong to models rather than to the log, that kind of sharing doesn't happen by accident.
+Strings stay strings in the FeatureVector. Mapping them to integer IDs depends on a model's vocabulary, which belongs to the model, so it happens after logging. This is also what would have prevented one of the incidents in my post: we had reused one vocabulary across a click model and an install model, and the install model, trained on a smaller dataset, ended up with embedding entries that never received a training update. When vocabularies belong to models rather than to the log, that kind of sharing doesn't happen by accident.
 
 ### Canonicalization Rules
 
@@ -134,7 +134,7 @@ Everything after the FeatureVector belongs to a model, and is versioned with it.
 
 One rule decides where each transform runs. Anything learned from data is model metadata, and anything that is a fixed formula can live in the model graph. Vocabularies, means and standard deviations, bucket boundaries, and top-value lists are fitted once on the training split and shipped as metadata files with the model. String-to-ID lookups run in a shared Go preprocessing library that reads the model's vocabulary, because Go inference runtimes handle string operations in the graph unevenly. Numeric math for the DNN, such as `log1p` and standardization, runs in the graph, so that training and serving execute the same operations. Flattening sets and lists for LightGBM is a per-model specification executed by the same Go library, both in the bidder and in the batch job that builds training data.
 
-Padding is a good example of why this matters. In one incident, we couldn't send empty arrays to our serving endpoint when batching was turned on, so the serving code padded empty app lists with `[0]`. But index 0 was a real app, so the model was told that devices had installed an app they never had, and only in serving, not in training. The eventual fix was to reserve index 0 as a padding value with no meaning in every vocabulary, and to apply the same padding in both pipelines.[^c8-incidents] With a shared Go preprocessing library, that rule lives in one place.
+Padding is a good example of why this matters. In one incident, we couldn't send empty arrays to our serving endpoint when batching was turned on, so the serving code padded empty app lists with `[0]`. But index 0 was a real app, so the model was told that devices had installed an app they never had, and only in serving, not in training. The eventual fix was to reserve index 0 as a padding value with no meaning in every vocabulary, and to apply the same padding in both pipelines. With a shared Go preprocessing library, that rule lives in one place.
 
 Each model ships as a **bundle**: the model file, its preprocessing specification, vocabularies, fitted statistics, the versions of any lookup tables it depends on, and the FeatureVector schema version it expects. A set of **golden vectors** per model version, FeatureVectors with the exact tensors the model should receive, is checked in both the Go library and the Python training path on every build. We cover publishing bundles in @sec-pipelines-validation-and-publishing, and @fig-c9b-one-vector shows how the pieces fit together.
 
@@ -225,11 +225,13 @@ Retention is a decision to make now, not later. Bid logs are large, and they inc
 ::: {.callout-tip title="Try it on the simulator"}
 Follow one request from its FeatureVector in the bid ledger, through its win and billing notices, its impression, and its click, to the training row that joins them. Then change how the bidder normalizes one feature, without changing the training code, and watch the parity check flag the mismatch between logged and recomputed values.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: planned. This exercise needs the companion Go bidder's FeatureVector logging and the parity job, which isn't built yet.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
 In this chapter, we made the logs the single source of truth for training. Skew and leakage come from computing features twice, or looking them up after the fact, so the bidder logs one model-agnostic FeatureVector at bid time, with explicit missing values, normalized strings, and relative times, and every model applies its own transforms to that record. Around it, we set up the event logs and the keys that join them, a tracking and transport path from the bidder to storage, a minimal postback endpoint, labels built from impressions rather than wins, and two records of deliberate randomness, propensities and a holdout flag, that later chapters depend on.
 
-With logs that match what the bidder saw, we can train a model on them. In the next chapter, we build the first one: a logistic regression click model on hashed features.
+With logs that match what the bidder saw, we can train a model on them. Next, we build the first one: a logistic regression click model on hashed features.

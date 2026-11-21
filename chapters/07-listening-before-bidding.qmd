@@ -84,7 +84,9 @@ The same idea also gives us ghost bids. For a random holdout group of devices, t
 ::: {.callout-tip title="Try it on the simulator"}
 Run the crawl bidder in listen-only mode for a simulated week. Build the volume and floor views by geo and exchange, and estimate the eligible requests for each campaign. Then turn on bidding for 1% of requests, and check the first win notices, impressions, and clicks against the bid log.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: planned. This exercise needs listen-only and bid-share options in the crawl policy, which adsim 0.1 doesn't support yet.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

@@ -175,11 +175,13 @@ For a smaller DSP, this is an opportunity. A DSP that measures lift with ghost b
 ::: {.callout-tip title="Try it on the simulator"}
 Run ghost bids on a 5% device holdout for a simulated month. Estimate the lift, the incrementality ratio, and incremental CPI by campaign, with confidence intervals, and compare them with the true lift from the ground truth. Then shrink the holdout for one small advertiser, and see how wide its interval becomes.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
 In this chapter, we measured what the DSP causes. Attribution counts installs the DSP was credited with, and some of them would have happened anyway. Ghost bids on a fixed device holdout measure the lift directly, with intent-to-treat and exposure-adjusted estimates, and displacement separates installs moved from other channels from installs created. Bid exploration and near-miss auctions add sources of randomness, and segment ratios with shrinkage give robust estimates with little data. We sized the holdout per advertiser, decided who pays for it, and reported incremental CPI and ROAS next to attributed results.
 
-That completes the pieces of the competitive DSP. In the next chapter, we cover how to operate it: monitoring, parity, the fallback ladder, on-call, playbooks, and root-cause analysis, now that real goals and real budgets are at stake.
+The competitive DSP now has all its pieces. What remains is operating it: monitoring, parity, the fallback ladder, on-call, playbooks, and root-cause analysis, now that real goals and real budgets are at stake.

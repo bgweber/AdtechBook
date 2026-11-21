@@ -135,7 +135,9 @@ Each notice is logged with its own event ID, the request ID and impression ID it
 ::: {.callout-tip title="Try it on the simulator"}
 Trace the pricing ledger for one CPC bid and one CPI bid: the prediction, the advertiser value, the margin, the media value, the shade, the floor check, and the bid. Then find a bid in the explored share, and check that its multiplier was logged and that it was clipped to the floor and the cap.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

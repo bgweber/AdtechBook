@@ -351,7 +351,7 @@ Playbooks cover what to do when an alert fires. Two related documents cover the 
 - **Runbooks** for procedures done under time pressure, such as promoting a champion, rolling back a model, or rebuilding a base image. Each step has the exact command, and what a failure at that step means. A runbook written during a calm afternoon is much better than one improvised during an incident.
 - **A gotchas file**, append-only, where each entry records a trap the team fell into, with the date, the symptom, the cause, and the fix. Entries are removed only when the trap becomes structurally impossible, such as when a check is added that prevents it.
 
-Every Tier 1 and Tier 2 incident ends with a short postmortem, written with the five W's: what happened, when, where, who was involved, and why, followed by the guardrail that will stop it from happening again.[^c24-incidents] We build the postmortem loop out in @sec-operating-at-scale.
+Every Tier 1 and Tier 2 incident ends with a short postmortem, written with the five W's: what happened, when, where, who was involved, and why, followed by the guardrail that will stop it from happening again. We build the postmortem loop out in @sec-operating-at-scale.
 
 ## Root-Cause Analysis for Account-Level Issues
 
@@ -407,7 +407,7 @@ The response has four steps:
 3. **Retrain from a known-good point.** Retrain the affected models on the rebuilt datasets, and validate them against the champion trained before the bad data arrived.
 4. **Check features that carry it forward.** Any feature computed from the bad data, such as a running count or a rate, has to be recomputed too.
 
-The last step is the easiest to miss. In one incident I've written about, false-positive labels from a small experiment drove a clearing-price feature upward, which pushed bids up, which pushed the feature up further, a feedback loop that outlived the experiment.[^c24-incidents] Removing the bad labels wasn't enough. The feature had to be rebuilt as well.
+The last step is the easiest to miss. In one incident I've written about, false-positive labels from a small experiment drove a clearing-price feature upward, which pushed bids up, which pushed the feature up further, a feedback loop that outlived the experiment. Removing the bad labels wasn't enough. The feature had to be rebuilt as well.
 
 ## First-Time Pitfalls
 
@@ -426,11 +426,13 @@ The competitive DSP holds its own. It prices the goals advertisers buy with cali
 ::: {.callout-tip title="Try it on the simulator"}
 Run three incident drills. First, shift click predictions up by 10% everywhere after a deploy, and follow the alert to the playbook and the rollback. Second, introduce a parity bug in one feature's serving code, and find it with the parity checks. Third, inject a day of bad install labels, quarantine it, rebuild the datasets, and retrain.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: planned. This exercise needs fault injection in the simulator and the companion pipeline's quarantine tooling, which isn't built yet.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
 In this chapter, we built the operations a DSP needs once real goals and budgets are at stake. Monitoring routed to the ML team watches prediction distributions against baselines, calibration with label delay, and parity between training and serving, with a few actionable alerts and an open source or Google Cloud stack. The fallback ladder and pricing guardrails bound the damage of a model failure. Incident tiers, on-call in a system, a chain of command, playbooks, runbooks, and a gotchas file make the response fast and repeatable. Root-cause analysis decomposes account-level problems into price and conversion, service levels with error budgets set priorities, and quarantine keeps bad data from coming back with every retrain.
 
-That completes the competitive DSP. In Part IV, we build a state-of-the-art one, starting with where trees stop.
+The competitive DSP is now built and running. Part IV builds a state-of-the-art one, starting with where trees stop.

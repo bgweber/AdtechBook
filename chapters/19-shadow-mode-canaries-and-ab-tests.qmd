@@ -137,14 +137,16 @@ This matters because many incidents in a DSP come from configuration rather than
 ::: {.callout-tip title="Try it on the simulator"}
 Shadow a new install model on 10% of simulated traffic, and compare its live and offline predictions. Run a staged canary, inject a broken model at the 10% stage, and watch the automated rollback. Then run a budget-split A/B test between two models, and compare the measured difference in CPI with the true difference from the ground truth.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: planned. This exercise needs an experiment harness for running policies side by side, which isn't built yet.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
 In this chapter, we built the process every change in the rest of the book ships through. Shadow scoring compares a challenger with the champion on live traffic without affecting bids. Canaries ramp it up in stages, with guardrails on prediction ratios, fallback share, and spend, and automated rollback. A/B tests randomize by device, split budgets so the arms can't compete for spend, run in independent layers, and read delayed, ratio, and heavy-tailed metrics carefully, with variance reduction and a go/no-go checklist. Models and configuration reach every trading location through the same staged process.
 
-With a way to launch changes safely, we can start changing how the DSP prices. In the next chapter, we replace the fixed shade with a win rate model.
+With a way to launch changes safely, we can start changing how the DSP prices. The first change is to replace the fixed shade with a win rate model.
 
 [^c19-google]: Diane Tang, Ashish Agarwal, Deirdre O'Brien, and Mike Meyer, "Overlapping Experiment Infrastructure: More, Better, Faster Experimentation," KDD, 2010, <https://research.google/pubs/pub36500/>
 
