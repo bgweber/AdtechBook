@@ -120,7 +120,7 @@ Not every change needs a person. A reasonable split for walk:
 
 ## Gates Before the Canary
 
-Some failures shouldn't reach even 1% of traffic. Another incident from the same migration: we used warmup files to speed up model rollouts on our in-house TensorFlow Serving cluster, and a model whose tensor definitions didn't match its warmup file brought model serving to a halt until we rolled back. The fix was a pre-deploy check that started a local instance of the serving stack in the training pipeline and sent it sample requests, followed later by a proper staging environment.[^c18-incidents] The general lesson is to load and score every new bundle in an environment that matches production before the canary starts. The golden vectors from @sec-logging-at-bid-time are part of the same gate.
+Some failures shouldn't reach even 1% of traffic. Another incident from the same migration: we used warmup files to speed up model rollouts on our in-house TensorFlow Serving cluster, and a model whose tensor definitions didn't match its warmup file brought model serving to a halt until we rolled back. The fix was a pre-deploy check that started a local instance of the serving stack in the training pipeline and sent it sample requests, followed later by a proper staging environment. The general lesson is to load and score every new bundle in an environment that matches production before the canary starts. The golden vectors from @sec-logging-at-bid-time are part of the same gate.
 
 ## Testing and CI/CD for ML Code
 
@@ -140,7 +140,7 @@ Two more practices catch problems before they're expensive:
 - **Cheap static checks before expensive runs.** Checks that need no cloud credentials can catch, before anything is submitted, pipeline parameters that don't match the submit tool, training commands that would fail only after a GPU is provisioned, invalid accelerator and machine pairings, unused spec keys, label and masking rules, and hard-coded identifiers. A check that runs in seconds in CI saves a failed job that would have waited an hour for a GPU.
 - **A check never observed failing is not known to work.** Every check ships with a test case that makes it fail. And when a new kind of file or step is added to the pipeline, review which checks cover it, because gaps usually appear where a new surface was added, not in the logic of existing checks.
 
-Code review crosses the boundary too. Data scientists review pull requests on the serving code, and engineers review training code, so a change to how a feature is computed on one side gets noticed by someone who knows the other.[^c18-incidents]
+Code review crosses the boundary too. Data scientists review pull requests on the serving code, and engineers review training code, so a change to how a feature is computed on one side gets noticed by someone who knows the other.
 
 ## Reproducible Training
 
@@ -163,14 +163,14 @@ For GPU training, bit-for-bit reproducibility usually isn't realistic, because p
 ::: {.callout-tip title="Try it on the simulator"}
 Run the walk pipeline end to end: build the install dataset, validate it, train, validate the model, and register it as a challenger. Then inject a training run that predicts a constant, and watch validation stop it. Finally, promote a good challenger by moving the champion alias, and watch the bidders pick it up.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: planned. This exercise needs the companion training pipeline and model registry, which isn't built yet.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
-In this chapter, we moved from a daily script to pipelines that train, validate, and publish models safely. An orchestrator triggers runs on data readiness through one resolver, an experiment tracker records every run, and a model registry with champion and challenger aliases records lineage and makes promotion and rollback a change to an alias. Code is promoted between environments while models are trained in each, publishing is separate from activation, model behavior lives in a spec separate from environment wiring, and training queries are versioned like code. Validation checks, packaging, approval rules, gates before the canary, a testing pyramid with staging, and reproducible builds keep bad models out of the bidder.
-
-A model that passes all of this is ready to see traffic, but not yet to see all of it. In the next chapter, we launch models with shadow mode, canaries, and A/B tests.
+In this chapter, we moved from a daily script to pipelines that train, validate, and publish models safely. An orchestrator, an experiment tracker, and a model registry with champion and challenger aliases make promotion and rollback a change to an alias, and validation, approval rules, and gates keep bad models out of the bidder. In the next chapter, we launch models with shadow mode, canaries, and A/B tests.
 
 [^c18-outofcloud]: Ben Weber, "Out of the Cloud: Building On-Prem Machine Learning Pipelines," *Data Science Collective*, September 27, 2025, <https://medium.com/data-science-collective/out-of-the-cloud-building-on-prem-machine-learning-pipelines-597d5603502f>
 

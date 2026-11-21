@@ -112,7 +112,9 @@ Even in crawl, treat configuration like code. Keep it in version control, review
 ::: {.callout-tip title="Try it on the simulator"}
 Run a scenario where a campaign's target CPC is entered a hundred times too high. Watch the spend rate alert fire, flip the campaign kill switch, and check how much was overspent before it stopped. Then publish a click model that predicts a constant, and watch the prediction alert and the fallback to segment rates. Finally, reconcile a simulated day of spend from billing notices against the simulated exchange invoices, and find the cause of the gap.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: planned. This exercise needs scenario hooks in the simulator and the companion bidder's alerts and kill switches, which isn't built yet.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## What Breaks Next
@@ -130,6 +132,6 @@ In Part III, we fix each of these, starting with the move from clicks to install
 
 In this chapter, we added the minimum operations a DSP needs before it spends real money. Dashboards show spend, wins, and predicted against actual clicks, and a few alerts cover runaway spend, no bids, fallback use, collapsed predictions, and latency. Budgets cap spend and throttling spreads it over the day, with local allowances so a fleet of bidders can't overspend shared budgets. Kill switches turn off a model, feature, exchange, campaign, or everything, with segment click rates as the fallback when the model is off. We reconcile spend with exchanges from the first week, mark invalid traffic so training can exclude it, and treat configuration changes as deploys.
 
-That completes the crawl DSP. In the next chapter, we start Part III by moving from clicks to the goals advertisers actually buy: installs and purchases.
+The crawl DSP is done. Part III starts by moving from clicks to the goals advertisers actually buy: installs and purchases.
 
 [^c12-incidents]: Ben Weber, "Machine Learning Incidents in AdTech," *Towards Data Science*, January 29, 2025, <https://medium.com/data-science/machine-learning-incidents-in-adtech-e3f48d858054>

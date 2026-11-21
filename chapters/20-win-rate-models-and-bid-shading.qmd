@@ -137,6 +137,10 @@ The optimal bid wins less often than the other two, but it earns the most surplu
 
 Because the win rate multiplies directly into the surplus, it has to be calibrated where decisions are made, not just on average. Check reliability by exchange, by publisher tier, and by bid level. The most important check uses the exploration traffic described below. For each exploration multiplier bucket, compare the predicted and observed win rates. If the model is calibrated at the bids it usually makes, but not at higher or lower ones, its slope is wrong, and the shaded bids will be systematically too high or too low.
 
+@fig-c20-calibration shows a typical first win model. It's well calibrated through the middle deciles and too high at the top, where most of the bids are exploration bids above the usual shade and where the model has seen fewer examples. A win model that's too high at high bids makes raising the bid look more valuable than it is, so the shading step leaves too little room below the value.
+
+![A calibration plot for the first win model. Simulated data.](../images/ch20-calibration-win.png){#fig-c20-calibration width="100%"}
+
 ## Floors
 
 Floors set by exchanges and mediation platforms carry real information. A mediation floor often reflects what other demand sources have paid for the same placement and user, so it's a strong feature for the win model. The pricing rules are simple. If the media value is at or below the floor, don't bid. If the shaded bid is below the floor, raise it to the floor, which still leaves surplus, because the value is above it. For a parametric win model, the floor also truncates the curve, since bids below it can't win:
@@ -154,7 +158,9 @@ Logging the floor with every bid, and every request skipped because of it, lets 
 ::: {.callout-tip title="Try it on the simulator"}
 Train a LightGBM win model on the simulated bids, including the randomized multipliers logged since Part II, and the minimum bids to win from the exchanges that report them. Check its calibration by bid level. Then replace the fixed shade with model-based shading in an A/B test, and compare surplus, spend, and win rate between the arms.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

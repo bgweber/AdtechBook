@@ -2,35 +2,107 @@
 
 Every request the bidder sees could, in principle, be scored for every campaign. With a few campaigns, that's what the crawl and walk DSPs did: filter for eligibility, cap the candidates at a few dozen, score them all, and let the internal auction pick. As the DSP grows to thousands of campaigns, and its models grow to the deep rankers of Part IV, scoring everything stops being possible within the latency budget. The bidder needs to decide which campaigns are worth scoring before it scores them.
 
-That's a **retrieval** problem, the same one that recommendation systems solve when they narrow millions of items down to the few hundred worth ranking. Snapchat's ad serving, for example, uses learned embeddings and approximate nearest neighbor search to narrow millions of ads to hundreds of candidates before running more expensive ranking models.[^c35-intent] A DSP has far fewer campaigns than a social platform has ads, but the same idea applies at its scale.
+That's a **retrieval** problem, the same one that recommendation systems solve when they narrow millions of items down to the few hundred worth ranking. Snap describes its ad ranking system as a sequence of stages: eligibility filtering, candidate generation with lightweight models that cull the inventory to hundreds or a few thousand ads, heavy ranking with models that predict conversions, an auction, and a feedback loop that turns interactions into training data.[^c35-snap] A DSP has far fewer campaigns than a social platform has ads, but the same structure applies at its scale, and it's what this chapter builds.
 
-In this chapter, we will frame campaign selection as retrieval, train two-tower models for retrieval, and use predicted price to prune the candidate set. We then handle cold start for new campaigns, and evaluate new selection policies offline with the propensities the bidder has logged since Part II.
+The walk DSP's candidate cap ranked campaigns by their recent value in a segment, the same for every device in it. The big change in this chapter is **personalization**: the candidates for a request depend on the device, through a model that has read its history. A device that plays farming games and spends in them should have Cozy Farm Tycoon among its candidates even if the campaign's average value in the segment is low.
+
+In this chapter, we will frame campaign selection as retrieval and lay out the stages of the funnel. We build a fast bid predictor, a two-tower model whose dot product predicts the bid the full pipeline would make, and serve it with one small model per request and one matrix-vector product for every candidate. We then train it, evaluate it on recall, combine it with install-affinity retrieval, handle cold start for new campaigns, and evaluate new selection policies offline with the propensities the bidder has logged since Part II.
 
 ## Campaign Selection as Retrieval
 
 In a two-stage design, a cheap **retrieval** stage picks a few dozen candidates from all eligible campaigns, and the expensive **ranking** stage, the conversion models, pricing, and the internal auction, scores only those. The retrieval stage doesn't need to be precise. It needs high **recall**: the campaign the full ranking would have chosen should almost always be among the candidates it passes on.
 
-The cap on candidates from @sec-serving-models-in-the-bid-path was a crude retrieval stage, based on each campaign's recent value in the segment. A learned retrieval model replaces it with one that knows about the device: which campaigns this device is likely to install, given its history.
+@fig-c35-funnel shows the full funnel, adapted from Snap's description to a DSP and drawn from top to bottom.
 
-## Two-Tower Retrieval for Campaigns
+![The campaign selection funnel for one bid request. Eligibility filters remove campaigns that can't serve the request. A two-tower bid predictor narrows the rest to the top 20 with one matrix-vector product. The heavy models and the unified pricing equation score those, and the internal auction picks one campaign and creative. Outcomes become training data for every stage.](../images/p4-selection-funnel.png){#fig-c35-funnel width="100%"}
 
-The two-tower model from @sec-sequences-and-transformers is a natural retrieval model. A device tower and a campaign tower are trained so that the dot product of their vectors scores how likely the device is to install the campaign's app. At bid time, the device's vector comes from the profile, the campaign vectors are in memory, and scoring every eligible campaign is a matrix-vector product: a few microseconds for thousands of campaigns. The top candidates by score go to ranking.
+- **Eligibility filters** are rules, not models: targeting, budget and schedule, frequency caps, blocked categories and advertisers, and whether the campaign has a creative that fits the placement. They're cheap and exact, and they run first. Of 2,000 live campaigns, a typical request might leave a few hundred eligible.
+- **Candidate generation** is the subject of this chapter. It narrows a few hundred eligible campaigns to the top 20 or so, using a model that's cheap enough to run on all of them.
+- **Heavy ranking** runs the click, install, and value models and the win model from earlier chapters on the 20 candidates.
+- **Pricing and the internal auction** apply the unified pricing equation from @sec-the-unified-pricing-equation and pick the winner.
 
-Training for retrieval differs from training for affinity signals in a few ways:
+Each stage has a budget. The latency budget in @sec-serving-deep-models gives candidate generation well under a millisecond, which is what rules out running the heavy models on every eligible campaign.
+
+The cap on candidates from @sec-serving-models-in-the-bid-path was a crude candidate generation stage, based on each campaign's recent value in the segment. A learned stage replaces it with one that knows about the device.
+
+## A Fast Bid Predictor
+
+What should candidate generation predict? The full pipeline ranks candidates by their bid, or more precisely by their score in the internal auction, which is close to the media value each campaign would bid. So the most direct target for retrieval is the bid itself: predict, cheaply, what the full pipeline would bid for each campaign on this request, and keep the campaigns with the highest predictions.
+
+A **two-tower bid predictor** does this, as @fig-c35-two-tower shows:
+
+- **The user tower** encodes the request side: the device state $h$ from the profile, a few profile scalars such as history length and the fallback flag, and the context, such as the publisher app, placement, country, and hour. It outputs a vector $u$.
+- **The campaign tower** encodes each campaign: its ID, randomly dropped during training, the advertised app's embedding from the shared app table, its goal type and target, and slow-moving levels such as its recent media value per impression. It outputs a vector $v_c$.
+- **The score** is the dot product plus a campaign bias, $\hat y_c = u \cdot v_c + b_c$, which predicts the log of the media value the full pipeline would compute for campaign $c$ on this request.
+
+![The two-tower bid predictor. The user tower runs once per request, and the campaign tower's outputs are precomputed for every campaign. The dot product plus a campaign bias predicts the log of the bid the full pipeline would make, and the top campaigns go on to the heavy models.](../images/p4-two-tower-bid.png){#fig-c35-two-tower width="100%"}
+
+This is personalized in a way the segment cap wasn't. The user tower reads the device's history through $h$, so two devices in the same app, country, and placement get different vectors, and different campaigns rise to the top. A device whose history is full of farming games gets a $u$ close to the farming campaigns' $v_c$, and those campaigns get high predicted bids.
+
+@tbl-c35-example shows what that looks like for two devices on the same request context, an interstitial in Gem Garden in Brazil at 9 p.m. The segment cap would give both devices the same candidates. The bid predictor doesn't.
+
+| Campaign | Device A: farming and puzzle history | Device B: strategy and casino history |
+|---|---:|---:|
+| Cozy Farm Tycoon, CPI | \$6.80 | \$1.90 |
+| Royal Match, ROAS | \$5.10 | \$2.40 |
+| Kingdom Siege, ROAS | \$1.30 | \$7.60 |
+| Lucky Slots, CPI | \$0.90 | \$5.20 |
+| Word Trip, CPI | \$3.20 | \$2.10 |
+
+: Predicted bids, in CPM, for the same request context and two devices with different histories. Illustrative values. {#tbl-c35-example tbl-colwidths="[40,30,30]"}
+
+Predicting the log of the bid, rather than the bid, makes the model multiplicative, which fits how bids are built: a value times a probability times several multipliers. It also means fast-changing multipliers can be added outside the model. The pacing multiplier is the important one. It changes every few minutes, far faster than the towers are retrained, and it can halve a campaign's bid. So the score used for retrieval is
+
+$$\text{score}_c = u \cdot v_c + b_c + \log \gamma_c$$
+
+with the campaign's current $\gamma_c$ from the pacing controller. A campaign that's spending ahead of plan drops in the ranking immediately, without retraining anything, and a campaign whose budget is exhausted gets $\gamma_c = 0$ and drops out entirely, although it should have been removed by eligibility already.
+
+### Training the Predictor
+
+The training target is the full pipeline's output, so the bid predictor is a kind of distillation: a cheap student learning to rank like an expensive teacher.
+
+- **Data.** The bid ledger records each candidate's score in the internal auction, but only for the candidates that survived the cap. To train a model that ranks all eligible campaigns, the teacher has to score all of them. Run the full pipeline offline on a sample of logged requests, such as 1%, scoring every eligible campaign, and use those scores as labels. It's an offline batch job, so latency doesn't matter.
+- **Objective.** A regression on log media value works, with a mean squared error loss. A listwise loss works better for ranking: for each request, a softmax over its eligible campaigns, with the teacher's scores as soft targets at a temperature, so the model is rewarded for getting the order right at the top, where it matters, more than for the exact values of campaigns that would never win.
+- **Exploration.** Include requests from the randomized selection traffic, so the training data covers campaigns the current pipeline rarely picks.
+- **Versions.** The predictor learns from one version of the full pipeline. When the heavy models change, retrain it, or its ranking drifts from what the pipeline would choose.
+
+### Serving It Efficiently
+
+The bid predictor follows the rule from @sec-serving-deep-models: work that depends only on the request runs once, and work per candidate is a dot product.
+
+- **The user tower runs once per request,** as a light ONNX model. It's a small MLP over the device state and a few context features, so it takes a fraction of a millisecond. It's fine to run a model like this once per bid request.
+- **The campaign vectors are precomputed** whenever a campaign changes, and whenever the towers are retrained, and held in bidder memory as one $N \times 64$ matrix, with the biases in a separate array.
+- **Scoring every eligible campaign** is one matrix-vector product over the eligible rows, plus the bias and $\log \gamma_c$, followed by a partial sort for the top $k$, as in @fig-c28-request. With a few hundred eligible campaigns and 64 dimensions, that's tens of thousands of multiply-adds, a few microseconds.
+
+The efficiency details in @sec-serving-deep-models apply directly: one contiguous matrix, vectorized loops or a BLAS call, normalized or quantized vectors where it helps, and no allocation per candidate. At a few thousand campaigns, exact scoring is cheap enough that approximate nearest neighbor search isn't needed. At much larger catalogs, such as hundreds of thousands of creatives, it is, as we note in @sec-conclusion.
+
+## Evaluating Retrieval
+
+Retrieval is judged by what it lets through, not by how well it predicts bids:
+
+- **Recall at $k$.** On held-out requests scored by the teacher, the share where the teacher's top campaign is in the predictor's top $k$. Plot it against $k$, and choose the smallest $k$ that reaches the recall you need, such as 98% at $k = 20$. Every candidate beyond that costs heavy-model time for little gain.
+- **Value recall.** Recall treats missing the best campaign by a cent the same as missing it by a dollar. Value recall measures the share of the best campaign's media value that the best retrieved campaign achieves, averaged over requests, which says how much bid value retrieval gives up.
+- **Recall by segment.** Check recall for new campaigns, small campaigns, devices without history, and each goal type. Retrieval models are biased toward large, established campaigns, and an overall recall of 98% can hide 80% for the campaigns that most need traffic.
+
+Online, a retrieval change is a selection policy change, tested like any other with a budget-split A/B test. Watch the share of spend going to new and small campaigns as well as the topline metrics, because retrieval that starves them looks fine for a week and then shows up as campaigns that never ramp.
+
+## Install-Affinity Retrieval
+
+The bid predictor ranks by what the current pipeline would bid. That's the right target for most requests, but it inherits the pipeline's blind spots: a campaign the pipeline undervalues for a kind of device never gets retrieved, so the pipeline never learns otherwise. A second retrieval source, based on what devices actually install across the market, keeps that from happening.
+
+The two-tower model from @sec-sequences-and-transformers is a natural fit, and it's the same model I describe in my post on pretrained intent signals, where its affinity scores feed the boosted install model.[^c35-intent] A device tower and an app tower are trained so that the dot product of their vectors scores how likely the device is to install the app, using installs across the market, including non-attributed installs, not only the DSP's own wins. At bid time, the device's vector comes from the profile, the app vectors for each campaign are in memory, and scoring every eligible campaign is one more matrix-vector product. Training for retrieval differs from training for affinity signals in a few ways:
 
 - **The objective is recall.** Evaluate on recall at $k$: the share of installs in held-out data where the installed campaign is among the device's top $k$ campaigns by score.
-- **Training data comes from installs across the market,** including non-attributed installs, not only the DSP's own wins, so retrieval isn't limited to campaigns the current ranking already likes.
+- **Training data comes from installs across the market,** so retrieval isn't limited to campaigns the current ranking already likes.
 - **Popularity correction and in-batch negatives** work the same way as before, and matter even more, since retrieval should surface campaigns that fit the device, not just the most popular ones.
 
-At a few thousand campaigns, exact scoring is cheap enough that approximate nearest neighbor search isn't needed. At much larger catalogs, it is, as we note in @sec-conclusion.
-
-## Predicting Price to Prune the Candidate Set
-
-Retrieval scores relevance, but a campaign that's relevant and can't clear the floor is still wasted work. A second, cheap model predicts each candidate's likely media value from a few features, such as the campaign's recent value per impression in the segment and the device's affinity score, and drops candidates whose predicted value is below the floor, or far below the best candidate's. It's a learned version of the floor check in @sec-parsing-bid-requests-and-eligibility, and it removes candidates before any expensive model runs.
+The two sources are merged by taking the top few from each, such as 16 from the bid predictor and 4 from install affinity, deduplicated. The install-affinity slots act as a form of exploration with a prior: they send heavy-model traffic to campaigns that the device is likely to install, whether or not the pipeline currently values them. The affinity score is also a useful feature in the bid predictor's user and campaign towers.
 
 ## Cold Start for New Campaigns
 
-A new campaign has no installs, so a campaign tower trained on IDs can't place it. The fixes from @sec-sequences-and-transformers apply: train the campaign tower with the ID randomly dropped, so it can build a vector from the app's metadata and content embeddings alone, as in @sec-deep-models-with-embeddings. A new campaign then gets a reasonable vector on day one. Reserve a small share of retrieval slots for new campaigns as well, so they get enough traffic to learn from, even when their scores are uncertain.
+A new campaign has no installs, so a campaign tower trained on IDs can't place it. The fixes from @sec-sequences-and-transformers apply: train the campaign tower with the ID randomly dropped, so it can build a vector from the app's metadata and content embeddings alone, as in @sec-deep-models-with-embeddings. A new campaign then gets a reasonable vector on day one. For the bid predictor, the campaign's bias starts from the average bias of similar campaigns, by app category and goal type, and moves to its own value as the teacher scores it.
+
+Reserve a small share of retrieval slots for new campaigns as well, such as one of the top 20, rotated among campaigns younger than a week, so they get enough heavy-model scoring to learn from, even when their predicted bids are uncertain. Measure how long each new campaign takes to reach its expected delivery, and treat a rising time to ramp as a retrieval problem.
 
 ## Offline Policy Evaluation
 
@@ -39,15 +111,19 @@ Changing how campaigns are selected changes which impressions the DSP buys, so i
 The estimate is only reliable where the logging policy explored. The crawl DSP's weighted random selection explored widely, which is why it was worth starting with. Later policies, such as the internal auction, are more deterministic, so keep a small share of traffic with randomized selection, and log its propensities, to keep offline evaluation possible. Use the offline estimate to choose which policies are worth an online test, not to replace the test.
 
 ::: {.callout-tip title="Try it on the simulator"}
-Train two-tower retrieval for campaigns on simulated installs, and measure recall at $k$ against the campaign the full ranking would choose. Compare it with weighted random selection and the walk candidate cap, offline with logged propensities and online on the simulator.
+Score every eligible campaign with the full pipeline on a 1% sample of simulated requests, and train a two-tower bid predictor on those scores. Plot recall at $k$ against the full ranking's winner, and value recall, for $k$ from 5 to 50, overall and for new campaigns. Then compare the predictor with the walk candidate cap and with install-affinity retrieval, offline with logged propensities and online on the simulator.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
-In this chapter, we replaced score-only selection with learned retrieval. A two-tower model scores every eligible campaign with one matrix-vector product, trained for recall on installs across the market, and a cheap price model prunes candidates that can't clear the floor. ID dropout and content embeddings handle new campaigns, and offline policy evaluation with logged propensities decides which selection policies are worth an online test.
+In this chapter, we replaced score-only selection with learned, personalized retrieval. The selection funnel runs from eligibility rules, through candidate generation, to heavy ranking and pricing. A two-tower bid predictor distills the full pipeline into one dot product per campaign, with the device's history in the user tower and the pacing multiplier added outside the model, and it serves with one small model per request and one matrix-vector product for every eligible campaign. It's judged on recall and value recall, by segment, alongside install-affinity retrieval that keeps the pipeline from only finding what it already likes. ID dropout, borrowed biases, and reserved slots handle new campaigns, and offline policy evaluation decides which selection policies are worth an online test.
 
-Choosing the campaign is half of choosing the ad. In the next chapter, we choose the creative for each device.
+Choosing the campaign is half of choosing the ad. The other half is choosing the creative for each device.
+
+[^c35-snap]: Snap Engineering, "Machine Learning for Snapchat Ad Ranking," February 2022, <https://eng.snap.com/machine-learning-snap-ad-ranking>
 
 [^c35-intent]: Ben Weber, "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, October 3, 2026, <https://bgweber.medium.com/pretrained-deep-learning-intent-signals-for-mobile-dsps-2eb1834c62db>

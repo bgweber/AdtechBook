@@ -80,6 +80,23 @@ Both designs give lift for a campaign or a region rather than per user, so they 
 
 These designs are also a check on the device holdout from @sec-measuring-incrementality on Android, since a geo test measures the same lift in a completely different way.
 
+## Four Questions Before Using an Identifier
+
+It's easy to collapse every privacy question into one: is the ID there? That's only the first of four separate questions, and each one has a different owner and a different answer, as @tbl-c38-questions shows.
+
+| Question | Example | Who answers it |
+|---|---|---|
+| **Is the identifier technically available?** | The IDFA is in the bid request, or the IDFV is in a postback. | The exchange, the device, and the logs |
+| **Does the platform permit this use?** | Apple's rules on using the IDFA without ATT consent, or on combining IDFVs across developers; Google Play's policies on the advertising ID. | The platform's policies |
+| **Do our contracts grant the data rights?** | An advertiser's agreement on whether its MMP data can be pooled with other advertisers'; an exchange's terms on storing bid request data. | Legal and partnerships, from the signed agreements |
+| **Does the law permit the processing?** | GDPR's consent and purpose limits in the EU, or US state privacy laws, for this use in this market. | Legal and privacy counsel |
+
+: Four separate questions before using a device identifier. {#tbl-c38-questions tbl-colwidths="[28,46,26]"}
+
+An identifier can be present in the data and still be off limits for a given use. For example, an IDFA can appear in a bid request for a device whose user consented in the publisher's app, but if the advertiser's app has no consent, attributing an install to that device isn't allowed. An advertising ID on Android can be available and permitted by the platform, and still be excluded from a pooled model because the advertiser's contract doesn't allow pooling. Answering only the first question is how a DSP ends up with a model it can't legally or contractually use.
+
+The practical rule is to record all four answers with the data, not only the first. The logs carry the identifier and the device's consent signals. The dataset build carries the data rights of each source. And each model's spec records which uses it depends on, so that when a policy, contract, or law changes, the affected models can be found. This book isn't legal advice, and the answers to the last two questions depend on your contracts and your markets, so they're for your legal team, not your ML team, to decide.
+
 ## Consent in Training Data
 
 Consent isn't a property of the traffic in general. It's a property of each device, and it can change. Keep each device's consent status in the logs, with the time it was observed, and carry it into training data, so every use of the data can be checked against it.
@@ -98,9 +115,13 @@ None of that makes the GAID permanent. Regulation, platform policy, or user beha
 - **Keep the geo and switchback designs from earlier in this chapter ready,** so incrementality can still be measured if device holdouts stop working.
 
 ::: {.callout-tip title="Try it on the simulator"}
-Once the simulator supports it, turn on ATT-style missing device IDs for a share of traffic. Compare a model trained with realistic missingness against one trained only on devices with IDs, on calibration for requests without IDs, against the true rates.
+Turn on ATT-style missing device IDs for a share of traffic. Compare a model trained with realistic missingness against one trained only on devices with IDs, on calibration for requests without IDs, against the true rates.
 
 <!-- TODO: the simulator doesn't have an iOS or ATT mode yet. -->
+
+*Status: planned. This exercise needs iOS traffic with ATT-style missing device IDs, which adsim 0.1 doesn't support yet.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

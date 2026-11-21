@@ -10,6 +10,16 @@ In this chapter, we will look at frequent retraining and real-time features, sep
 
 The retraining thread has run through the book: daily in crawl, a few times a day in walk, and near-continuous in run. The leading platforms describe the far end of it. Moloco describes deploying models as often as every two hours, with real-time features that update the next prediction as soon as a user sees an ad or a competitor changes a bid.[^c29-moloco] Liftoff describes training hundreds of models a day on over a petabyte of new data.[^c29-liftoff] Meta describes its GEM foundation model as training continuously.[^c29-gem]
 
+A DSP with the architecture from @sec-sequences-and-transformers doesn't retrain everything at the same pace. It has three cadences, as @fig-c29-cadences shows:
+
+- **Transformer pretraining** trains on non-attributed events from every source, and is retrained weekly to monthly. Its device states are recomputed daily in batch, and refreshed for devices with new events, as in @sec-serving-deep-models.
+- **The co-trained towers and heads** train on attributed impressions and are retrained weekly. They produce the ad and publisher vectors and the dot products.
+- **LightGBM** trains on the last few days of attributed impressions and is retrained every few hours. It produces the click and install probabilities the bidder uses.
+
+![Three training cadences. The slow models learn what devices and apps are, and the fast model learns what the market is currently paying for them.](../images/p4-three-cadences.png){#fig-c29-cadences width="100%"}
+
+The slow models learn what devices and apps are, and the fast model learns what the current market pays for them. That split is what makes frequent retraining affordable: only the small model retrains every few hours, and the expensive ones retrain when the world changes enough to matter. It also means "how often should we retrain?" has three answers, one per layer, each found the same way: train the layer at several cadences on the simulator or on replayed data, and see where the gain from fresher models stops paying for the compute. In my post on real-time ML systems, I describe the same trade-off from the serving side, as a range from features precomputed in batch and stored in a NoSQL store to features computed from the request in real time, each with its own cost and freshness.[^c29-realtime]
+
 Retraining every few hours is possible only when everything around it keeps up. The pipelines from @sec-pipelines-validation-and-publishing need to run end to end within the interval, validation and canaries need to be automated, since nobody can review a model every two hours, and the labels a model trains on need to be as recent as the model. The last one is the hardest, as we'll see below.
 
 ## Real-Time Learning
@@ -35,7 +45,11 @@ For most DSPs, the order to invest in is the order above, starting from the thir
 
 ## Delayed Feedback with Frequent Retraining
 
-In walk, we waited for each label's window to close before training on it. When models retrain every few hours, waiting a week for purchase labels throws away exactly the recent data that frequent retraining is for. But training on recent impressions without waiting means their installs and purchases haven't arrived yet, so they look like negatives, and the model underpredicts.
+In walk, we waited for each label's window to close before training on it. @fig-c29-delays shows why that's expensive: click-through installs arrive within an hour or so, but view-through installs take most of a day, and first purchases within a D7 window keep arriving all week.
+
+![The share of eventual conversions reported by time since the impression, for click-through installs, view-through installs, and first purchases. A model retrained every six hours sees almost all of its click-through installs, about two-thirds of its view-through installs, and a small share of its purchases. Simulated delays.](../images/p4-delayed-feedback.png){#fig-c29-delays width="100%"}
+
+When models retrain every few hours, waiting a week for purchase labels throws away exactly the recent data that frequent retraining is for. But training on recent impressions without waiting means their installs and purchases haven't arrived yet, so they look like negatives, and the model underpredicts.
 
 Three published approaches correct for this:
 
@@ -51,17 +65,19 @@ The simulator makes the bias easy to see, because it knows the true conversion r
 
 Real-time features build on the fleet-wide counter store from @sec-operating-the-first-dsp, which already holds spend per campaign and impressions per device for budgets and frequency caps. In run, it also holds features that change within seconds: how many of our impressions a device has seen in the last minute, whether it clicked one in the last hour, how a publisher's win rate has moved in the last five minutes.
 
-Streaming jobs update these counters from impression, win, click, and postback events as they arrive. The hard part is keeping training and serving consistent when features change this fast. A feature computed at bid time from a counter that was a few seconds stale is the value the model saw, so it's the value that's logged in the FeatureVector, and the value training uses. Recomputing it later from the event log, even as of the bid time, would give a fresher value than the bidder had, which is the skew from @sec-logging-at-bid-time all over again.
+Streaming jobs update these counters from impression, win, click, and postback events as they arrive. The difficulty is keeping training and serving consistent when features change this fast. A feature computed at bid time from a counter that was a few seconds stale is the value the model saw, so it's the value that's logged in the FeatureVector, and the value training uses. Recomputing it later from the event log, even as of the bid time, would give a fresher value than the bidder had, which is the skew from @sec-logging-at-bid-time all over again.
 
 ::: {.callout-tip title="Try it on the simulator"}
 Shift the simulated market mid-day, for example by launching a new game that takes over a genre's audience. Compare a model retrained daily, the same model with a continuously updated $\kappa$, and an online-updated model, by their calibration against the true rates through the shift. Then retrain every few hours with naive labels and with a delayed feedback correction, and measure the bias each leaves.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: planned. This exercise needs market shift scenarios, which adsim 0.1 doesn't support yet.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
-In this chapter, we looked at keeping models current. "Real-time learning" covers five different things: frequent retraining, real-time features, fast-adapting layers, online training, and claims about self-improving systems, and the fast-adapting layers built in Parts II and III are the practical place to start. Learning fast also spreads bad data fast, so outlier filters, delayed label handling, bounded updates, and fast rollback guard every level. When models retrain every few hours, delayed feedback corrections replace waiting for labels, and real-time features come from a shared counter store, logged as the bidder saw them.
+In this chapter, we looked at keeping models current, with three cadences for the slow pretrained models, the co-trained towers, and the fast calibration layer. "Real-time learning" covers five different things: frequent retraining, real-time features, fast-adapting layers, online training, and claims about self-improving systems, and the fast-adapting layers built in Parts II and III are the practical place to start. Learning fast also spreads bad data fast, so outlier filters, delayed label handling, bounded updates, and fast rollback guard every level. When models retrain every few hours, delayed feedback corrections replace waiting for labels, and real-time features come from a shared counter store, logged as the bidder saw them.
 
 Freshness matters most for predictions that move fastest, and the slowest labels belong to value. In the next chapter, we predict what an installed user will be worth.
 
@@ -86,3 +102,5 @@ Freshness matters most for predictions that move fastest, and the slowest labels
 [^c29-esdfm]: Jia-Qi Yang et al., "Capturing Delayed Feedback in Conversion Rate Prediction via Elapsed-Time Sampling," AAAI, 2021, <https://arxiv.org/abs/2012.03245>
 
 [^c29-defer]: Siyu Gu et al., "Real Negatives Matter: Continuous Training with Real Negatives for Delayed Feedback Modeling," KDD, 2021, <https://arxiv.org/abs/2104.14121>
+
+[^c29-realtime]: Ben Weber, "Approaches for Building Real-Time ML Systems," *Towards Data Science*, September 2021, <https://medium.com/data-science/approaches-for-building-real-time-ml-systems-79ea0e340269>

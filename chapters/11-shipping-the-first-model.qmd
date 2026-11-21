@@ -113,7 +113,7 @@ Each step records its own latency, so a trace shows where the time goes. In craw
 
 Most ML bugs in a DSP don't crash anything. They produce a slightly different feature value in serving than in training, and the model quietly gets worse. Tests are the cheapest place to catch them, before a deploy rather than after. The crawl DSP needs four kinds.
 
-**Unit tests for feature and hashing code, in both languages.** The feature code exists twice: in Go, in the bidder, which computes the FeatureVector and the hashed tokens, and in Python, in training, which computes the hashed tokens from the logged FeatureVector. Test both with the edge cases that cause incidents: empty fields, unknown values, Unicode in app bundles, very long strings, zero denominators in ratios, and missing profiles. In one incident on a team I worked on, a divide by zero was encoded as -1 in training and 0 in serving.[^c11-incidents] A unit test with a zero denominator in both languages would have caught it.
+**Unit tests for feature and hashing code, in both languages.** The feature code exists twice: in Go, in the bidder, which computes the FeatureVector and the hashed tokens, and in Python, in training, which computes the hashed tokens from the logged FeatureVector. Test both with the edge cases that cause incidents: empty fields, unknown values, Unicode in app bundles, very long strings, zero denominators in ratios, and missing profiles. In one incident on a team I worked on, a divide by zero was encoded as -1 in training and 0 in serving. A unit test with a zero denominator in both languages would have caught it.
 
 **A golden-file test.** Take a fixed set of logged FeatureVectors, a few hundred covering the edge cases above, and run them through the Python training code and the Go serving code. The hashed indexes must match exactly, and the predictions must match to within floating point tolerance. The expected outputs are checked into the repository, and the test runs on every change. This is the single most valuable test in the crawl DSP. Many of the incidents I've written about were parity issues between training and serving pipelines, and each one would have shown up as a golden-file mismatch.
 
@@ -130,7 +130,9 @@ Most ML bugs in a DSP don't crash anything. They produce a slightly different fe
 ::: {.callout-tip title="Try it on the simulator"}
 Train a new click model and publish it as a bundle. Move the champion pointer, and watch the bidders pick it up, warm it up, and swap, with bids by model version on the dashboard. Run the golden-file test after changing the hash seed in only the Python code, and watch it fail. Then publish a model that predicts a constant, and roll it back by moving the pointer.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: planned. This exercise needs the companion model bundles, registry pointer, and Go bidder, which isn't built yet.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

@@ -103,7 +103,7 @@ There's no shortage of possible features, so each one should earn its place. A s
 
 ## Hashed One-Hots and Feature Crosses
 
-Logistic regression needs numeric inputs, and most of these features are strings. The approach I've used is to turn every feature into one or more **tokens**, strings of the form `name_value`, and give the model one binary input per token.[^c9-click] For a rewarded video in Gem Garden on a Samsung phone in India, the tokens might look like this:
+Logistic regression needs numeric inputs, and most of these features are strings. The approach I've used is to turn every feature into one or more **tokens**, strings of the form `name_value`, and give the model one binary input per token. For a rewarded video in Gem Garden on a Samsung phone in India, the tokens might look like this:
 
 ```
 pub_app_com.example.gemgarden
@@ -136,13 +136,14 @@ import mmh3
 NUM_BUCKETS = 2 ** 24
 
 def tokens(fv: dict) -> list[str]:
-    toks = [f"{k}_{v}" for k, v in fv["strings"].items()]
+    s = fv["strings"]
+    toks = [f"{k}_{v}" for k, v in s.items()]
     for k, vals in fv["sets"].items():
         toks += [f"{k}_{v}" for v in vals]
     toks += [f"{k}_{bucket(k, x)}" for k, x in fv["numeric"].items()]
     for a, b in CROSSES:  # pairs of feature names
-        if a in fv["strings"] and b in fv["strings"]:
-            toks.append(f"{a}_{fv['strings'][a]}*{b}_{fv['strings'][b]}")
+        if a in s and b in s:
+            toks.append(f"{a}_{s[a]}*{b}_{s[b]}")
     return toks
 
 def hashed(toks: list[str]) -> list[int]:
@@ -174,7 +175,7 @@ Three properties make it a good fit:
 
 FTRL is also the first step in a thread that runs through the book. Because it updates example by example, the same model can keep learning as new impressions arrive, rather than waiting for a daily retrain. The crawl DSP retrains daily from scratch, which is simpler to reason about, but online updates come back in @sec-retraining-and-real-time-learning.
 
-A practical warning: general-purpose libraries don't always handle this kind of model well. When I trained logistic regression models with tens of millions of parameters in Spark's MLlib, training ran into problems because the implementation densified the feature vectors in its training loop. A library that works on the sparse vectors directly, with model averaging across workers, avoided the bottleneck.[^c9-click] FTRL is short enough to implement yourself, which is what the reference DSP does, and it's worth checking that whatever you use never builds a dense vector of all the buckets.
+A practical warning: general-purpose libraries don't always handle this kind of model well. When I trained logistic regression models with tens of millions of parameters in Spark's MLlib, training ran into problems because the implementation densified the feature vectors in its training loop. A library that works on the sparse vectors directly, with model averaging across workers, avoided the bottleneck. FTRL is short enough to implement yourself, which is what the reference DSP does, and it's worth checking that whatever you use never builds a dense vector of all the buckets.
 
 <!-- CODE: include the FTRL trainer from code/training/click, about 40 lines, once it exists. -->
 
@@ -190,13 +191,84 @@ For example, with $w = 0.1$, a prediction of 10% on downsampled data corresponds
 
 Record the sampling rate on every training row, too. The same correction applies when evaluating calibration offline, and the no-bid sampling from @sec-logging-at-bid-time is a second rate that has to be tracked separately.
 
+## The Model Artifact
+
+The trained model is just a table of weights, one for each hashed bucket that L1 didn't zero out, plus a bias. That table, and the rules for turning a request into buckets, is everything the bidder needs. @tbl-c9-weights shows what part of it looks like for one request: an interstitial video in Gem Garden, for the Cozy Farm Tycoon campaign in Brazil.
+
+| Token | Bucket | Weight |
+|---|---|---:|
+| (bias) | | −2.30 |
+| `placement_inter_video` | 4,211,907 | +0.42 |
+| `publisher_app_gemgarden` | 11,083,254 | +0.18 |
+| `country_BRA` | 9,550,061 | −0.07 |
+| `campaign_cozyfarm_bra` | 2,764,330 | +0.11 |
+| `creative_cf_video15_v2` | 15,902,118 | +0.09 |
+| `device_model_sm-a155` | 7,340,676 | −0.04 |
+| `connection_wifi` | 1,295,847 | +0.05 |
+| `hour_local_21` | 13,618,402 | +0.03 |
+| `imps_today_3-5` | 6,027,513 | −0.22 |
+| `placement_inter_video*campaign_cozyfarm_bra` | 8,471,229 | +0.31 |
+| `publisher_app_gemgarden*campaign_cozyfarm_bra` | 3,906,775 | +0.27 |
+| `country_BRA*campaign_cozyfarm_bra` | 12,445,980 | 0.00 |
+| `device_model_sm-a155*publisher_app_gemgarden` | 5,118,363 | 0.00 |
+
+: Learned weights for the tokens in one request, with $2^{24}$ buckets. Illustrative values. {#tbl-c9-weights tbl-colwidths="[66,18,16]"}
+
+The weights are easy to read. Interstitial video has a higher click rate than the average placement, and the device has already seen three to five ads today, which lowers it. The two crosses carry as much weight as any single token: this campaign does especially well in interstitial video, and especially well in Gem Garden, beyond what its overall rate and the placement's rate would predict. Two crosses have a weight of exactly zero. L1 removed them because they never gathered enough evidence, so they cost nothing to store or serve.
+
+Scoring the request means adding the weights: $-2.30 + 0.42 + 0.18 - 0.07 + 0.11 + 0.09 - 0.04 + 0.05 + 0.03 - 0.22 + 0.31 + 0.27 = -1.17$. The sigmoid of $-1.17$ is 0.237. The model was trained with 10% of negatives, so the corrected click probability is $0.237 / (0.237 + 0.763 / 0.1) \approx 3.0\%$, which is the number the pricing step in @sec-pricing-a-click uses.
+
+The **model artifact** is what the training job publishes and the bidder loads. For this model, it has two parts. A small metadata file describes how to build the tokens and how to read the weights:
+
+```json
+{
+  "model": "click-ftrl",
+  "version": "2026-11-18.1",
+  "feature_spec": "fv-v3",
+  "hash": {"fn": "murmur3_32", "seed": 0},
+  "num_buckets": 16777216,
+  "crosses": [["placement", "campaign"],
+              ["publisher_app", "campaign"],
+              ["country", "campaign"],
+              ["device_model", "publisher_app"]],
+  "numeric_buckets": {"imps_today": [0, 1, 3, 6, 10]},
+  "bias": -2.30,
+  "downsample_rate": 0.1,
+  "nonzero_weights": 1843211
+}
+```
+
+A binary file holds the nonzero weights as sorted pairs of a 4-byte bucket and a 4-byte weight. With about 1.8 million nonzero weights, it's around 15 MB, which the bidder holds in memory. Serving is the same steps we just did by hand:
+
+```go
+func (m *ClickModel) Predict(fv *FeatureVector) float64 {
+    z := m.Bias
+    for _, tok := range m.Spec.Tokens(fv) {
+        z += m.Weights[m.Spec.Bucket(tok)]
+    }
+    p := 1 / (1 + math.Exp(-z))
+    w := m.DownsampleRate
+    return p / (p + (1-p)/w)
+}
+```
+
+Everything that changes the prediction is in the artifact: the hash function and seed, the number of buckets, the list of crosses, the numeric bucket boundaries, and the downsampling rate. If the bidder computed any of them from its own configuration, a change on one side would silently break the model on the other, as in the incidents in @sec-logging-at-bid-time. The same rule holds for every model in this book, and the artifacts get richer as the models do.
+
+The weights are also the model's first readout. Sorting the tokens by weight, for each campaign, shows which publishers, placements, and countries the model likes and dislikes, and these readouts are the first thing to surface in the DSP's admin tool next to the model's metrics. When an account manager asks why a campaign stopped buying a publisher, the answer is usually in this table.
+
+<!-- CODE: export the readout of top and bottom weights per campaign from code/training/click, for the admin tool. -->
+
 ## Metrics
 
 We evaluate the click model with three kinds of metric, because each answers a different question:
 
 - **Log loss** measures how good the predicted probabilities are, example by example. Lower is better. It's the quantity the model is trained to minimize, and it's sensitive to both ranking and calibration. To compare across datasets with different click rates, normalize it by the log loss of a model that always predicts the average click rate, which gives the **normalized entropy** that Facebook's paper reports.[^c9-facebook]
 - **AUC** measures ranking: the probability that a randomly chosen click gets a higher prediction than a randomly chosen non-click. It ignores calibration entirely. A model can have a good AUC and predict click rates that are all twice too high.
-- **Calibration** measures whether predicted rates match observed rates. The simplest check is the ratio of the sum of predictions to the number of clicks, overall and by segment. A reliability curve, plotting the observed click rate against the predicted rate in buckets, shows where the model is off.
+- **Calibration** measures whether predicted rates match observed rates. The simplest check is the ratio of the sum of predictions to the number of clicks, overall and by segment. A calibration plot shows where the model is off. Sort the examples by their prediction, split them into ten equal groups, or deciles, and plot the mean predicted click rate and the observed click rate in each group, as in @fig-c9-calibration.
+
+![A calibration plot for the crawl click model on interstitial video. The model is close to calibrated in most deciles and predicts too high in the top decile, where the data is thinnest and where the bidder spends the most. Simulated data.](../images/ch09-calibration-click.png){#fig-c9-calibration width="100%"}
+
+The two lines should overlap. When the predicted line is above the actual line, the model overpredicts and the DSP overbids in those impressions. The top decile matters most, because that's where the bidder bids highest and wins most often, and it's also where a click model is most often too high.
 
 For bidding, calibration matters more than ranking. The price of an impression is proportional to the predicted click rate, as we'll see in @sec-pricing-a-click, so a model that overpredicts by 20% overbids by 20% on every impression, even if it ranks impressions perfectly. AUC still matters, because a model that can't tell good impressions from bad ones pays the same for both, but a well-calibrated model with a modest AUC makes money, and a poorly calibrated model with a great AUC loses it.
 
@@ -213,7 +285,9 @@ The simulator adds one more comparison that production can't. Because it knows t
 ::: {.callout-tip title="Try it on the simulator"}
 Build click examples from a simulated week, train the logistic regression model with FTRL on days 1 to 6, and evaluate it on day 7. Compare its calibration with the observed clicks and with the true click rates, by exchange and placement. Then remove the crosses and train again, and see which segments get worse.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 <!-- TODO: optional reality check on a public mobile click dataset, such as Avazu, after checking its license for use in a sold print edition. -->
@@ -225,6 +299,7 @@ The click model is a good start, and it has clear limits:
 - **No sharing between related values.** Each token has its own weight. Two puzzle games that attract the same players are, to the model, as unrelated as a puzzle game and a casino app. A new publisher app starts at zero and has to earn its weight from its own clicks.
 - **Crosses built by hand.** The model only learns the interactions we thought to add. An important interaction we didn't add, such as one between connection type and video creatives, is invisible to it.
 - **No device memory.** The model sees a device's history only through the counters we computed in the bidder, such as impressions today. It can't learn which sequences of apps or events predict a click.
+- **It predicts clicks, not caused clicks.** The model learns who is likely to click when shown an ad. That's what a CPC campaign pays for, so it's the right target here. But the same habit carries into install and value models, where it matters much more: a model that's good at predicting who will install isn't the same as a model of who will install *because of* the ad. We come back to this distinction every time a prediction turns into spend.
 
 These limits set up the rest of the book. In @sec-gradient-boosted-conversion-models, LightGBM learns interactions and nonlinear effects without hand-built crosses. In Part IV, embeddings let related values share what they learn, and sequence models learn from device histories directly.
 
@@ -232,7 +307,7 @@ These limits set up the rest of the book. In @sec-gradient-boosted-conversion-mo
 
 In this chapter, we trained the crawl DSP's first model. We built click examples from impressions joined to the bid ledger and the click log, with a click window that decides when an example is final. We encoded the FeatureVector as hashed one-hot tokens with hand-built crosses, trained logistic regression with FTRL, and corrected its predictions for negative downsampling. We evaluated it out of time, by segment, with log loss, AUC, and, most importantly for bidding, calibration.
 
-A calibrated click rate is not yet a bid. In the next chapter, we turn the click model's prediction into a price, first for a CPC campaign and then for a first CPI campaign, and add the randomized bids that later let us model the auction itself.
+A calibrated click rate is not yet a bid. Next, we turn the click model's prediction into a price, first for a CPC campaign and then for a first CPI campaign, and add the randomized bids that later let us model the auction itself.
 
 [^c9-facebook]: Xinran He, Junfeng Pan, Ou Jin, Tianbing Xu, Bo Liu, Tao Xu, Yanxin Shi, Antoine Atallah, Ralf Herbrich, Stuart Bowers, and Joaquin Quiñonero Candela, "Practical Lessons from Predicting Clicks on Ads at Facebook," ADKDD, 2014.
 

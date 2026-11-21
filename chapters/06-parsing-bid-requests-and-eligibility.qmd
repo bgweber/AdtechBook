@@ -171,7 +171,9 @@ Propensities can't be reconstructed later. The weights depend on budgets and pac
 ::: {.callout-tip title="Try it on the simulator"}
 Trace a handful of requests through parsing and eligibility: one with a missing device model, one from an exchange that sends two-letter country codes, one with no device ID, and one from a publisher app the simulator generates as invalid traffic. For each, check the normalized fields, the profile lookup result, which campaigns were filtered and why, and the logged selection probability. Then compare the click rates of the invalid traffic with the rest.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces these requests (adsim 0.1). The companion parser, profile lookup, and commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

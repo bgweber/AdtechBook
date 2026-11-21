@@ -8,7 +8,13 @@ In this chapter, we will build uplift models, from two separate models to a shar
 
 ## Uplift Models
 
-With enough randomized data, the ratio can be predicted per impression. There are three model forms, from simple to more capable.
+It helps to think of devices in four groups, as in @fig-c32-quadrants. **Sure things** install whether or not they see the ad, so the DSP only collects credit. **Persuadables** install only if they see it, and they're where the DSP's money creates value. **Lost causes** don't install either way. **Sleeping dogs** are less likely to install if they see the ad, which is common in retention marketing and rare in user acquisition. An attributed conversion model ranks sure things and persuadables together, since both convert after an impression. An uplift model tries to separate them.
+
+![Four groups of devices by how they respond to an ad. Attributed models can't tell sure things from persuadables, and uplift models are built to.](../images/p4-uplift-quadrants.png){#fig-c32-quadrants width="100%"}
+
+With enough randomized data, the ratio can be predicted per impression. There are three model forms, from simple to more capable, shown in @fig-c32-forms.
+
+![Three forms of uplift model. Two separate models are subtracted, a transformed outcome turns uplift into an ordinary regression target, and a shared base adds an uplift head trained on randomized rows.](../images/p4-uplift-forms.png){#fig-c32-forms width="100%"}
 
 **Two models.** Fit one model on exposed users and one on unexposed users within the randomized data, and subtract:
 
@@ -20,7 +26,15 @@ This is easy to build, but noisy, because it subtracts two estimates of rare eve
 
 $$Z = Y \times \frac{T - e}{e\,(1 - e)}, \qquad \mathbb{E}[Z \mid x] = u(x)$$
 
-**Shared base with an uplift head.** A single network with two heads. The base head predicts $p_{attr}$ and trains on all data, as the conversion models already do. The ratio head predicts $r(x) \in [0, 1]$ and trains only on randomized rows, using a transformed outcome or instrumental variables loss. This is the same multi-task pattern as the conversion funnel in @sec-gradient-boosted-conversion-models, and it lets the uplift head borrow everything the base model has learned about users.
+**Shared base with an uplift head.** A single network with two heads. The base head predicts $p_{attr}$ and trains on all data, as the conversion models already do. The ratio head predicts $r(x) \in [0, 1]$ and trains only on randomized rows, using a transformed outcome or instrumental variables loss. This is the same multi-task pattern as the conversion funnel in @sec-deep-models-with-embeddings, and it lets the uplift head borrow everything the base model has learned about users.
+
+The randomized data comes from two sources the DSP has been logging since Part II: the device holdout with ghost bids, where the assignment probability is the holdout share, and the exploration multipliers on bids, which randomly change whether an impression is won. Both are small, which is the main constraint on uplift models. The shared-base design matters because it uses all the data for the hard part, learning who devices are, and the small randomized sample only for the easier part, learning how the ad changes their behavior.
+
+Uplift models are also easy to fool yourself with. Three checks help:
+
+- **Hold out randomized data for evaluation** that the model never sees in training, split by device, not by impression.
+- **Compare with the segment table.** A model that disagrees sharply with the segment incrementality ratios from @sec-measuring-incrementality, on segments with plenty of holdout data, is more likely wrong than insightful.
+- **Retrain several times.** Uplift estimates are noisy, so a ranking that changes a lot between seeds isn't one to bid on.
 
 [^c32-athey]: Susan Athey and Guido Imbens, "Recursive Partitioning for Heterogeneous Causal Effects," *Proceedings of the National Academy of Sciences*, 2016.
 
@@ -83,11 +97,13 @@ The pacing system in @sec-basic-pacing works the same way with either form, beca
 ::: {.callout-tip title="Try it on the simulator"}
 Train a T-learner and a shared-base uplift head on simulated impressions, using the randomness from the holdout and from bid exploration. Evaluate both with Qini curves on held-out randomized data, and against the true lift from the ground truth, which the simulator knows for every impression. Then price one campaign on incremental value, and compare its incremental CPI with attributed pricing.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
 In this chapter, we predicted the lift each impression causes. T-learners, transformed outcomes, and uplift heads on a shared base estimate it from the DSP's sources of randomness, and Qini curves evaluate them on randomized data, since lift is never observed for a single impression. Signals such as reach, recency of intent, and frequency predict where ads make a difference, and the incrementality ratio enters the advertiser value either as a tilt on attributed pricing or as an incremental goal the advertiser chooses.
 
-The incrementality tilt is one more term in a pricing equation that has grown term by term. In the next chapter, we bring every term into one equation.
+The incrementality tilt is one more term in a pricing equation that has grown term by term. It's time to bring every term into one equation.

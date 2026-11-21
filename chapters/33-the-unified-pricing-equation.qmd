@@ -4,7 +4,7 @@ The walk DSP's pricing grew one term at a time. Each goal type got its own formu
 
 This chapter brings every pricing term into one equation, written so that an engineer, or an agent, could implement it from the specification alone, and so that every bid can be explained term by term from the bid ledger.
 
-In this chapter, we will look at why campaigns have more than one goal, combine goals with weights in one equation, and choose between target priority and budget priority. We then put the margin in the loop, add the incrementality tilt, check that a campaign's goals and budget can be met before launch, lay out the levers advertisers and account managers can use, and define the bid ledger that records every term.
+In this chapter, we will look at why campaigns have more than one goal, combine goals with weights in one equation, and see where pacing sits inside the equation and why. We then choose between target priority and budget priority, and walk one bid through every term. We then put the margin in the loop, add the incrementality tilt, check that a campaign's goals and budget can be met before launch, lay out the levers advertisers and account managers can use, and define the bid ledger that records every term.
 
 <!-- NOTE: Ben's pricing and pacing drafts (patches 0001 to 0003) aren't in the repo. This chapter is drafted from the TOC and the earlier chapters; reconcile with the patches when they're available. -->
 
@@ -28,7 +28,50 @@ $$v_m = V \times \rho(x) \times \gamma \times (1 - m) - f$$
 
 where $\rho(x) = 1 - \alpha + \alpha\, r(x)$ is the incrementality tilt from @sec-uplift-modeling, $\gamma$ is the pacing multiplier, $m$ is the margin, and $f$ is fees. Shading, floors, and caps follow as before.
 
+@fig-c33-pipeline shows the whole path from predictions to a bid, with the three controllers that adjust it.
+
+![The unified pricing equation as a pipeline. Predictions become a goal value, which is tilted for incrementality, reduced by margin and fees, and scaled by the pacing multiplier, before the win model shades it and floors and caps apply. The goal and pacing controllers adjust their terms from realized spend and outcomes.](../images/p4-pricing-pipeline.png){#fig-c33-pipeline width="100%"}
+
 Weights work well for goals that trade off smoothly. For goals that are really constraints, such as a ROAS floor below which the advertiser doesn't want installs at any price, constraints work better, and the pacing system enforces them, as in the next section.
+
+## Pacing Inside the Equation
+
+So far, the pacing multiplier $\gamma$ has been a control knob: the PI controller from @sec-basic-pacing turns it down when the campaign spends ahead of plan, and up when it falls behind. It's worth seeing why a multiplier on the value is the right knob, and why it sits where it does in the equation, because the answer explains how pacing and pricing should work together.
+
+### Where the Multiplier Comes From
+
+Consider one campaign over one day. It sees impressions $i = 1, \dots, n$, each with a value $v_i$ to the advertiser and a cost $c_i$ if won, and it has a budget $B$. The best it can do is win the set of impressions with the most total value, subject to spending at most $B$:
+
+$$\max_{x_i \in \{0, 1\}} \sum_i x_i v_i \quad \text{subject to} \quad \sum_i x_i c_i \le B$$
+
+The standard way to handle the constraint is to price it. Introduce a multiplier $\lambda \ge 0$, the **shadow price** of the budget, which says how much value one more dollar of budget would buy. With $\lambda$ fixed, the problem separates into one decision per impression: win impression $i$ if $v_i - (1 + \lambda) c_i > 0$, that is, if its value is more than $1 + \lambda$ times its cost. In a first-price auction, that's the same as bidding as if the value were
+
+$$\tilde v_i = \frac{v_i}{1 + \lambda} = \gamma \, v_i, \qquad \gamma = \frac{1}{1 + \lambda}$$
+
+and then shading as usual. This is the standard result for budget-constrained bidding: the optimal bid is the value scaled by one multiplier for the whole day,[^c33-zhang] and it's where $\gamma$ comes from. When the budget is plentiful, $\lambda = 0$, $\gamma = 1$, and the campaign bids its full value. When the budget is tight, $\lambda$ rises, every bid is scaled down by the same factor, and the campaign gives up its least valuable impressions first, which is why bid modification beat throttling in @sec-basic-pacing.
+
+Three consequences follow for the unified equation:
+
+- **One multiplier for the whole value.** The budget constraint applies to everything the campaign buys, so $\gamma$ scales $V$ as a whole, after the goals are combined. It doesn't change the weights between goals, and it shouldn't be applied to one goal's value and not another's.
+- **Before shading, not after.** $\gamma$ scales the value, and the win model then shades the scaled value, choosing the bid that maximizes $W(b)(\gamma v - b)$. Applying the multiplier to the shaded bid instead would double-count: the shading step already gives up some win rate for surplus, and the controller would push in the same direction again.
+- **The controller is estimating $\lambda$.** The right $\lambda$ depends on the whole day's traffic, which isn't known in advance. The PI controller estimates it from the spend error as the day goes on, and the feedforward forecast from @sec-basic-pacing gives it a starting value. Everything in @sec-pacing-with-reinforcement-learning is a better way to estimate it.
+
+Goal constraints work the same way. A CPI target or a ROAS floor is one more constraint, with its own multiplier, and the optimal bid scales the value by a factor that depends on all the multipliers together.[^c33-balseiro] Taking the minimum of a budget multiplier and a goal multiplier, as in the next section, is what the walk DSP already does, and it's better than an approximation. Balseiro and colleagues compare it with a fully coupled algorithm that optimizes both constraints jointly, and show that this min-pacing approach attains similar guarantees, while running the two controllers in sequence, with one lowering the other's bid, can badly violate the constraints.
+
+### Controllers on Separate Time Scales
+
+The unified equation has several controllers: one for the budget, one per goal constraint, and one for the margin. If they all react at the same speed to the same signal, they fight. A spend dip lowers the CPI, the goal controller raises bids, the budget controller raises them too, and the campaign overshoots. The fix is to give each one a different time scale, from fast to slow:
+
+1. **Budget, every few minutes.** Spend responds within minutes, so the budget controller acts fastest.
+2. **Goals, every hour or so.** CPI and ROAS are measured on installs and purchases that arrive hours later, so the goal controllers act on a smoothed signal over a longer window.
+3. **Margin, daily.** The margin controller adjusts within its bounds based on how the campaign did over the last day or days.
+4. **Calibration, continuously but slowly.** $\kappa$ corrects predictions toward realized outcomes over several days of data.
+
+Each controller then sees the others as roughly fixed while it acts, which is what keeps the system stable. The bid ledger records which controller set each term, so when a campaign's bids move, it's clear which loop moved them.
+
+### Budgets That Span Days
+
+Many campaigns have weekly or monthly budgets, or a daily budget that the advertiser expects to average out over a week. The same reasoning applies with a longer horizon: one $\lambda$ for the whole period, estimated from the spend so far and the forecast of the rest. A campaign that underspends on a slow Tuesday can spend more on Saturday, when its traffic is better, if the plan allows it. This is where the planning ability of learned pacing policies pays off most, as we'll see in the next chapter.
 
 ## Target Priority vs. Budget Priority
 
@@ -39,6 +82,23 @@ $$\text{target priority:} \quad \gamma = \min(\gamma_{\text{goal},1}, \dots, \ga
 $$\text{budget priority:} \quad \gamma = \gamma_{\text{budget}}$$
 
 With **target priority**, every constraint can hold the campaign back, and it underspends rather than miss a target. With **budget priority**, the campaign spends its budget, and the goals are reported but not enforced. Most performance advertisers want target priority. Budget priority suits launches and brand pushes, where reach matters more than efficiency for a while. It's a campaign setting, chosen explicitly, rather than something an account manager achieves with an overbid.
+
+## One Bid, Term by Term
+
+Here's one bid for Cozy Farm Tycoon in Brazil, through every term, as @fig-c33-waterfall shows. The campaign has two goals, weighted equally: a CPI target of \$3.00, and a D7 ROAS target of 20%.
+
+- **Predictions.** The install model predicts $P(\text{install}) = 0.4\%$, and the value model predicts \$0.60 of D7 revenue per install.
+- **Goal values.** Under the CPI goal, $A_{\text{CPI}} = \$3.00 \times 0.004 \times 1000 = \$12.00$ CPM. Under the ROAS goal, an install worth \$0.60 at a 20% target is worth \$3.00 to the advertiser, so $A_{\text{ROAS}} = \$12.00$ CPM too.
+- **Calibration and weights.** The install model has been running slightly high for this campaign, so $\kappa_{\text{CPI}} = 0.95$, and the value model slightly low, so $\kappa_{\text{ROAS}} = 1.05$. With weights of 0.5, $V = 0.5 \times 11.40 + 0.5 \times 12.60 = \$12.00$.
+- **Tilt.** The campaign opted into an incrementality tilt with $\alpha = 0.3$, and the predicted incrementality ratio for this device is 0.5, so $\rho = 1 - 0.3 + 0.3 \times 0.5 = 0.85$, and the value becomes \$10.20.
+- **Margin.** A 20% margin leaves \$8.16.
+- **Pacing.** The campaign is spending a little ahead of plan, so the budget controller has $\lambda = 0.15$, and $\gamma = 1/1.15 \approx 0.87$, leaving \$7.10.
+- **Shading.** The win model's curve for this request puts the best bid at \$5.00, which maximizes $W(b)(\$7.10 - b)$.
+- **Floor and cap.** The floor is \$3.50 and the campaign's cap is \$15.00, so the bid of \$5.00 goes out.
+
+![One bid through the unified equation. Each bar is one term from the bid ledger. Illustrative values.](../images/p4-bid-waterfall.png){#fig-c33-waterfall width="100%"}
+
+Every number in that list is a column in the bid ledger. If the account manager asks why the campaign bid \$5.00, the answer is this list. If the campaign's bids fall tomorrow, the ledger shows whether it was the models, the calibration, the tilt, the controller, or the auction that moved.
 
 ## Margin in the Loop
 
@@ -80,7 +140,7 @@ The bid ledger from @sec-logging-at-bid-time records every term of the unified e
 
 - **Predictions:** each model's output and version, including the click, install, value, retention, and uplift predictions.
 - **Goal values:** each $A_k$, its calibration multiplier $\kappa_k$, and its weight $w_k$.
-- **Multipliers:** the tilt $\rho$ and its inputs, $\gamma$ and which controller set it, and any bounded override.
+- **Multipliers:** the tilt $\rho$ and its inputs, $\gamma$ with the controller's estimate of $\lambda$ and which controller set it, and any bounded override.
 - **Margin and fees:** $m$, its bounds, and $f$.
 - **Shading:** the media value $v_m$, the win model's version and predicted curve parameters, the shaded bid, any exploration multiplier, and the floor and cap checks.
 - **The internal auction:** each candidate's score and the winner.
@@ -90,11 +150,17 @@ With the ledger, any bid can be explained term by term, any change in a campaign
 ::: {.callout-tip title="Try it on the simulator"}
 Trace one bid through every term of the unified equation, for a campaign with a CPI target and a D7 ROAS floor. Then set up a campaign whose budget and targets can't both be met, run the consistency check, and compare its forecast frontier with what the campaign actually does over a simulated week.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
-In this chapter, we brought every pricing term into one equation. Campaigns can have several goals, combined with weights in one value, or enforced as constraints by goal controllers with target or budget priority. The margin flexes within bounds as one more control, the incrementality tilt sits with the other multipliers, and a consistency check before launch shows whether goals and budgets can both be met. Advertiser levers form a ladder of terms in the equation, and the bid ledger records every term of every bid.
+In this chapter, we brought every pricing term into one equation. Campaigns can have several goals, combined with weights in one value, or enforced as constraints by goal controllers with target or budget priority. The pacing multiplier is the shadow price of the budget in disguise, which is why it scales the whole value before shading, and the controllers work on separate time scales so they don't fight. The margin flexes within bounds as one more control, the incrementality tilt sits with the other multipliers, and a consistency check before launch shows whether goals and budgets can both be met. Advertiser levers form a ladder of terms in the equation, and the bid ledger records every term of every bid.
 
 The pacing controllers in this equation are still the PI controllers from Part III. In the next chapter, we learn pacing policies with reinforcement learning, and measure them against the PI baseline.
+
+[^c33-zhang]: Di Wu et al., "Budget Constrained Bidding by Model-free Reinforcement Learning in Display Advertising," CIKM, 2018, <https://arxiv.org/abs/1802.08365>. The paper shows that the optimal bid under a budget constraint is linear in the impression's value, scaled by one multiplier, which it then learns with RL.
+
+[^c33-balseiro]: Santiago R. Balseiro, Kshipra Bhawalkar, Zhe Feng, Haihao Lu, Vahab Mirrokni, Balasubramanian Sivan, and Di Wang, "A Field Guide for Pacing Budget and ROS Constraints," ICML, 2024, <https://arxiv.org/abs/2302.08530>

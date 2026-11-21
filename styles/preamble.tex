@@ -9,6 +9,18 @@
 \newcommand{\BookYear}{2026}
 
 % ---------------------------------------------------------------------
+% KDP margin safety. KDP rejects any text outside the margins, so:
+% - fvextra lets code blocks wrap (Quarto loads only fancyvrb).
+% - The TOC page-number column is wide enough for roman numerals
+%   like "xxvii" in the front matter.
+% Run private/claude/kdp_check.py on every PDF before uploading.
+% ---------------------------------------------------------------------
+\usepackage{fvextra}
+\makeatletter
+\renewcommand*{\@pnumwidth}{2.4em}
+\makeatother
+
+% ---------------------------------------------------------------------
 % Gray shading for code blocks and formulas. KDP recommends at least a
 % 10% grayscale fill in black-ink books; 12% gray (0.88) is used here.
 % Formulas are boxed by filters/formula-box.lua.
@@ -104,8 +116,11 @@
   \hypersetup{hidelinks}%
   \definecolor{shadecolor}{gray}{0.88}%
   \setlength{\parskip}{3pt plus 1pt minus 1pt}% small gap between paragraphs
-  % Long code lines wrap instead of running into the margin.
-  \@ifpackageloaded{fvextra}{\fvset{breaklines=true,breakanywhere=true}}{}%
+  % Long code lines wrap instead of running into the margin (KDP rejects
+  % text outside the margins). fvextra is loaded near the top of this file.
+  % Highlighted code can only break at spaces between tokens, so keep
+  % single tokens (URLs, long paths) under about 70 characters.
+  \fvset{breaklines=true,breakanywhere=true}%
   % Callout boxes in black and gray instead of color.
   \definecolor{quarto-callout-color}{HTML}{000000}%
   \definecolor{quarto-callout-note-color}{HTML}{000000}%
@@ -137,7 +152,7 @@
   While every precaution has been taken in preparing this book, the author
   assumes no responsibility for errors or omissions, or for damages
   resulting from the use of the information it contains.\\[0.5em]
-  ISBN: 000-0-00-000000-0 \quad % TODO: paperback ISBN from KDP
+  ISBN: 9798144378116 (paperback)
   \\[0.5em]
   First edition, \BookYear.\\
   A free online edition is available at

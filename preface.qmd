@@ -65,7 +65,7 @@ After Part I, the book builds a DSP three times, at three levels of ambition: cr
 - **Part II: A First DSP** builds the simplest DSP that closes the loop: a Go bidder with a logistic regression click model, CPC and a first CPI campaign, bidding on low-CPM inventory, with features and propensities logged from the first bid, and the dashboards, alerts, and kill switches needed to spend real money.
 - **Part III: A Competitive DSP** adds the goals advertisers actually buy: LightGBM models for click, install, purchase, and win rate, goal-based pricing, PI pacing, incrementality reporting, a model registry and pipelines, and shadow runs, canaries, and A/B tests for every change.
 - **Part IV: A State-of-the-Art DSP** builds deep and sequence models, pretrained on data beyond the DSP's own wins, and serves them on CPU within the latency budget. It brings every pricing term into one equation, and replaces hand-tuned pacing and selection with learned policies.
-- **Part V: The Frontier** covers iOS and contextual signals, building an ML team at a DSP, and where the field is heading.
+- **Part V: Beyond the Bidder** covers iOS and contextual signals, building an ML team at a DSP, building a healthy ML culture, and where the field is heading.
 
 If you already know ad tech, you can skip Part I. If you know ML well but are new to ad tech, start with Part I. It's also readable without an ML background, if you want to share it with colleagues. The online version of the book is designed so that chapters can be read on their own, with links back to the background they depend on.
 
@@ -97,9 +97,17 @@ The code examples in this book use two languages:
 
 We present both cloud and on-prem options throughout the book. For managed services, the examples use Google Cloud Platform (GCP). For self-hosted infrastructure, we use open source tools that you can run on your own hardware. We do not cover Kubernetes or the infrastructure work needed to scale a bidder to millions of requests per second, which is its own book.
 
-The book is built around a companion bid simulator: a reference DSP and a simulated market that run end to end on mocked data. The market generates devices, apps, campaigns, and bid requests, runs first-price auctions against competing bidders, and sends win notices and MMP postbacks with realistic delays. The reference DSP bids into it with the models from each part. Because the market is simulated, the true click, install, and lift rates are known, so we can check a model's calibration, or a lift measurement, against the truth. Every chapter from Part II on has a working example that runs on the simulator, and every result the book reports comes from a simulator run with a fixed seed. Bid trace mode records every step of a single bid, from the parsed request to the pricing ledger and the postbacks that came back later, and replay reruns logged traffic through any version of the bidder. There's a release of the simulator for each part, so you can run the DSP as it stands at the end of that part. Simulator results show how a method works, not how large its gains will be in production.
+The book is built around a companion simulator, `adsim`: a simulated mobile ad market that runs on a laptop. The market generates devices, apps, campaigns, and bid requests, with the quirks real exchanges have, runs first-price auctions against competing bidders, and sends win notices and MMP postbacks with realistic delays. Because the market is simulated, the true click, install, and lift rates are known, so a model's calibration, or a lift measurement, can be checked against the truth. Simulator results show how a method works, not how large its gains will be in production. @sec-simulated-world documents how the simulator works and the schema of every table it writes.
 
-All of the code is available in the book's GitHub repository, with sample data and trained models so that the crawl DSP runs on a laptop with one command. The code in the repository is tested on every change, and the snippets in the book are pulled directly from it. Longer listings, schema walkthroughs, and notebooks are in the online edition and the repository rather than in print.
+The software is being built alongside the book, and the software is the source of truth: the book only describes an exercise as runnable once the code for it exists and is tested. Each "Try it on the simulator" box ends with a status line that says where it stands:
+
+- **Data ready:** the simulator already produces everything the exercise needs, and the companion code and commands are in progress.
+- **Planned, needs simulator work:** the exercise needs a capability the simulator doesn't have yet, such as iOS traffic or market shocks.
+- **Planned, needs the bidder:** the exercise needs the companion Go bidder or training pipelines.
+
+As the code lands, the status lines change and the boxes get exact commands. The first release of the simulator, adsim 0.1, covers the crawl, walk, and run markets. Part IV goes further than any laptop simulation can: small versions of its models can be trained on the simulator's data, and the rest is presented as a reference design, labeled as such. Figures built from simulated or illustrative data say so in their captions.
+
+All of the code is in the book's GitHub repository. Longer listings, schema walkthroughs, and notebooks are in the online edition and the repository rather than in print.
 
 The book is available in two editions. The online edition is free, in full color, and includes interactive figures where possible. The print edition is in black and white, and figures are designed to be readable in grayscale. Some long lines of code are wrapped in the print edition to fit the page.
 
@@ -185,7 +193,7 @@ AI use in technical work is becoming more common, and I expect most readers of t
 
 ## Feedback
 
-The online edition of this book is a living document. If you find an error, have a question, or want to suggest a topic, please open an issue on the book's GitHub repository.
+The online edition of this book is a living document. If you find an error or want to suggest a topic, please open an issue on the book's GitHub repository.
 
 ```{=latex}
 % Arabic page numbers start at Part I (see styles/preamble.tex).

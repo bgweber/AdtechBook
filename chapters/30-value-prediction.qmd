@@ -18,15 +18,47 @@ Revenue arrives in local currencies, sometimes net of app store fees and sometim
 
 ## Sparse, Long-Tailed Revenue
 
-Most installers never pay, and of those who do, a few pay far more than the rest. A model trained with squared error on raw revenue is dominated by the largest payers, and one trained only on payers ignores the fact that most installs are worth nothing. Three approaches handle this well:
+Most installers never pay, and of those who do, a few pay far more than the rest. @fig-c30-revenue shows a typical distribution for a mid-core game: about 97% of installs spend nothing in their first week, and among the payers, spend spans four orders of magnitude, with the top 10% of payers bringing in about half of the revenue.
+
+![D7 revenue per install for a typical mid-core game. Almost all installs spend nothing, and payers' spend is roughly lognormal, with a long tail. Simulated data.](../images/p4-revenue-distribution.png){#fig-c30-revenue width="100%"}
+
+This shape breaks most of the defaults from earlier chapters. A model trained with squared error on raw revenue is dominated by the largest payers, and one trained only on payers ignores the fact that most installs are worth nothing. Three approaches handle this well:
 
 - **Two-part (hurdle) models:** a classifier for the probability of paying, and a regression for spend given payment, trained only on payers, often on log revenue. Expected value is the product. Each part is easy to evaluate on its own.
 - **Tweedie and similar losses,** which model a point mass at zero and a continuous tail in one model, as with LightGBM in walk.
 - **Zero-inflated lognormal (ZILN) loss** for deep models, which predicts the probability of paying and the parameters of a lognormal spend distribution in one network, and gives a full distribution of value rather than a point estimate.[^c30-ziln]
 
+The ZILN head is worth seeing in detail, because it fits the shared-tower models of this part so naturally. @fig-c30-ziln shows it. Three outputs share the towers: $p$, the probability of paying within the window; $\mu$, the mean of log spend for a payer; and $\sigma$, its spread. The loss is the log loss on whether the device paid, plus, for payers only, the negative log likelihood of their spend under a lognormal with $\mu$ and $\sigma$. The expected revenue is the mean of the zero-inflated lognormal:
+
+$$E[\text{revenue}] = p \cdot e^{\mu + \sigma^2/2}$$
+
+The $\sigma^2/2$ term matters. The mean of a lognormal is above its median, by a lot when the spread is wide, so a model that predicted $e^\mu$ would systematically underprice devices whose spend is uncertain. And because the head predicts a distribution, it also gives quantities a point estimate can't, such as the probability of spending more than \$10, which some studios use as a goal, and the uncertainty of each prediction.
+
+![A ZILN value head. Three outputs share the towers, and together they define the distribution of D7 revenue, whose mean is used for pricing.](../images/p4-ziln-head.png){#fig-c30-ziln width="100%"}
+
 In run, value models are heads on the shared base from @sec-deep-models-with-embeddings, trained over every impression by multiplying through the funnel, or LightGBM models that use the transformer's purchase and spend head outputs as features, in Design A. Non-attributed purchase data is especially valuable here, because spending behavior carries across apps: a device that spends heavily in three strategy games is a much better prospect for a fourth than its install history alone would suggest.[^c30-intent]
 
 Capping revenue labels, for example at a high percentile per app, reduces the influence of a few extreme payers on training. Cap for training, not for evaluation, and check that the cap doesn't bias predicted totals.
+
+## Label Maturity and Early Signals
+
+D7 revenue takes seven days to mature after the install, and the install can take a day after the impression, so the newest complete label is more than a week old. That's a long lag for a market that moves daily, and for a new campaign, it means a week of bidding before the first value label arrives. Three things shorten it:
+
+- **Train on partial windows with a correction.** An install that's three days old has most of its D7 revenue already, for most games. Learn the share of D7 revenue that arrives by each day, per app, from older cohorts, and train on young installs with their partial revenue scaled up, or with the delayed feedback methods from @sec-retraining-and-real-time-learning.
+- **Use early signals as features.** Revenue in the first day, a first purchase, the tutorial completion, and D1 retention all predict D7 revenue well. A model for "D7 revenue given what happened on day one" can score an install a day after it happens, which is enough to update the calibration multiplier for a campaign far faster than waiting a week.
+- **Lean on non-attributed purchases.** The pretrained device model already knows how each device spends in other apps, so even a brand-new campaign gets value predictions that reflect its installers' spending history, before any of them has paid in its app.
+
+These signals also connect to how studios judge DSPs. A studio that reports a boosted LTV, as in @sec-introduction, is usually building it from the same early signals, so a DSP whose value models predict them well is predicting what the studio will reward.
+
+## Value Heads on the Transformer
+
+The transformer from @sec-sequences-and-transformers was pretrained to predict the next install, and purchase tokens with spend bands are already in its input. That makes value heads cheap to add. A few that work well:
+
+- **Purchase within the window, in any app,** predicted from the device state alone. It's a general propensity to spend, and it works for any campaign.
+- **Spend band,** a softmax over the same bands as the purchase tokens, such as under \$1, \$1 to \$5, \$5 to \$20, and over \$20, which gives probabilities such as $P(\text{spend} \geq \$5)$ directly.
+- **App-conditional purchase,** scored by combining the device state with the advertised app's embedding, as the next-install head does, which predicts purchase in this specific game.
+
+In Design A, these head outputs are features for the LightGBM value model, and in Design B, a ZILN head on the co-trained towers predicts value per impression, multiplied through the funnel like the install heads. Either way, the tree layer sets the level, because value models are the hardest of all to calibrate.
 
 ## D1 Retention Models
 
@@ -44,15 +76,21 @@ Ad revenue labels come from impression-level ad revenue that the advertiser's me
 
 Value models need different evaluation from classifiers:
 
-- **Calibration of predicted revenue,** as the ratio of predicted to realized total revenue, by campaign, country, and decile of predicted value. The decile view matters most: a model can be calibrated overall and badly off at the top, where the money is.
-- **Ranking by value,** with a cumulative gain curve: sort installs by predicted value, and plot the share of total revenue captured by the top fraction. Normalized Gini summarizes the curve in one number.
+- **Calibration of predicted revenue,** as the ratio of predicted to realized total revenue, by campaign, country, and decile of predicted value. The decile view matters most: a model can be calibrated overall and badly off at the top, where the money is. @fig-c30-calibration, after this list, shows the calibration plot for a value model, in the same form as the click and install plots earlier in the book, with revenue per install in place of a rate.
+- **Ranking by value,** with a cumulative gain curve: sort installs by predicted value, and plot the share of total revenue captured by the top fraction. Normalized Gini summarizes the curve in one number. @fig-c30-gain compares a value model with ranking by install probability alone, which is what a CPI campaign effectively does.
 - **The product with installs.** For bidding, what matters is the calibration of $P(\text{install}) \times E[\text{value} \mid \text{install}]$ by bid range, as in @sec-pricing-for-goals.
 - **Enough days.** A few large payers can swing any revenue metric, so evaluate over enough days, and report confidence intervals from a bootstrap over users.
+
+![A calibration plot for a value model: mean predicted and actual D7 revenue per install, by decile of the prediction. The model is calibrated overall but too high in the top decile, where a few large payers dominate and where ROAS campaigns bid the most. Simulated data.](../images/p4-value-calibration.png){#fig-c30-calibration width="100%"}
+
+![Cumulative gain curves for D7 revenue. Ranking installs by a value model captures most of the revenue in the top fifth of installs. Ranking by install probability alone captures much less, because likely installers aren't the same as likely payers. Simulated data.](../images/p4-gain-curve.png){#fig-c30-gain width="100%"}
 
 ::: {.callout-tip title="Try it on the simulator"}
 Train a two-part value model and a ZILN head on simulated installs and purchases. Compare predicted D7 revenue with the true expected revenue from the ground truth, by decile and by country, and plot the cumulative gain curves of both models.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

@@ -29,7 +29,22 @@ When a model doesn't fit the CPU budget, try these in order before adding GPUs t
 
 ## Splitting Work Between Batch and the Bid Path
 
-The rule for splitting is to look at what each part of the model depends on. A transformer encoder over a device's history depends only on the device, so it runs offline, once per device, and its output, the device state, is stored in the profile. A head that combines the device state with the advertised app depends on the candidate, so it runs at bid time.[^c28-intent]
+The rule for splitting is to look at what each part of the model depends on. A transformer encoder over a device's history depends only on the device, so it runs offline, once per device, and its output, the device state, is stored in the profile. A head that combines the device state with the advertised app depends on the candidate, so it runs at bid time.
+
+For the architecture in @sec-sequences-and-transformers, the split looks like this:
+
+- **Device state $h$,** from the transformer, depends on the device's history. It's computed in an offline batch daily, plus a refresh for devices with new events, and stored in the profile store keyed by advertising ID, with a model version.
+- **Ad vectors $a$** depend on the campaign, app, and creative. They're computed offline whenever a campaign or creative changes, and kept in bidder memory.
+- **The publisher part of the context vector $c$** depends on the publisher app and placement. It's computed offline daily and kept in bidder memory.
+- **The rest of the context,** OS version, country, connection, and hour, is read once per request as plain features.
+- **Dot products** $h \cdot a$, $h \cdot c$, and $a \cdot c$ are computed per candidate in the bid path, from two stored vectors each.
+- **Final probabilities** are computed per candidate by LightGBM, from the dot products and plain features.
+
+The transformer runs as a batch job, once per device per day, on GPUs or a large CPU cluster, where cost depends on throughput rather than latency. The ad and publisher vectors are small tables, with thousands to tens of thousands of rows, that fit in the bidder's memory. In the bid path, each request needs one key-value read, which the bidder already does for frequency caps and other device features. For each candidate, the work is three dot products of 64 numbers and one pass through a tree model. None of it needs a neural network. @fig-c28-split shows the two halves, with only two arrows between them.
+
+![Splitting work between offline jobs and the bid path. The only connections are a device lookup and the vector tables and models loaded into the bidder's memory.](../images/p4-batch-vs-bidpath.png){#fig-c28-split width="100%"}
+
+The main benefit of this design is that the large model and the bid path are decoupled. You can make the transformer deeper, extend its context, or add data sources, and the extra cost is paid in the batch job, not in the auction.
 
 Splitting a model into an offline encoder and an online head creates a new way to fail: the two halves can disagree with the full model. Treat parity as a gate at both ends:
 
@@ -65,11 +80,42 @@ In both designs, most of the deep model's contribution reaches the bid through l
 - **Device vectors in the profile store.** Device states and embeddings live in the NoSQL profile, keyed by advertising ID, and arrive with the one read the bidder already does.
 - **Dot products are nearly free.** A dot product of two 64-dimension vectors takes nanoseconds, so three per candidate cost far less than any model call.
 
-The lookup store's latency is the same constraint as in @sec-serving-models-in-the-bid-path: one read, a strict timeout, and a missing value when it times out. Missing is a value here too. Devices without an ID or a record get missing device signals, which the trees handle natively, and the placement affinity still provides a contextual signal.[^c28-intent]
+The lookup store's latency is the same constraint as in @sec-serving-models-in-the-bid-path: one read, a strict timeout, and a missing value when it times out. Missing is a value here too. Devices without an ID or a record get missing device signals, which the trees handle natively, and the placement affinity still provides a contextual signal.
+
+## Per-Request and Per-Candidate Work
+
+The single most useful rule for serving deep models in a bidder is to separate work that depends only on the request from work that depends on the candidate. A request has one device and one placement, and dozens to thousands of candidate campaigns and creatives. Anything computed per request is paid once. Anything computed per candidate is paid hundreds of times.
+
+That makes it fine to run a light ONNX model once per bid request. A user or device tower that turns the cached device state and a few bid-time fields, such as the placement and how many ads the device has seen today, into a 64-dimension vector is a small MLP, and it runs in a fraction of a millisecond. What's not fine is running a network per candidate. The campaign and creative vectors depend only on the campaign and creative, so they're precomputed when a campaign or creative changes and held in memory, and scoring every candidate reduces to dot products between the per-request vector and the precomputed ones. @fig-c28-request shows the layout.
+
+![Work once per request and work per candidate. The device tower runs once per request in ONNX. Campaign vectors are precomputed and stored as one matrix, so scoring every candidate is one matrix-vector product, followed by a partial sort and the full models on the top few.](../images/p4-request-vs-candidate.png){#fig-c28-request width="100%"}
+
+### Computing Dot Products Efficiently
+
+A dot product is cheap, but there are many of them, and the details decide whether scoring takes microseconds or milliseconds:
+
+- **Store vectors as one contiguous matrix.** Keep all campaign vectors in a single row-major `[]float32` slice, with $N$ rows of 64, rather than a map of slices. Scoring every candidate is then one matrix-vector product over memory the CPU can stream, and eligibility is a list of row indices.
+- **Let the compiler or a library vectorize.** A tight loop over `float32` slices, unrolled four or eight ways, lets the CPU use SIMD instructions. A BLAS routine, such as `Sgemv` through a Go or Rust binding, does the same with less effort. Both reach several billion multiply-adds per second per core.
+- **Normalize once.** If the model scores with cosine similarity, normalize every vector when it's loaded, so scoring is a plain dot product.
+- **Quantize if memory is tight.** Storing vectors as int8 with a scale per row cuts memory by four and speeds up scoring, with a small loss of precision. Check the effect on recall and calibration offline before using it.
+- **Don't allocate per candidate.** Reuse a scores buffer per worker, and select the top $k$ with a partial sort or a small heap, which is linear in $N$, rather than sorting every score.
+- **Batch across requests only if it's free.** Scoring several requests together turns the matrix-vector product into a matrix-matrix product, which is faster per request, but waiting for a batch adds latency. In a bidder, per-request scoring is usually fast enough.
+
+The arithmetic is reassuring. With 2,000 eligible campaigns and 64 dimensions, scoring every campaign is 128,000 multiply-adds. At a few billion per second, that's tens of microseconds on one core, less than a single profile read. Even 50,000 creatives would take about a millisecond, which is when it's worth narrowing the candidates first, as in @sec-learned-campaign-selection.
+
+### A Latency Budget
+
+Every step in the bid path should have a budget, measured at p99 under load, as in @sec-serving-models-in-the-bid-path. @fig-c28-budget shows an illustrative budget for Design B with retrieval. The profile read and the trees dominate. The deep model's share, the device tower and the dot products, is under half a millisecond, because everything expensive happened offline.
+
+![An illustrative p99 latency budget for one request, with retrieval and Design B. Most of the time goes to the profile read and LightGBM on the top candidates. The device tower and dot products are a small share.](../images/p4-latency-budget.png){#fig-c28-budget width="100%"}
 
 ## Embeddings as Versioned Artifacts, and Cluster IDs
 
-Every signal derived from a deep model carries its version. Store a model version ID with each device record, and refuse to score when the device record, the in-memory app vectors, and the ONNX head come from different versions. Scores from mismatched versions look normal and are wrong, which is the worst kind of failure.[^c28-intent] Register embedding models and the online models that depend on them in the same registry, and promote them together when a new embedding version requires retrained downstream models.
+Every signal derived from a deep model carries its version. Store a model version ID with each device record, and refuse to score when the device record, the in-memory app vectors, and the ONNX head come from different versions. Scores from mismatched versions look normal and are wrong, which is the worst kind of failure. During a rollover, keep the previous version's ad and publisher tables loaded, and use the tables that match each device record's version, as @fig-c28-rollover shows. Device records refresh over a day, so for a while both versions are live.
+
+![A model version rollover. Device records carry the version of the model that computed them, and the bidder keeps both versions' tables loaded until no record or model refers to the old one.](../images/p4-version-rollover.png){#fig-c28-rollover width="100%"}
+
+Register embedding models and the online models that depend on them in the same registry, and promote them together when a new embedding version requires retrained downstream models.
 
 Many useful features are lookups keyed by an entity: an app's category and release date, a publisher's historical click rate, or a pretrained embedding for the advertised app. Lookups are easy to get wrong, because the table behind them changes over time.
 
@@ -92,17 +138,9 @@ Two details are easy to miss. Each version has its own vocabulary, so a new app 
 
 ### Cluster IDs from Embeddings
 
-Embeddings work well in DNNs, but a 64-dimensional vector is awkward for tree models and hard for people to reason about. A useful compromise is to cluster the embeddings and use the cluster ID as a categorical feature. This is one of the most useful tricks I've used: on one DSP team, we trained GloVe embeddings on advertiser and publisher apps, grouped the apps with k-means at several values of k, and used the cluster IDs as categorical features in a logistic regression model. The embeddings were pretrained offline, and trivial to serve.[^c28-intent]
+The GloVe clusters from @sec-gradient-boosted-conversion-models are the simplest case of an embedding-derived feature, and they follow the same rules. Cluster IDs are derived from an embedding version, so they're versioned with it, and the mapping from app to cluster is published as a lookup table alongside the embedding. The same holds for clusters of device states, creatives, or campaigns, which are useful for reporting as well as for trees.
 
-Running k-means on the app embeddings assigns each app to its nearest centroid:
-
-$$c(a) = \arg\min_k \lVert e_a - \mu_k \rVert^2$$
-
-where $e_a$ is the embedding for app $a$, and $\mu_k$ are the centroids. With a few hundred clusters, the cluster ID becomes a compact categorical feature that LightGBM can split on directly, that groups similar apps for cold start, and that gives analysts readable segments for reporting, as in @fig-c9b-clusters. Two levels, such as 20 coarse and 200 fine clusters, work well together, and the distance to the centroid is a useful numeric companion that says how typical an app is for its cluster.
-
-![App embeddings projected to two dimensions and grouped by k-means. Each cluster ID becomes a categorical feature, so a tree model can use what the embedding learned about similar apps without consuming the full vector.](../images/features-clusters.png){#fig-c9b-clusters width="90%"}
-
-Cluster IDs are derived from an embedding version, so they are versioned with it, and the mapping from app to cluster is published as a lookup table alongside the embedding. Cluster numbers are arbitrary in each run, which means cluster 17 in February has nothing to do with cluster 17 in March. If continuity matters, for example for reporting, match new centroids to old ones with a minimum-cost assignment on centroid distances, and renumber the new clusters to follow the old ones.
+Cluster numbers are arbitrary in each run, which means cluster 17 in February has nothing to do with cluster 17 in March. If continuity matters, for example for reporting or for analysts who've learned what cluster 17 means, match new centroids to old ones with a minimum-cost assignment on centroid distances, and renumber the new clusters to follow the old ones. Apps that change clusters between versions are worth a report of their own: a game that moves from "puzzle" to "casino" may have changed its audience, or its monetization.
 
 ## Exporting to ONNX and Verifying Parity
 
@@ -203,6 +241,39 @@ This keeps the most important property of logging at bid time, that training dat
 
 One more lesson from the incidents: whichever structure you choose, have the people who train the models review changes to the code that computes features at bid time, and vice versa. When we started adding data scientists as reviewers on pull requests to the serving pipeline, parity issues started getting caught before they shipped instead of after.[^c28-incidents]
 
+## Getting Embeddings into the Device Profile
+
+Device embeddings and states are the hardest features to get right in a feature store. There are billions of keys, the values are large, a few hundred bytes each, and the bidder needs them in one read, within a millisecond. And unlike a publisher's click rate, a device's state changes every time it installs an app. There are three ways to get them into the device profile, and most DSPs end up using all three.
+
+### Batch Scoring
+
+The simplest approach is a daily batch job. Export the transformer to ONNX, score every device in Spark as in the batch scoring section above, and write the results to the profile store, keyed by advertising ID, with the model version and a computed-at timestamp. It's cheap per device, easy to reason about, and easy to backfill. Its weakness is freshness: a device that installed an app an hour ago isn't reflected in last night's state, and the hours just after an install are often when a device's intent is clearest.
+
+### Calculating Embeddings on the Fly, Off the Bid Path
+
+The alternative is to compute a device's state when its history changes, rather than once a day. Running the transformer for a single device is cheap, a few milliseconds on a CPU and much less in a batch on a GPU, but it's still far too slow and too variable to run inside the auction. The answer is to run it near real time, off the bid path, and write the result back to the profile:
+
+1. **Trigger on new events.** When an install, a purchase postback, or a "first seen in app" event arrives for a device, publish the device ID to a refresh queue. Deduplicate within a short window, so a device with a burst of events is refreshed once.
+2. **Score with an inference service.** A pool of workers reads device IDs from the queue, loads each device's recent tokens, and sends them in batches to an inference server. NVIDIA's Triton Inference Server is a good fit: it serves ONNX and TensorRT models from a versioned model repository, batches requests dynamically to keep the GPU busy, and runs on GPUs or CPUs. It's the endpoint style of serving from my post on serving deep learning in ad tech, used where its network hop doesn't matter.[^c28-serving]
+3. **Write back to the profile.** Write the new state with its model version and computed-at time, using a conditional write so a slow worker can't overwrite a newer state with an older one.
+4. **Log to the offline store.** Append the same value, with both timestamps, to the offline store, so training can reconstruct exactly what the bidder would have read at any moment, using the as-of join from earlier in this chapter.
+
+@fig-c28-refresh shows how the pieces fit. The bidder never calls Triton. It reads the profile, as it always did, and finds a state that's minutes old instead of a day old.
+
+![Getting device states into the profile. A daily batch job scores every device, and a refresh path recomputes the state for devices with new events, using Triton off the bid path, and writes it back. The bidder only ever reads the profile.](../images/p4-embedding-refresh.png){#fig-c28-refresh width="100%"}
+
+The refresh path is sized by the rate of new events, not by bid requests. A DSP that sees a hundred million devices might receive tens of millions of install and purchase events a day, which is a few hundred refreshes a second, far less than the bid rate, and a few GPUs or a modest CPU pool can handle it. Pinterest's TransAct takes a related approach, combining a precomputed user embedding with a small real-time transformer over recent actions.[^c28-transact]
+
+### Fallback States
+
+Some requests have no record: a new device, a device without a usable ID, or an IDFV-only iOS request. Precompute a **fallback state** for each profile segment, such as country by OS by device tier, by running the transformer on the profile token alone, and store them in bidder memory. Flag fallback states in the features, so the trees can treat them differently, and report performance for these requests separately, so gains on devices with long histories don't hide the gap.
+
+### Which to Use
+
+Start with the daily batch, because it's the simplest and it gets most of the value. Add the refresh path when you can measure the gain from freshness. A simple test is to compare the model's offline metrics on impressions within a day of a device's last install, using the state from before and after that install. If the gap is large, freshness matters, and the refresh path is worth its cost. Keep the batch job either way, as the backfill and the safety net for any device the refresh path misses.
+
+The one option to avoid is running the transformer in the bid path itself, synchronously, when a request arrives. It adds tens of milliseconds at p99, couples the bidder to the inference service's availability, and pays the full cost on every request, for a state that changes only when the device's history does.
+
 ## First-Time Pitfalls
 
 - **Embedding store outages and stale device states.** Missing-as-value only works if the model saw missing values in training. Train with realistic missingness, and alert on staleness of the stored states.
@@ -215,14 +286,16 @@ One more lesson from the incidents: whichever structure you choose, have the peo
 ::: {.callout-tip title="Try it on the simulator"}
 Serve Design B's online ranker on CPU, and profile the bid path under load with replayed traffic. Then publish a new device state version without the matching app vectors, and watch the bidder refuse to score mismatched versions and fall back.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: planned. This exercise needs the companion Go bidder with the ONNX device tower, which isn't built yet.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
-In this chapter, we served deep models within the bid path's budget, on CPU. Work that depends only on the device runs offline, with parity checked at both ends of the split, and the bid path does one read, a few dot products, a small ONNX model, and the trees. Distillation shrinks what has to run online, tensors are built by one config-driven Go library, ONNX Runtime is tuned for many small batched calls, and embeddings are versioned artifacts with every signal carrying its version. GPU serving is a last resort, sized by FLOPs per request, and a feature store is an extension for larger teams, built without leakage.
+In this chapter, we served deep models within the bid path's budget, on CPU. Work that depends only on the device runs offline, with parity checked at both ends of the split, and the bid path does one read, a few dot products, a small ONNX model, and the trees. Work that depends only on the request, such as a device tower, runs once per request, and campaign and creative vectors are precomputed, so scoring every candidate is one matrix-vector product. Distillation shrinks what has to run online, tensors are built by one config-driven Go library, ONNX Runtime is tuned for many small batched calls, and embeddings are versioned artifacts with every signal carrying its version. GPU serving is a last resort, sized by FLOPs per request, and a feature store is an extension for larger teams, built without leakage. Device states reach the profile through a daily batch job and a refresh path that recomputes them with Triton, off the bid path, and writes them back.
 
-Serving deep models efficiently makes it possible to update them more often. In the next chapter, we look at retraining and real-time learning.
+Serving deep models efficiently makes it possible to update them more often. That is where retraining and real-time learning come in.
 
 [^c28-llatte]: Lee Xiong et al., "LLaTTE: Scaling Laws for Multi-Stage Sequence Modeling in Large-Scale Ads Recommendation," arXiv:2601.20083, January 2026, <https://arxiv.org/abs/2601.20083>
 
@@ -237,3 +310,7 @@ Serving deep models efficiently makes it possible to update them more often. In 
 [^c28-onprem]: Ben Weber, "OnPrem vs Public Cloud for AdTech ML," *Data Science Collective*, May 15, 2026, <https://medium.com/data-science-collective/on-prem-vs-public-cloud-for-ml-3fb4568bd589>
 
 [^c28-outofcloud]: Ben Weber, "Out of the Cloud: Building On-Prem Machine Learning Pipelines," *Data Science Collective*, September 27, 2025, <https://medium.com/data-science-collective/out-of-the-cloud-building-on-prem-machine-learning-pipelines-597d5603502f>
+
+[^c28-serving]: Ben Weber, "Serving Deep Learning in AdTech," *Data Science Collective*, May 18, 2025, <https://medium.com/data-science-collective/serving-deep-learning-in-adtech-0ff9467ed946>
+
+[^c28-transact]: Xue Xia et al., "TransAct: Transformer-based Realtime User Action Model for Recommendation at Pinterest," KDD, 2023, <https://arxiv.org/abs/2306.00248>

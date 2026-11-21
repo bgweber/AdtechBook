@@ -4,34 +4,88 @@ A device's history is the richest data a DSP has about it, and so far, every mod
 
 Sequence models read the history directly, and transformers make two more things natural: a token format that can represent events from several sources, and pretraining on data that needs no attribution. That second point is what changes the economics of a DSP's models. Attributed impressions are scarce, but advertisers' non-attributed installs and purchases, shared through their MMPs, are orders of magnitude larger, and full of intent.
 
-In this chapter, we will move from pooled sets to event sequences, compare self-attention with target attention, and tokenize events from MMPs, the bid stream, and SDKs. We pretrain on non-attributed data, cover two-tower models and the affinity signals they produce, and look at the large-upstream, small-online design, scaling laws, and foundation models distilled into production models. We then build both designs from @sec-where-trees-stop, deep signals into trees and an online ranker with a calibration layer, and close with leakage, versioning, and data rights.
+In this chapter, we will trace four stages of how DSP models represent a device, move from pooled sets to event sequences, look at when a single attention layer is enough, compare self-attention with target attention, and tokenize events from MMPs, the bid stream, and SDKs. We pretrain a transformer on non-attributed data and co-train click and install heads on top of it. We pretrain on non-attributed data, cover two-tower models and the affinity signals they produce, and look at the large-upstream, small-online design, scaling laws, and foundation models distilled into production models. We then build both designs from @sec-where-trees-stop, deep signals into trees and an online ranker with a calibration layer, and close with leakage, versioning, and data rights.
+
+## Four Stages of Representing a Device
+
+It helps to see where this chapter fits in the progression of the book's models. Feature engineering for click and install prediction has moved through four stages, and each addresses a limit of the one before it, as @fig-c27-stages shows.[^c27-transformers]
+
+![Four stages of representing a device and an impression. Each stage changes what the model is able to learn from: the bid request, related values, the device's history, and finally events from every source, without waiting for an attributed label.](../images/p4-four-stages.png){#fig-c27-stages width="100%"}
+
+1. **Hashed one-hots and crosses,** the crawl click model. The model learns from the bid request and a few counters, with interactions chosen by hand.
+2. **Embeddings and pooling,** from the last chapter. Related values share what they learn, and the network learns interactions, but a device's history is a set, with no order or recency.
+3. **Event sequences with attention.** The history becomes a sequence of dated events, read by an attention layer, so order and recency count. The encoder still learns only from attributed labels.
+4. **A transformer over tokens, pretrained on non-attributed data.** Events from every source go into one timeline, and the model is trained on a task that needs no attribution, so it learns from what devices are doing across the whole market.
+
+The four stages are less about architecture than about what the model can learn from. That's why the step from stage 3 to stage 4 usually matters more than the depth of the model.
 
 ## From Pooled Sets to Event Sequences
 
 A pooled set of a device's apps answers "what does this device play?" A sequence answers "what has this device been doing, and what is it likely to do next?" For predicting the next install, the second question is the one that matters. Recency matters: a puzzle game installed yesterday says more than one installed a year ago. Order matters: trying several games in a genre and settling on one is a pattern, and so is a run of purchases that's growing. And gaps matter: a device that stopped paying six months ago is different from one that pays every week.
 
-The input becomes each device's events in time order, such as installs, purchases with a spend band, uninstalls, and, from the DSP's own logs, impressions and clicks, with the time between events. The model keeps the most recent events, such as the last 64 or 200, sorted from newest to oldest.
+The input becomes each device's events in time order, such as installs, purchases with a spend band, uninstalls, and, from the DSP's own logs, impressions and clicks. Each event becomes a token, and each token is the sum of a few small embeddings:
+
+- **App:** the app where the event happened, from the same embedding table as the ad side of the model, so a device's history and a candidate campaign's app are in the same space.
+- **Category:** the app's category, which helps rare apps borrow from common ones.
+- **Event type:** install, purchase, uninstall, and so on.
+- **Spend band:** for purchases, an order-of-magnitude bucket for the amount, such as under \$1, \$1 to \$5, \$5 to \$20, and over \$20.
+- **Age band:** how long before scoring time the event happened, bucketed into ranges such as less than a day, less than a week, and less than a month.
+
+The age band carries time, so the model doesn't need a positional encoding to know which events are recent. The model keeps the most recent events, such as the last 64, sorted from newest to oldest. Summing rather than concatenating keeps every token the same small width, whatever the number of embeddings that go into it.
+
+## When One Attention Layer Is Enough
+
+A full transformer, pretrained on non-attributed data, is a large project: new data pipelines for the tokens, GPU training, a batch scoring job, and a new set of failure modes. Before committing to it, it's worth asking what a much smaller step gets you. That step is stage 3: a single self-attention layer over the event sequence, pooled with mean and max into one device vector, and trained end to end with the conversion heads on attributed impressions.
+
+That small step is often most of the gain. As I mentioned at the start of this chapter, adding one self-attention layer over a dated event history made the history the most important input to a model I worked on, ahead of every static feature. Most of the signal is in the history, and even a lightweight encoder captures most of it.
+
+A single attention layer is enough when:
+
+- **Histories are short.** If most devices have a handful of events, for example on iOS or in markets where you receive few advertisers' MMP data, there isn't much order for a deep model to learn.
+- **There's little non-attributed data.** Pretraining needs a large stream of installs and purchases from advertisers' shared data or the bid stream. Without it, a transformer has nothing more to learn from than the single layer does.
+- **The team is new to deep models.** One attention layer trains on the same hardware as the DCNv2 model, serves the same way, and adds one new component to monitor.
+- **You need a baseline.** Even if a transformer is the goal, the single layer tells you how much of the gain comes from having a sequence at all, and how much from depth and pretraining.
+
+It has two limits, and they point to the same solution. First, the encoder is only as good as its labels. Trained on attributed impressions, it gets one weak label for each won impression, and most devices never have a won impression that converted. Second, pooling removes order. The age bands keep recency, but patterns that depend on the order of several events, such as trying three games in a genre before settling on one, are hard to represent after mean and max pooling. Both limits are addressed by training the sequence model on its own task, with data that needs no attribution. That's what the transformer in the rest of this chapter does.
 
 ## Self-Attention vs. Target Attention
 
-Attention is how a model reads a sequence. There are two common forms, and they have very different serving costs.[^c27-transformers]
+Attention is how a model reads a sequence. There are two common forms, and they have very different serving costs.
 
 - **Self-attention** lets each event attend to the others in the history, so the model learns combinations, such as an install followed by a purchase in the same week. The outputs are pooled, or the last position is taken, into one vector for the device. Nothing depends on the ad being scored, so it can be computed once per device, offline.
 - **Target attention** uses the candidate ad, such as the advertised app's embedding, as the query, and weights each past event by its relevance to that ad. This is the approach of the Deep Interest Network. It's often more accurate, but because it depends on the candidate, it has to run in the bid path for every candidate campaign.
+
+@fig-c27-attention shows the difference in where each runs.
+
+![Self-attention pooled into a device vector depends only on the device, so it runs once per device, offline. Target attention uses the candidate ad as its query, so it runs for every candidate, in the bid path.](../images/p4-attention-kinds.png){#fig-c27-attention width="100%"}
 
 For a DSP, self-attention is the practical default, because it moves the expensive part out of the auction. Target attention comes back in @sec-serving-deep-models, where we estimate what it would cost to run online.
 
 ## Tokenizing Events from MMPs, the Bid Stream, and SDKs
 
-A transformer reads tokens, and the token format decides what it can learn. Each event becomes one token, the sum of a few small embeddings:[^c27-transformers]
+A transformer reads tokens, and the token format decides what it can learn. Once every event is a token, merging data sources means writing more tokens into the same timeline. Each token keeps the embeddings from the stage 3 sequence, the app, category, event type, spend band, and age band, and adds two more:
 
-- **App:** the app where the event happened, from an app embedding table shared with the rest of the model.
-- **Event type:** install, purchase, uninstall, impression, click, and so on.
-- **Spend band:** for purchases, an order-of-magnitude bucket of the amount.
-- **Age band:** how long before scoring time the event happened, bucketed into ranges such as less than a day, less than a week, and less than a month, plus a bucket for the gap since the previous event.
-- **Source:** whether the event came from the MMP, the bid stream, or an SDK.
+- **Source:** whether the event came from the MMP, the bid stream, or an SDK, so the model can learn how much to trust each source and how sources interact.
+- **Gap:** a bucket for the time since the previous event, so the model sees cadence as well as recency.
 
-Summing embeddings keeps tokens small, and the source embedding lets one model learn from several data sources whose events mean slightly different things. A device's static context, such as OS, device model, and country, goes in as one more token at the start of the sequence.
+@tbl-c27-tokens lists the token types I'd start with.
+
+| Token | Source | Role | How many |
+|---|---|---|---|
+| Install | MMP data shared by advertisers | Input and next-event target | One per install |
+| Purchase, with spend band | MMP revenue postbacks | Input and next-event target | One per purchase, or per app per day |
+| First seen in app | Bid stream | Input only | One per app, the first time the bidder sees the device there |
+| Weekly engagement, with volume band | Bid stream or SDK | Input only | One per app per week, for the latest few weeks |
+| Gone dormant | Bid stream | Input only | One when a device stops appearing in an app for several weeks |
+| Profile context | Bid request and device data | Input only | One, at position zero |
+
+: Token types for a device's timeline. {#tbl-c27-tokens tbl-colwidths="[24,26,22,28]"}
+
+The bid stream is the most interesting addition. If a device shows up in an app's bid requests, the app is installed and in use, so the first time the bidder sees the device in an app is an inferred install. That works for every app that sells ads, not only the apps of the DSP's own advertisers. When a device stops appearing in an app, that's an inferred churn. These tokens fill many of the gaps in MMP coverage, but they have to be aggregated. A device can generate thousands of bid requests a day, and without aggregation they'd push every install and purchase out of the context window.
+
+The **profile context** token describes what the device is rather than what it did: country, OS, device model tier, and connection type, pooled like the many-hots in @sec-deep-models-with-embeddings. Placing it at position zero means attention can use it, and a device with no history still gets a valid state. That matters on mobile, where many devices, especially on iOS, have short histories. @fig-c27-tokens shows a short timeline and how one token is built.
+
+![A device's timeline as tokens, newest first, with the profile token at position zero. Each token is the sum of small embeddings for its app, category, event type, spend band, age, gap, and source.](../images/p4-token-timeline.png){#fig-c27-tokens width="100%"}
 
 Leave room in the format for creative events from the DSP's own impressions, such as video completions and end card clicks. We use them in @sec-personalized-creative-selection.
 
@@ -39,15 +93,69 @@ Leave room in the format for creative events from the DSP's own impressions, suc
 
 A sequence model trained only on attributed impressions gets one weak label for each won impression, and most devices never have a won impression that converted. Pretraining fixes this, by training the sequence model on its own task, with data that needs no attribution.
 
-**Next-event prediction** is the natural task: given a device's history up to a point, predict its next install, from the set of all apps. Every install in every history becomes a training label, so a model can learn from billions of events the DSP never paid for. Training uses a softmax over apps, approximated with in-batch negatives and a popularity correction, which we cover with two-tower models below.
+**Next-event prediction** is the natural task. The transformer is trained with a causal mask, so each position sees only the events before it, to predict the next outcome event from all of the events before it, the same objective SASRec uses for next-item recommendation.[^c27-sasrec] At every position where the next token is an install, the model predicts which app was installed, with a softmax over the app vocabulary. The output layer reuses the input app embedding table, and a log-popularity correction is subtracted from the logits, so the model doesn't learn to predict the top-grossing apps for every device:
+
+$$\text{logit}(\text{app}_j \mid h_t) = h_t \cdot e_j + b_j - \alpha \log q_j$$
+
+Here, $h_t$ is the state at position $t$, $e_j$ is the app's embedding, $b_j$ is a learned bias, and $q_j$ is the app's share of installs. With tens of thousands of apps, a sampled softmax keeps training costs manageable. Every install in every history becomes a training label, so a model can learn from billions of events the DSP never paid for, and none of the labels depend on which network was credited. @fig-c27-pretraining shows the setup.
+
+![Pretraining with a causal mask. Each position's state predicts the next install or purchase, through a softmax over apps that shares the input app table and subtracts a popularity correction. Bid stream and profile tokens are inputs only.](../images/p4-pretraining.png){#fig-c27-pretraining width="100%"}
+
+Only outcome tokens are used as targets. If bid stream tokens were targets too, the model would spend its capacity learning to predict which apps a device opens next, which is an easier task and a less useful one. Bid stream and profile tokens are inputs, and installs and purchases are what the model learns to predict.
 
 **Future-window objectives** predict what a device will do over a window, such as purchases and spend in the next 7 or 30 days, rather than only the next event. Pinterest's PinnerFormer found that a future-window objective made daily batch embeddings nearly as good as real-time ones, which suits a model refreshed offline, and it matches the horizon of D7 and D30 value labels.[^c27-intent]
 
-The output of pretraining is a **device state**: the transformer's hidden vector at the last position, which summarizes the device's history. It's computed in batch for every device and stored in the device profile, ready for the models downstream.
+### Details That Make It Work
+
+- **Size.** Two to four pre-norm transformer blocks, a model width of 64 to 128, and a context of a few hundred tokens are enough. That's tiny next to a language model, because the task doesn't need a large model. The training data, on the other hand, can be enormous, since pretraining runs over every event in every history. That's where GPUs pay off.
+- **Time.** Keep the age bands and add the gap bucket. A learned position embedding is cheap to add as well.
+- **Warm start.** Initialize the app embeddings from co-install statistics, such as a PPMI matrix factored with SVD. Training converges faster, and rare apps start somewhere reasonable.
+- **Observation gaps.** You only see MMP events for apps whose data you receive, and each advertiser's feed starts on a different date. Count an install as a target only if the app's feed was live at the time, and flag newly observed apps. Otherwise, the model learns when feeds started, not what devices want.
+- **Time cutoffs.** Pretraining has to stop at each training window's cutoff. Events after the cutoff that leak into the device state make the downstream heads look better offline than they'll be in production.
+- **Identity.** Sequences can only be joined across sources when the IDs match. The advertising ID works across apps on Android, and on iOS devices that have consented, but the IDFV doesn't. Expect much longer sequences on Android, and evaluate the platforms separately.
+- **Data rights.** Every token comes from someone's data. MMP events fall under what advertisers agree to share and pool, and exchange terms often limit how bid request data can be used. Deciding which sources to combine is a policy decision as much as a modeling one.
+
+The output of pretraining is a **device state**, $h$: the transformer's hidden vector at the last position, which summarizes everything the device did across every source available to the DSP, learned without a single attributed label. It's computed in batch for every device and stored in the device profile, ready for the models downstream.
+
+## Co-Training Click and Install Heads
+
+The pretrained transformer learns a lot about devices and nothing about ads. The second training stage connects it to impressions. This is a multi-task model trained on attributed impressions, with the transformer as the device tower and one head for each term in the install equation, as @fig-c27-towers shows.
+
+![Co-training on attributed impressions. Device, ad, and context towers each output a 64-dimension vector, with one app embedding table shared by all three. Each head combines a small MLP with explicit dot products between the towers, and the heads are trained with ESMM losses over every impression.](../images/p4-three-towers.png){#fig-c27-towers width="100%"}
+
+### Three Towers
+
+Each tower outputs a 64-dimension vector:
+
+- **Device tower, $h$:** the pretrained transformer, plus a few bid-time device fields, such as how many times the device has seen the campaign today.
+- **Ad tower, $a$:** the campaign's app, from the same app table as the transformer, plus the creative, campaign, and ad format.
+- **Context tower, $c$:** the publisher app, also from the shared app table, plus placement, OS version, country, connection type, and hour of day.
+
+Sharing the app table across the three towers is a small detail with a large effect. The app a device installed last week, the app it's using now, and the app being advertised are all in the same space, so the model can relate them directly.
+
+### Interactions Built for Serving
+
+The heads use the three vectors in two ways. A small MLP reads the concatenated vectors and their element-wise products, so it can learn whatever interactions it needs. And each head has three explicit dot product terms, one for each pair of towers, the same idea as factorization machines, applied to towers:
+
+$$\text{logit}_k = \text{MLP}_k([h, a, c, h \odot a, h \odot c]) + w_{k1}(h \cdot a) + w_{k2}(h \cdot c) + w_{k3}(a \cdot c)$$
+
+The dot products are there for serving. Because they're part of every head's logit, training pushes the towers to put useful signal in them. In the bid path, a dot product of two 64-dimension vectors takes nanoseconds, while running the MLP for every candidate is far more expensive. The dot products are the bridge between this model and the one that serves, as we'll see in Design B below and in @sec-serving-deep-models.
+
+The heads are trained with the ESMM losses from @sec-deep-models-with-embeddings, over every impression.
+
+### Training Details
+
+- **Start from the pretrained tower.** Freeze the transformer for the first epoch while the heads and the other towers converge, then unfreeze it with a learning rate about ten times lower. Keep the next-install loss running on a sample of non-attributed data as an auxiliary task, so fine-tuning on the much smaller attributed data doesn't erase what pretraining learned.
+- **Downsample negatives,** keep every positive, and weight the negatives by one over the sampling rate.
+- **Wait for labels to mature,** or use a delayed feedback model, as in @sec-retraining-and-real-time-learning.
+- **Keep some exploration** in the training data, so it doesn't narrow around the model's own decisions.
+- **Treat SKAN separately.** On iOS without consent, installs arrive as aggregated postbacks, not impression-level labels, and need their own models, as in @sec-ios-and-contextual-signals.
+
+The same model can support more heads at low cost, because the heads share the towers: purchase after install, first-week spend, day-7 retention, and predicted SKAN conversion value all fit the same pattern, defined over every impression by multiplying through the funnel. Each new head adds supervision for the shared towers, which often helps the original heads too.
 
 ## Two-Tower Models: The Basics
 
-A **two-tower model** learns a vector for each of two kinds of entity, such as devices and apps, so that the dot product of a device's vector and an app's vector scores how well they match.[^c27-intent]
+A **two-tower model** learns a vector for each of two kinds of entity, such as devices and apps, so that the dot product of a device's vector and an app's vector scores how well they match.
 
 - **The device tower** encodes a device from its history and context, such as the set or sequence of its installed apps, OS, device model, and country, as of a cutoff time.
 - **The app tower** encodes an app from its ID and its metadata, such as category, genre, and store description embedding.
@@ -63,7 +171,7 @@ These basics are used here for affinity signals, and again in @sec-learned-campa
 
 ## Two-Tower Affinity Signals and Device States
 
-In Design A, the two-tower model's output isn't passed to the bidding models as an embedding. It's turned into a few scores, each answering a different question:[^c27-intent]
+In Design A, the two-tower model's output isn't passed to the bidding models as an embedding. It's turned into a few scores, each answering a different question:
 
 - **Long-term affinity:** the cosine similarity between the device's vector and the advertised app's vector.
 - **Recent affinity:** the similarity between the advertised app and the device's last few installs, from app vectors alone.
@@ -83,7 +191,7 @@ The leading published design for sequence models in ad ranking separates a large
 
 Meta's LLaTTE work describes this design at scale. Its upstream model uses over 45 times the sequence compute of the online ranker, about half of the upstream model's gain transfers to the downstream ranker, the cached user embedding has 2,048 dimensions, and the design added no measurable change in p99 latency. Meta reported a 4.3% conversion uplift on Facebook Feed and Reels.[^c27-llatte] A companion post describes the same multi-stage architecture, with target-aware attention, and conversion gains of 6% on Instagram and 3% on Facebook.[^c27-meta-seq]
 
-This is the architecture from my transformer post, with published numbers behind it: the expensive model runs where its cost doesn't affect the auction, and the auction only pays for a lookup and a small model.[^c27-transformers]
+This is the architecture from my transformer post, with published numbers behind it: the expensive model runs where its cost doesn't affect the auction, and the auction only pays for a lookup and a small model.
 
 ## Scaling Laws: Where to Spend Compute
 
@@ -106,7 +214,7 @@ For a DSP, one foundation model is a cleaner story than four separately trained 
 
 ## Building Design A: Deep Signals into Trees
 
-Design A, the default from @sec-where-trees-stop, passes the pretrained models' outputs as features to the LightGBM install and value models from Part III, which make the bid decision:[^c27-intent]
+Design A, the default from @sec-where-trees-stop, passes the pretrained models' outputs as features to the LightGBM install and value models from Part III, which make the bid decision:
 
 - **The install model** gets the affinity scores, next to its request, campaign, and serving features.
 - **The value model** gets the transformer's head outputs.
@@ -120,16 +228,56 @@ Design A rolls out in measured stages, each with its own A/B test: affinity scor
 
 Design B moves more of the decision online. The pretrained device state is cached, as in Design A, and a small model runs at bid time for each candidate, combining the cached state with request and campaign features. Two forms work well:
 
-- **Tower dot products.** A model co-trained with device, ad, and context towers, each producing a 64-dimension vector, with explicit dot products between each pair of towers in every head's logit. In the bid path, the ad and publisher vectors are in memory, and each candidate needs three dot products, which take nanoseconds.[^c27-transformers]
+- **Tower dot products.** A model co-trained with device, ad, and context towers, each producing a 64-dimension vector, with explicit dot products between each pair of towers in every head's logit. In the bid path, the ad and publisher vectors are in memory, and each candidate needs three dot products, which take nanoseconds.
 - **A small DCN or MLP** on the cached embedding plus request features, which runs in about a millisecond for a batch of candidates.[^c27-pyspark]
 
 Either way, a **LightGBM calibration layer** sits on top. It's trained on recent attributed impressions, with the ranker's scores, device scalars such as history length and a fallback flag, campaign levels such as a smoothed recent install rate, context, and bid-time features, and it outputs the probabilities the bidder uses. It retrains every few hours, so it corrects for the ranker's staleness and overconfidence, and it's easy to inspect when an account manager asks why bids changed.
 
+@fig-c27-architecture puts the pieces together: pretraining on non-attributed data, co-training the towers and heads on attributed impressions, and serving with batch device states, in-memory vector tables, and a LightGBM model in the bid path.
+
+![The full architecture, from raw events to calibrated probabilities. The transformer and the towers train offline on their own schedules. The bid path does one device lookup, three dot products per candidate, and one pass through a LightGBM model.](../images/p4-full-architecture.png){#fig-c27-architecture width="100%"}
+
+The LightGBM model in Design B doesn't take the 64-dimension vectors as features. Trees split on one feature at a time, so 64 dense dimensions are many weak features that aren't meaningful on their own, and the dimensions change meaning every time the foundation model is retrained. A dot product is one stable number that already says how well two things match, and it stays meaningful across versions as long as both vectors come from the same run. The feature groups I'd use are:
+
+- **Foundation model scores:** $h \cdot a$, $h \cdot c$, and $a \cdot c$, the learned affinity between device and ad, device and placement, and ad and placement.
+- **Device scalars, stored with $h$:** the fallback flag, history length, days since the last install, and the model version, which let the trees trust the scores less when the history is thin.
+- **Ad and campaign:** campaign, app category, creative format, smoothed recent install rate, and campaign age, the fast-moving levels that the foundation model lags behind.
+- **Context:** placement, ad format, OS version, country, connection type, and hour of day.
+- **Request:** the bid floor and how often this device has seen the campaign today, which only exist at bid time.
+
+Train one LightGBM model for clicks and one for installs from either path, on the last few days of attributed impressions, with log loss, and correct for downsampling. Check calibration directly with plots like those in @sec-deep-models-with-embeddings, by publisher, country, OS, campaign age, and the fallback flag. If you need the click and view paths separately, for example to monitor view-through fraud, train a third model for view-through installs on impressions without a click, and combine them with the install equation.
+
 Design B's extra lift comes at extra cost: a deep model in the bid path, more serving work per candidate, and a calibration layer that has to keep up. Use the price-performance view from @sec-where-trees-stop to decide whether it's worth it, by comparing both designs on the same traffic.
+
+## Measuring What Each Stage Adds
+
+It's easy to overstate the impact of a design like this, so the evaluation should separate what each stage contributes. The most useful experiment is a sequence of model variants, all trained on the same time windows and evaluated on the same holdout window, with LightGBM as the final layer in every case, so calibration is held constant. @tbl-c27-variants lists them.
+
+| Variant | What it shows |
+|---|---|
+| 1. Plain features only | The baseline every DSP already has: LightGBM on bid request features, no device history |
+| 2. Pooled device embeddings | What a static profile adds, with installed apps as a pooled many-hot |
+| 3. One attention layer | What order and recency add, with the encoder trained on attributed labels only |
+| 4. One attention layer plus next-install pretraining | What the training task adds, separate from depth |
+| 5. Transformer with pretraining, MMP tokens only | What depth adds |
+| 6. Transformer with all sources | What the bid stream and other sources add |
+
+: Model variants for measuring what each stage adds. {#tbl-c27-variants tbl-colwidths="[38,62]"}
+
+My expectation is that most of the improvement shows up between variants 3 and 4, from the pretraining task, and between variants 5 and 6, from the extra sources, with a smaller improvement from depth alone, between 4 and 5. Mobile histories are longer and change faster than the histories where I've seen this tested, so depth may matter more on DSP data. That's what the experiment is for.
+
+A few rules make the comparison trustworthy:
+
+- **Evaluate out of time.** Train on earlier windows, select on a later validation window, and report on a test window after that. Hold out a hash of devices from every training window, so test devices are never seen in pretraining.
+- **Measure ranking and calibration.** Report log loss and AUC for clicks and installs, and calibration with expected calibration error and the ratio of predicted to actual conversions.
+- **Break results out by segment:** by OS, by whether the device has a cross-app ID, by history length, by campaign age, and by app category. Averages hide where the gains are.
+- **Check for leakage.** Assert that every token used for a training example comes before that example's cutoff, and be suspicious of any variant that improves much more than expected. In my experience, a gain that looks too good is usually a leak.
+
+Offline gains don't always become cheaper installs, because the auction reacts to the new bids. Validate the final candidate with a budget-split A/B test from @sec-shadow-mode-canaries-and-ab-tests, on cost per install, installs per thousand impressions, win rate, and spend at a fixed budget, and monitor the daily ratio of predicted to actual installs. If that ratio drifts, the bids are wrong even if the ranking is right.
 
 ## Leakage, Versioning, and Data Rights
 
-The design is simple to draw, but most of the work is in three areas where it can fail without obvious errors.[^c27-intent]
+The design is simple to draw, but most of the work is in three areas where it can fail without obvious errors.
 
 **Leakage.** The non-attributed feed contains the attributed events: a device the DSP acquired still has the app installed, and its purchases show up in the MMP's stream like any other. If those events train the pretrained model and then appear as labels for the trees, the signal encodes the label.
 
@@ -149,12 +297,14 @@ The design is simple to draw, but most of the work is in three areas where it ca
 ::: {.callout-tip title="Try it on the simulator"}
 Pretrain a small transformer on the simulator's non-attributed install and purchase events. Compute affinity scores and head outputs, add them to the LightGBM install and value models, and measure the gain against the true install rates and values. Then build Design B with tower dot products and a LightGBM calibration layer, and compare the two designs on the same traffic.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
-In this chapter, we modeled device histories as sequences. Tokens built from app, event type, spend, age, and source embeddings let a transformer read events from several sources, and self-attention keeps the expensive part offline. Pretraining on non-attributed data, with next-event and future-window objectives, produces device states, and two-tower models with in-batch negatives, logQ correction, and ID dropout produce affinity signals. Published work on large upstream models with small online rankers, scaling laws, and foundation models shows where the field is going. We built Design A, which passes a few stable scores to the trees, and Design B, which ranks online and calibrates with LightGBM, and covered the leakage, versioning, and data rights problems that both share.
+In this chapter, we modeled device histories as sequences. Four stages of representation, from hashed one-hots to a pretrained transformer, each change what the model can learn from, and a single attention layer is often most of the gain before going further. Tokens built from app, category, event type, spend, age, gap, and source embeddings let a transformer read events from MMPs, the bid stream, and SDKs, and self-attention keeps the expensive part offline. Pretraining on non-attributed data, with next-event and future-window objectives, produces device states, and two-tower models with in-batch negatives, logQ correction, and ID dropout produce affinity signals. Published work on large upstream models with small online rankers, scaling laws, and foundation models shows where the field is going. Device, ad, and context towers that share one app table are co-trained on attributed impressions, with dot products built into every head for cheap serving. We built Design A, which passes a few stable scores to the trees, and Design B, which ranks online and calibrates with LightGBM, measured what each stage adds with a ladder of model variants, and covered the leakage, versioning, and data rights problems that both share.
 
 Both designs depend on getting the expensive parts out of the bid path and the cheap parts into it, quickly and consistently. In the next chapter, we serve deep models within the bid path's budget, on CPU.
 
@@ -171,3 +321,5 @@ Both designs depend on getting the expensive parts out of the bid path and the c
 [^c27-gem]: Huayu Li, Xiaoyi Liu, Jade Nie, et al., "Meta's Generative Ads Model (GEM): The Central Brain Accelerating Ads Recommendation AI Innovation," Engineering at Meta, November 10, 2025, <https://engineering.fb.com/2025/11/10/ml-applications/metas-generative-ads-model-gem-the-central-brain-accelerating-ads-recommendation-ai-innovation/>
 
 [^c27-pyspark]: Ben Weber, "Using DNN Embedding Models in PySpark at AdTech Scale," *Data Science Collective*, May 2026, <https://medium.com/data-science-collective/using-dnn-embedding-models-in-pyspark-at-adtech-scale-8f8fdd00fc17>
+
+[^c27-sasrec]: Wang-Cheng Kang and Julian McAuley, "Self-Attentive Sequential Recommendation," ICDM, 2018, <https://arxiv.org/abs/1808.09781>

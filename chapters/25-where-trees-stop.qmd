@@ -6,6 +6,8 @@ This chapter opens the run stage of the book. Before building deep models, it's 
 
 In this chapter, we will look at what LightGBM can't learn, the options for serving deep models and what they cost, and the idea that organizes all of Part IV: every model sits on a price-performance curve. We then cover CPU and GPU training and a GPU training workflow, how to write technical specs and partner with bidder engineering, how to run a migration from a classic model to a deep one, and the two designs for deep models in a DSP that the rest of Part IV builds side by side.
 
+A note on what you can run in this part. Parts II and III are meant to be fully runnable on the companion simulator. Part IV is only partly runnable: the simulator has the non-attributed installs, bid stream histories, and ground truth that small versions of these models need, so you can train a small DCNv2 model or a small transformer on a laptop and compare it with LightGBM against the true rates. But the serving designs, the scale arguments, and the production details describe a reference design, drawn from published work and my own experience, not something the simulator reproduces. Each chapter's "Try it on the simulator" box says which is which.
+
 ## What LightGBM Can't Learn
 
 In @sec-gradient-boosted-conversion-models, we listed the limits of tree models. In run, they become the reason for everything that follows:
@@ -48,7 +50,11 @@ Compare serving options on two numbers: p99 latency per request at the bidder's 
 
 The idea that organizes Part IV is simple: judge every model by the gain it buys per unit of serving and training cost, not by offline metrics alone. A model that improves normalized entropy by 1% and doubles serving cost may be worth it on a large DSP and not on a small one. Moloco describes scoring each of its models this way, as a point on a price-performance curve.[^c25-moloco]
 
-This ties back to the point in @sec-inside-a-demand-side-platform that infrastructure cost is an ML design constraint. Every model in this part is introduced with what it costs to train and serve, and what it buys. In practice, that means three numbers for every candidate model: its offline gain over the current champion, its serving cost per million requests, and its training cost per run. An online test then measures the real gain, and @sec-operating-at-scale tracks cost per model in production.
+This ties back to the point in @sec-inside-a-demand-side-platform that infrastructure cost is an ML design constraint. Every model in this part is introduced with what it costs to train and serve, and what it buys. In practice, that means three numbers for every candidate model: its offline gain over the current champion, its serving cost per million requests, and its training cost per run. Plotting the candidates on two axes, gain against serving cost, makes the choice concrete, as in @fig-c25-frontier. Models on the frontier buy the most gain for their cost. A model below it, such as a deep cross network run per candidate in the bid path, costs more than a model that does better, and isn't worth serving, however good its offline metrics look on their own.
+
+![An illustrative price-performance view of the models in Part IV. Moving the deep model's work offline, so the bid path only does dot products and trees, buys most of the gain at a small increase in serving cost. Running a deep model per candidate in the bid path costs much more for less.](../images/p4-price-performance.png){#fig-c25-frontier width="100%"}
+
+The shape in the figure is typical: the steepest gains come from moving information into the model cheaply, through embeddings and pretrained signals computed offline, and the expensive per-candidate computation at the right of the curve buys little more. That shape is why both designs below keep deep models out of the per-candidate path. An online test then measures the real gain, and @sec-operating-at-scale tracks cost per model in production.
 
 ## CPU vs. GPU Training, and Renting vs. Buying GPUs
 
@@ -66,7 +72,7 @@ A workable GPU training workflow for a DSP looks like this:
 - **Containerize.** Use CUDA base images with pinned driver and library versions, and run GPUs in Docker with NVIDIA's container toolkit.
 - **Get GPUs.** On Google Cloud, Vertex AI custom training jobs or GKE with GPU node pools. On-prem, owned GPUs shared through Kubernetes with NVIDIA's device plugin, or through a job queue in the orchestrator. Managed platforms such as Databricks also offer GPU clusters, so data preparation and GPU training can live on one platform.
 
-Aarki has written about moving training to NVIDIA L4 GPUs, which reduced batch processing time from 200 ms to 20 ms and made daily training on more than a billion rows practical.[^c25-intent] We chose L4s after testing several NVIDIA cards in the cloud on sample datasets, for their throughput and their energy efficiency in our data centers.[^c25-outofcloud]
+Aarki has written about moving training to NVIDIA L4 GPUs, which reduced batch processing time from 200 ms to 20 ms and made daily training on more than a billion rows practical. We chose L4s after testing several NVIDIA cards in the cloud on sample datasets, for their throughput and their energy efficiency in our data centers.
 
 A few operational realities come up quickly:
 
@@ -77,7 +83,11 @@ A few operational realities come up quickly:
 - **Use preemptible or spot capacity** with checkpointing, and track GPU utilization as a cost metric, as in @sec-operating-at-scale.
 
 ::: {.callout-tip title="Try it on the simulator"}
-Once the deep model from @sec-deep-models-with-embeddings exists, train it on a GPU and on CPU on the simulator's data, and compare training time, cost, and GPU utilization.
+Train the deep model from @sec-deep-models-with-embeddings on a GPU and on a CPU on the simulator's data, and compare training time, cost, and GPU utilization.
+
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Technical Specs and Partnering with Bidder Engineering
@@ -110,15 +120,19 @@ Moving a DSP's core models from trees to deep models is a long project, and the 
 4. **Run both models side by side.** Canary and A/B test the deep model against the champion, with the tree model kept as a level on the fallback ladder.
 5. **Move the decision layer only if it pays.** If a deep online ranker beats deep signals into trees by enough to justify its serving and calibration cost, move to it. Otherwise, stay with the simpler design.
 
-A common misstep is to start at step 4: rebuild the bidder for deep models first, and spend months fighting latency, calibration, and parity issues before any model is better.[^c25-intent]
+A common misstep is to start at step 4: rebuild the bidder for deep models first, and spend months fighting latency, calibration, and parity issues before any model is better.
 
 ## Two Designs for Deep Models in a DSP
 
 There are two good ways to use deep models in a DSP, and the rest of Part IV builds both on the same pretrained models, so they can be compared on the simulator.
 
-**Design A: deep signals into trees.** This is the state of practice, and the default in this book. Deep models are trained and scored offline, and pass a few scores, such as affinity cosines, per-app percentiles, and purchase and spend head outputs, to LightGBM or CatBoost models that make the calibrated decision. The deep models never set a price. Their job is to produce signals, and the trees make the decision.[^c25-intent]
+**Design A: deep signals into trees.** This is the state of practice, and the default in this book. Deep models are trained and scored offline, and pass a few scores, such as affinity cosines, per-app percentiles, and purchase and spend head outputs, to LightGBM or CatBoost models that make the calibrated decision. The deep models never set a price. Their job is to produce signals, and the trees make the decision.
 
 **Design B: a deep online ranker.** This is the state of the art. A large model runs offline, or asynchronously, and caches a device embedding. A small model, such as a deep cross network or an MLP, runs online on that embedding plus request and campaign features, and LightGBM calibrates its output.[^c25-transformers][^c25-llatte]
+
+@fig-c25-designs shows the two side by side.
+
+![The two designs for deep models in a DSP. In Design A, pretrained models pass a few scores to the tree models that decide. In Design B, a small online ranker scores each candidate from a cached device state, and a tree model calibrates its output.](../images/p4-design-a-b.png){#fig-c25-designs width="100%"}
 
 How to choose between them:
 
@@ -132,15 +146,15 @@ How to choose between them:
 
 : Choosing between the two designs. {#tbl-c25-designs tbl-colwidths="[24,38,38]"}
 
-Design A is the safer first step, and it can be rolled out in measured stages. Design B buys more lift, at more serving and calibration cost, and it's worth it at scale. There's a migration path from A to B: add affinity scores to the install model, add head outputs to the value model, merge the pretrained models into one device foundation model, and then move the decision layer online if the gains justify it.[^c25-intent]
+Design A is the safer first step, and it can be rolled out in measured stages. Design B buys more lift, at more serving and calibration cost, and it's worth it at scale. There's a migration path from A to B: add affinity scores to the install model, add head outputs to the value model, merge the pretrained models into one device foundation model, and then move the decision layer online if the gains justify it.
 
 Record what was tried and paused along the way, with the outcome. It's common for an ambitious model to be frozen after a simpler one, such as a boosted model on its outputs, beats it. Writing that down keeps the decision from being relitigated every few months.
 
 ## Conclusion
 
-In this chapter, we set up the run stage. Trees can't share across related values, learn from device histories, or learn from non-attributed data, and deep models can, at a cost. We compared serving options along serialization and serving dimensions, chose in-process ONNX on CPU for the bid path and GPUs for training, and made the price-performance curve the test for every model in Part IV. We laid out a GPU training workflow, how to write a technical spec and partner with bidder engineering, the order of a migration from trees to deep models, and the two designs, deep signals into trees and a deep online ranker, that the rest of Part IV builds.
+In this chapter, we set up the run stage. Trees can't share across related values, learn from device histories, or learn from non-attributed data, and deep models can, at a cost. We compared serving options along serialization and serving dimensions, chose in-process ONNX on CPU for the bid path and GPUs for training, and made the price-performance curve the test for every model in Part IV, which favors moving deep models' work offline over running them per candidate. We laid out a GPU training workflow, how to write a technical spec and partner with bidder engineering, the order of a migration from trees to deep models, and the two designs, deep signals into trees and a deep online ranker, that the rest of Part IV builds.
 
-Both designs start with the same building block: embeddings. In the next chapter, we build multi-task deep models that learn shared representations of apps, campaigns, and devices.
+Both designs start with the same building block: embeddings. Next, we build multi-task deep models that learn shared representations of apps, campaigns, and devices.
 
 [^c25-moloco]: Moloco, "Inside Moloco's CARA: the AI that compounds," Moloco blog, 2026, <https://www.moloco.com/blog/inside-molocos-cara-the-ai-that-compounds>
 

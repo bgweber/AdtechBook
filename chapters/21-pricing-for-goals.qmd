@@ -2,7 +2,7 @@
 
 The walk DSP now predicts clicks, installs after clicks and after views, and purchase value, and it has a win model to shade its bids. Pricing ties them together. For each candidate campaign, the bidder has to turn a stack of predictions into one number, what the impression is worth to that campaign's advertiser given its goal, correct it for what the models get wrong, take the DSP's margin and fees out of it, and only then shade it. It also has to pick which of the candidate campaigns gets to bid at all.
 
-In @sec-inside-a-demand-side-platform, we laid out the vocabulary for this, and walked through one bid for Cozy Farm Tycoon by the numbers. In crawl, most of the terms were fixed. In this chapter, they all become real: the advertiser value for each goal type, a calibration multiplier that adapts continuously, margins and fees under each billing model, a fixed order of operations, the combination of install and value predictions for ROAS goals, an internal auction that picks the winning campaign, and Thompson sampling for creatives.
+In @sec-inside-a-demand-side-platform, we laid out the vocabulary for this, and walked through one bid for Cozy Farm Tycoon by the numbers. In crawl, most of the terms were fixed. In this chapter, they all become real: the advertiser value for each goal type, a calibration multiplier that adapts continuously, margins and fees under each billing model, a fixed order of operations, the combination of install and value predictions for ROAS goals, an internal auction that picks the winning campaign, how to handle uncertainty in low-volume segments, and Thompson sampling for creatives.
 
 <!-- NOTE: Ben's pricing drafts (patches 0001 to 0003) aren't in the repo. This chapter is drafted from the TOC and Chapter 4; reconcile with the patches when they're available. -->
 
@@ -98,11 +98,46 @@ Continuing the example, suppose a second campaign is eligible for the same reque
 
 Pacing interacts with the internal auction. A campaign that's behind on spend has a higher $\gamma$, which raises its media value and its bid. That lowers its surplus at the margin, but raises its chance of winning, and the internal auction takes both into account.
 
+## Uncertainty and Low-Volume Segments
+
+Every number in the pricing equation is an estimate, and some are much less certain than others. A campaign's install rate on a large exchange might rest on thousands of installs. The same campaign's rate on a new publisher, or in a small country, might rest on ten. Treating both as equally reliable is one of the easiest ways to make expensive mistakes, because the bidder acts on point estimates, and a small segment's point estimate can be far from the truth.
+
+Install counts are roughly Poisson, so the uncertainty in a segment's observed rate depends mostly on how many installs it has seen, as @tbl-c21-intervals shows.
+
+| Installs observed | 95% interval, as a share of the observed rate |
+|---:|---|
+| 10 | 0.48x to 1.84x |
+| 30 | 0.67x to 1.43x |
+| 100 | 0.81x to 1.22x |
+| 300 | 0.89x to 1.12x |
+| 1,000 | 0.94x to 1.06x |
+
+: Exact Poisson 95% intervals for an observed install rate, by the number of installs it's based on. {#tbl-c21-intervals tbl-colwidths="[35,65]"}
+
+With 10 installs, a segment whose true rate matches the campaign average can easily look 50% better or worse than it is. A dashboard that sorts segments by CPI will put the luckiest small segments at the top, and anyone who raises their bids, by hand or with a multiplier, is reacting to noise.
+
+A few practices keep the DSP from overreacting:
+
+- **Shrink small segments.** The calibration multiplier above already does this: a segment's $\kappa$ moves away from its parent's only as fast as the evidence allows. Apply the same shrinkage to any segment-level number that feeds a bid, such as a publisher's install rate or a creative's completion rate.
+- **Show intervals, not just point estimates.** Report the number of outcomes and an interval next to every segment-level rate, in dashboards and readouts. It changes how people read them.
+- **Set a minimum sample for decisions.** Don't block a publisher, raise a bid, or call an A/B test on a segment until it has enough outcomes for the interval to be useful, such as 100 installs. Below that, let shrinkage handle it.
+- **Decide whether to be cautious or curious.** When overpaying is costly, such as for a campaign close to its CPI target, bidding on a lower quantile of a segment's value protects the target. When learning is valuable, such as for a new campaign or creative, bidding on a sample from the posterior, as Thompson sampling does, gives uncertain options a chance. Being cautious everywhere starves new segments of the data they need, and being curious everywhere spends the advertiser's money on noise, so budget the exploration explicitly.
+
+Uncertainty also explains a common incident: a segment-level estimate looks strong, someone acts on it, and performance falls back. Usually nothing broke. The estimate was based on too little data, and it regressed toward the mean.
+
 ## Creative Testing
 
 In crawl, creatives within a campaign were rotated at random. Walk replaces rotation with **Thompson sampling** for each campaign: keep a posterior distribution over each creative's install rate per impression, sample once from each creative's posterior for each request, and show the creative with the highest sample.
 
-With a Beta posterior for each creative, updated from its impressions and attributed installs, creatives with strong results are shown more, creatives with poor results less, and creatives with little data still get shown, because their posteriors are wide. A few details matter in practice:
+With a Beta posterior for each creative, updated from its impressions and attributed installs, creatives with strong results are shown more, creatives with poor results less, and creatives with little data still get shown, because their posteriors are wide. Concretely, if creative $j$ starts from a prior $\text{Beta}(a_0, b_0)$, and has had $n_j$ impressions with matured labels and $k_j$ installs, its posterior is
+
+$$\theta_j \sim \text{Beta}(a_0 + k_j,\; b_0 + n_j - k_j)$$
+
+and for each request, the bidder draws one $\tilde\theta_j$ from each creative's posterior and shows the creative with the largest draw.
+
+Here's an example with three creatives for one campaign, and a prior of $\text{Beta}(2, 1000)$, an install rate of about 0.2% worth about a thousand impressions of evidence, set from the campaign's other creatives. Creative A has 60 installs from 30,000 impressions, a rate of 0.20%. Creative B has 45 from 30,000, a rate of 0.15%. Creative C is new, with no impressions. Their posteriors are $\text{Beta}(62, 30{,}940)$, $\text{Beta}(47, 30{,}955)$, and $\text{Beta}(2, 1{,}000)$. A and C have about the same mean, but C's posterior is far wider. Sampling all three for each request, A wins about 56% of draws, C about 40%, and B about 4%. B gets a little traffic in case its rate is better than it looks. C gets a lot, because its true rate could be much higher or much lower than A's, and the only way to find out is to show it. As C collects impressions, its posterior narrows, and its share settles near A's if it's as good, or falls toward B's if it isn't.
+
+A few details matter in practice:
 
 - **An exploration floor for new creatives.** A new creative starts with a prior from the campaign's other creatives, and gets a minimum share of traffic until it has enough impressions to judge.
 - **Delayed rewards.** Installs arrive hours or days after the impression, so the posteriors update in batches, on matured labels, and a creative's recent impressions are excluded from its posterior until their labels mature.
@@ -133,11 +168,13 @@ The defaults form the pricing side of the fallback ladder in @sec-operating-a-co
 ::: {.callout-tip title="Try it on the simulator"}
 Price a CPI campaign and a D7 ROAS campaign on the same requests, and trace each bid term by term. Run the internal auction, and check which campaign wins as the request's publisher and device change. Then add three creatives to a campaign, one much better than the others, and watch Thompson sampling shift traffic toward it as installs arrive.
 
-<!-- TODO: add the exact commands once the simulator exists. -->
+*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+
+<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
-In this chapter, we made every term of the pricing equation real. Each goal type turns the install equation and value predictions into an advertiser value, a calibration multiplier by segment corrects for drift and bias as the first fast-adapting layer, and margins and fees work differently under CPM and CPI billing. Multipliers come before shading and floors and caps come last, ROAS goals check the calibration of the product of two models, and an internal auction picks the campaign with the highest expected surplus, independent of billing. Creatives are chosen by Thompson sampling, with their selection probabilities logged.
+In this chapter, we made every term of the pricing equation real. Each goal type turns the install equation and value predictions into an advertiser value, a calibration multiplier by segment corrects for drift and bias as the first fast-adapting layer, and margins and fees work differently under CPM and CPI billing. Multipliers come before shading and floors and caps come last, ROAS goals check the calibration of the product of two models, and an internal auction picks the campaign with the highest expected surplus, independent of billing. Small segments are shrunk toward their parents and reported with intervals, so the DSP doesn't chase noise. Creatives are chosen by Thompson sampling, with their selection probabilities logged.
 
 The pacing multiplier $\gamma$ has been 1 so far, and throttling has done the job of spreading spend. In the next chapter, we replace throttling with a controller on $\gamma$.
