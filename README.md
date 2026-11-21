@@ -139,8 +139,8 @@ appendices/                 Glossary, OpenRTB fields, templates, reading, the si
 code/sim/                   Python: adsim, the simulated market
 code/dsp/                   Go: the reference bidder (planned)
 code/training/              Python: training, validation, publishing (planned)
-images/                     Figures, the ebook cover (cover.jpg, not embedded in the
-                            EPUB), and the README cover (cover-front.jpg)
+images/                     Figures, the ebook cover (cover.jpg, added to the EPUB by
+                            scripts/polish_epub.py), and the README cover (cover-front.jpg)
 styles/preamble.tex         Print styling: headers, code boxes, copyright page
 styles/epub.css             Ebook styling
 scripts/polish_epub.py      Makes the EPUB a native ebook (runs after each render)
@@ -216,8 +216,9 @@ The workflow attaches the PDF and EPUB to the GitHub release for that tag.
 Upload the PDF as the KDP paperback interior. The EPUB is not sold on
 KDP: it stays on the GitHub release as a free download, which the web
 edition links to, and readers can send it to Kindle, Kobo, or Apple Books.
-The EPUB has no embedded cover for now: an embedded cover made Kindle
-Previewer's conversion fail. You can also run the workflow manually from the
+The EPUB's cover is added by `scripts/polish_epub.py`, not Quarto's
+`epub-cover-image`, whose SVG cover page made Kindle Previewer's conversion
+fail. You can also run the workflow manually from the
 *Actions* tab and download the files from the run's artifacts.
 
 ## Releases

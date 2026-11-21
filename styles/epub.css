@@ -106,3 +106,6 @@ nav#toc > ol { padding-left: 0; }
 /* Chapter openings: start each chapter with some air. */
 h1 { margin-top: 1.5em; margin-bottom: 1em; line-height: 1.2; }
 h1 .header-section-number { display: block; font-size: 0.6em; margin-bottom: 0.3em; }
+
+.cover-page { text-align: center; margin: 0; padding: 0; }
+.cover-page img { max-width: 100%; max-height: 100%; }
