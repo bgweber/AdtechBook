@@ -52,7 +52,7 @@ The idea that organizes Part IV is simple: judge every model by the gain it buys
 
 This ties back to the point in @sec-inside-a-demand-side-platform that infrastructure cost is an ML design constraint. Every model in this part is introduced with what it costs to train and serve, and what it buys. In practice, that means three numbers for every candidate model: its offline gain over the current champion, its serving cost per million requests, and its training cost per run. Plotting the candidates on two axes, gain against serving cost, makes the choice concrete, as in @fig-c25-frontier. Models on the frontier buy the most gain for their cost. A model below it, such as a deep cross network run per candidate in the bid path, costs more than a model that does better, and isn't worth serving, however good its offline metrics look on their own.
 
-![An illustrative price-performance view of the models in Part IV. Moving the deep model's work offline, so the bid path only does dot products and trees, buys most of the gain at a small increase in serving cost. Running a deep model per candidate in the bid path costs much more for less.](../images/p4-price-performance.png){#fig-c25-frontier width="100%"}
+![An illustrative price-performance view of the models in Part IV. Moving the deep model's work offline, so the bid path only does dot products and trees, buys most of the gain at a small increase in serving cost. Running a deep model per candidate in the bid path costs much more for less.](../images/p4-price-performance.png){#fig-c25-frontier width="100%" fig-alt="Scatter plot of offline gain against serving cost on a log scale, with illustrative values. Gains rise steeply from logistic regression to LightGBM, LightGBM with affinity scores, and LightGBM on tower dot products at about 2.5 times the cost. Target attention costs about 45 times as much for little more gain, and DCNv2 in the bid path sits below the frontier."}
 
 The shape in the figure is typical: the steepest gains come from moving information into the model cheaply, through embeddings and pretrained signals computed offline, and the expensive per-candidate computation at the right of the curve buys little more. That shape is why both designs below keep deep models out of the per-candidate path. An online test then measures the real gain, and @sec-operating-at-scale tracks cost per model in production.
 
@@ -132,7 +132,7 @@ There are two good ways to use deep models in a DSP, and the rest of Part IV bui
 
 @fig-c25-designs shows the two side by side.
 
-![The two designs for deep models in a DSP. In Design A, pretrained models pass a few scores to the tree models that decide. In Design B, a small online ranker scores each candidate from a cached device state, and a tree model calibrates its output.](../images/p4-design-a-b.png){#fig-c25-designs width="100%"}
+![The two designs for deep models in a DSP. In Design A, pretrained models pass a few scores to the tree models that decide. In Design B, a small online ranker scores each candidate from a cached device state, and a tree model calibrates its output.](../images/p4-design-a-b.png){#fig-c25-designs width="100%" fig-alt="Two vertical pipelines. In design A, pretrained offline models produce a few scores per candidate that feed LightGBM install and value models, which set the bid. In design B, cached device state feeds an online ranker per candidate, then a LightGBM calibration layer retrained hourly, which sets the bid."}
 
 How to choose between them:
 

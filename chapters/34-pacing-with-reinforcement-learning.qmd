@@ -10,7 +10,7 @@ In this chapter, we will introduce RL briefly, frame budget-constrained bidding 
 
 In RL, an **agent** observes a **state**, takes an **action**, receives a **reward**, and moves to a new state. A **policy** maps states to actions, and the goal is a policy that maximizes the total reward over time, not just the next reward. That's what distinguishes RL from the prediction problems in the rest of the book: the action changes what happens next. @fig-c34-loop shows the loop for pacing.
 
-![The RL loop for pacing. Every interval, the policy observes the campaign's state, chooses the pacing multiplier for the next interval, and receives the goal value won, with penalties for spending off plan or missing the target.](../images/p4-rl-loop.png){#fig-c34-loop width="100%"}
+![The RL loop for pacing. Every interval, the policy observes the campaign's state, chooses the pacing multiplier for the next interval, and receives the goal value won, with penalties for spending off plan or missing the target.](../images/p4-rl-loop.png){#fig-c34-loop width="100%" fig-alt="Reinforcement learning loop for pacing: a pacing policy chooses the multiplier for the next 15-minute interval, the auctions respond, and the policy receives the new state and a reward. The state includes time and budget left, spend rate and win rate; the reward is goal value won minus penalties for over- or underspend and missing the target."}
 
 Bidding over a day is a sequential decision in exactly this sense. Spending more in the morning leaves less budget for the evening, so the value of a bid now depends on what the campaign will be able to do later.
 
@@ -44,7 +44,7 @@ The action is $\gamma$, not individual bids, which keeps the problem small and t
 
 It helps to be specific about what a learned policy can do that a PI controller can't. @fig-c34-trajectory shows a simulated day for one campaign, with an unexpected surge in traffic from 1 p.m. to 4 p.m., such as a large publisher running a promotion.
 
-![Pacing one campaign through a simulated day with a traffic surge from 13:00 to 16:00. The PI controller reacts to the spend error with a lag, overspends during the surge, then holds bids down for the rest of the day and ends slightly under budget. The learned policy re-plans from the remaining budget and the forecast, cuts the multiplier as soon as the surge starts, and restores it when the surge ends.](../images/p4-rl-trajectory.png){#fig-c34-trajectory width="100%"}
+![Pacing one campaign through a simulated day with a traffic surge from 13:00 to 16:00. The PI controller reacts to the spend error with a lag, overspends during the surge, then holds bids down for the rest of the day and ends slightly under budget. The learned policy re-plans from the remaining budget and the forecast, cuts the multiplier as soon as the surge starts, and restores it when the surge ends.](../images/p4-rl-trajectory.png){#fig-c34-trajectory width="100%" fig-alt="Two line charts over a day with a traffic surge from 13:00 to 16:00. Both the PI controller and the learned policy track the spend plan, but the PI controller overspends during the surge. The learned policy cuts the pacing multiplier sharply when the surge starts and restores it when it ends, while the PI controller reacts with a lag."}
 
 Three things go wrong for the PI controller, and each is something a policy with a model of the day could avoid:
 
@@ -60,7 +60,7 @@ That also suggests a strong intermediate step before RL, which we come back to b
 
 Training a pacing policy needs an environment that responds to its actions. A DSP can build one from its own logs, as @fig-c34-replay shows. Replay a day of logged requests for a campaign, and for each request, use the win model to decide whether a bid at the policy's $\gamma$ would have won and at what price, and the conversion models to estimate the value won. The win model's curve is what makes this possible: it answers, for every request, what would have happened at a bid the DSP didn't actually place.
 
-![A simulator built from logged auctions. Each logged request is replayed with the policy's bid. The landscape model, trained on exploration traffic, decides whether the bid wins and what it pays, and the conversion models estimate the value of what's won.](../images/p4-replay-simulator.png){#fig-c34-replay width="100%"}
+![A simulator built from logged auctions. Each logged request is replayed with the policy's bid. The landscape model, trained on exploration traffic, decides whether the bid wins and what it pays, and the conversion models estimate the value of what's won.](../images/p4-replay-simulator.png){#fig-c34-replay width="100%" fig-alt="Replay simulator built from logged auctions: each logged request is replayed with a new bid, a landscape model from exploration traffic decides whether it wins and the price, conversion models give outcomes, and episode metrics record spend, goal and reward."}
 
 Building one takes a few steps:
 
@@ -97,7 +97,7 @@ Whatever the method, the policy's inputs should be features the bidder already c
 
 A learned pacing policy controls real money, so it needs the same guardrails as the PI controller, and a few more, as @fig-c34-safety shows.
 
-![The path from logged data to a learned policy in production. An offline RL method trained on logged days proposes a multiplier, a safety layer bounds it, and the bidder falls back to the PI controller on any violation. Each new policy goes through simulator replay, shadow mode, and a budget-split A/B test.](../images/p4-offline-rl-safety.png){#fig-c34-safety width="100%"}
+![The path from logged data to a learned policy in production. An offline RL method trained on logged days proposes a multiplier, a safety layer bounds it, and the bidder falls back to the PI controller on any violation. Each new policy goes through simulator replay, shadow mode, and a budget-split A/B test.](../images/p4-offline-rl-safety.png){#fig-c34-safety width="100%" fig-alt="Four-step path to production: logged episodes train an offline, conservative RL method; a safety layer bounds the multiplier and how fast it changes; and the bidder falls back to the PI controller on any violation. Below, the rollout goes from simulator replay to shadow mode to a budget-split A/B test."}
 
 - **Bounded actions:** $\gamma$ within the same bounds as the PI controller, with a limit on how much it can change per step.
 - **Constrained learning:** offline methods such as conservative Q-learning penalize actions the logged data rarely took, so the learned policy stays close to the logged one where data is thin and doesn't exploit errors in the simulator.
@@ -109,7 +109,7 @@ A learned pacing policy controls real money, so it needs the same guardrails as 
 
 A recent line of research treats a campaign's bidding over a day as a sequence to generate, conditioned on the campaign's budget and goal, rather than as a policy learned step by step. The simplest version is a **decision transformer**: a causal transformer that reads the sequence of past states and actions, each preceded by a **return to go**, the goal value the campaign still wants to win, and predicts the next action, as @fig-c34-dt shows. At serving time, the campaign's remaining goal is fed in as the return to go, and the model generates the multiplier that a good trajectory in the training data would have taken next.
 
-![A decision transformer for bidding. Each step is three tokens, the return to go, the state, and the action. The model predicts the next action, conditioned on the value the campaign still wants to win.](../images/p4-decision-transformer.png){#fig-c34-dt width="100%"}
+![A decision transformer for bidding. Each step is three tokens, the return to go, the state, and the action. The model predicts the next action, conditioned on the value the campaign still wants to win.](../images/p4-decision-transformer.png){#fig-c34-dt width="100%" fig-alt="A causal transformer reads a sequence of tokens in groups of three, return to go, state and action, for each step, and predicts the next action, the pacing multiplier."}
 
 It's the same idea as the next-install transformer in @sec-sequences-and-transformers, applied to the campaign's day rather than a device's history, and it learns from logged trajectories without a reward model or a simulator. AIGB generates bidding trajectories with a conditional diffusion model,[^c34-aigb] and GAS combines a generative model with search after training to refine its decisions.[^c34-gas] These methods were built for advertising platforms that run their own auctions, and they're evaluated on benchmarks such as AuctionNet.
 

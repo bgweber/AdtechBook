@@ -2,14 +2,14 @@
 
 ::: {.content-visible when-format="html:js"}
 This is the free online edition of *Machine Learning in Mobile AdTech*, a
-hands-on guide to training and serving the models behind a mobile Demand
-Side Platform (DSP), with Python training code and Go serving code.
+hands-on guide to the models behind a mobile Demand Side Platform (DSP), and
+to the systems that train, serve, and operate them.
 :::
 
 ::: {.content-visible unless-format="html:js"}
-*Machine Learning in Mobile AdTech* is a hands-on guide to training and
-serving the models behind a mobile Demand Side Platform (DSP), with Python
-training code and Go serving code. A free online edition is available at:
+*Machine Learning in Mobile AdTech* is a hands-on guide to the models behind
+a mobile Demand Side Platform (DSP), and to the systems that train, serve, and
+operate them. A free online edition is available at:
 
 <https://bgweber.github.io/AdtechBook/>
 :::
@@ -18,20 +18,23 @@ training code and Go serving code. A free online edition is available at:
 ::: {.callout-tip}
 ## Read free, or buy a copy
 
-You can read the whole book here at no cost. If you find it useful, the
-**paperback** and **Kindle** editions are available on
-[Amazon](https://amazon.com). Buying a copy supports the work.
+You can read the whole book here at no cost, or
+[download the free EPUB](https://github.com/bgweber/AdtechBook/releases/latest) for your e-reader, including Kindle. If you'd
+like a printed copy, the **paperback** is available on
+[Amazon](https://amazon.com).
 :::
 :::
 
 ## How to use this book
 
-Each chapter pairs an explanation of a model with code you can run. All code
-lives in the [GitHub repository](https://github.com/bgweber/AdtechBook),
-so you can clone it and follow along.
+Each chapter explains one part of a DSP and ends with an exercise on adsim,
+the book's simulated ad market, which knows the true click, install, and lift
+behind every impression. The simulator and the companion code live in the
+[GitHub repository](https://github.com/bgweber/AdtechBook). Each exercise says
+whether it runs on the simulator today or what it still needs.
 
 ## Requirements
 
-Training, validation and publishing examples use Python; the bidder and
-serving examples use Go. Chapters that train neural networks run faster on an
-NVIDIA GPU, but every example also runs on CPU and fits in 4 GB of GPU memory.
+The simulator and the training examples use Python, and the reference bidder
+uses Go. Chapters that train neural networks run faster on an NVIDIA GPU; the
+training code fits in 4 GB of GPU memory and falls back to CPU.

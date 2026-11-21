@@ -10,11 +10,11 @@ In this chapter, we will build uplift models, from two separate models to a shar
 
 It helps to think of devices in four groups, as in @fig-c32-quadrants. **Sure things** install whether or not they see the ad, so the DSP only collects credit. **Persuadables** install only if they see it, and they're where the DSP's money creates value. **Lost causes** don't install either way. **Sleeping dogs** are less likely to install if they see the ad, which is common in retention marketing and rare in user acquisition. An attributed conversion model ranks sure things and persuadables together, since both convert after an impression. An uplift model tries to separate them.
 
-![Four groups of devices by how they respond to an ad. Attributed models can't tell sure things from persuadables, and uplift models are built to.](../images/p4-uplift-quadrants.png){#fig-c32-quadrants width="100%"}
+![Four groups of devices by how they respond to an ad. Attributed models can't tell sure things from persuadables, and uplift models are built to.](../images/p4-uplift-quadrants.png){#fig-c32-quadrants width="100%" fig-alt="Two-by-two grid of device groups by whether they install with and without the ad: sure things install either way, persuadables install only if shown the ad, sleeping dogs install only if not shown it, and lost causes never install."}
 
 With enough randomized data, the ratio can be predicted per impression. There are three model forms, from simple to more capable, shown in @fig-c32-forms.
 
-![Three forms of uplift model. Two separate models are subtracted, a transformed outcome turns uplift into an ordinary regression target, and a shared base adds an uplift head trained on randomized rows.](../images/p4-uplift-forms.png){#fig-c32-forms width="100%"}
+![Three forms of uplift model. Two separate models are subtracted, a transformed outcome turns uplift into an ordinary regression target, and a shared base adds an uplift head trained on randomized rows.](../images/p4-uplift-forms.png){#fig-c32-forms width="100%" fig-alt="Three uplift model forms: a T-learner that subtracts models fit on exposed and holdout rows; a transformed outcome that turns uplift into an ordinary regression target; and a shared base with an attributed-conversion head and a lift-ratio head."}
 
 **Two models.** Fit one model on exposed users and one on unexposed users within the randomized data, and subtract:
 
@@ -46,7 +46,7 @@ $$Q(\phi) = Y_T(\phi) - Y_C(\phi) \times \frac{N_T(\phi)}{N_C(\phi)}$$
 
 where $Y$ counts outcomes and $N$ counts users in each group within the top fraction. A good uplift model rises steeply and stays above the line for random targeting. A model that ranks by attributed conversion probability often does worse than an uplift model on this curve, because it ranks users who would convert anyway near the top, as shown in @fig-c24b-qini.
 
-![Qini curves on simulated randomized data. Targeting the top third of users ranked by predicted uplift captures about 60% of the incremental installs. Ranking by attributed conversion probability captures about the same share as random targeting, because many of its top-ranked users would install without the ad.](../images/incr-qini.png){#fig-c24b-qini width="90%"}
+![Qini curves on simulated randomized data. Targeting the top third of users ranked by predicted uplift captures about 60% of the incremental installs. Ranking by attributed conversion probability captures about the same share as random targeting, because many of its top-ranked users would install without the ad.](../images/incr-qini.png){#fig-c24b-qini width="90%" fig-alt="Qini curves of the share of incremental installs captured against the share of users targeted. Ranking by predicted uplift captures 61% at the top third, close to a perfect ranking, while ranking by attributed conversion captures 32%, about the same as random targeting."}
 
 Also check calibration at the segment level. The average predicted $r$ in each segment should match the lift measured in that segment's holdout.
 

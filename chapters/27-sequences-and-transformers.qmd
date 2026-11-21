@@ -10,7 +10,7 @@ In this chapter, we will trace four stages of how DSP models represent a device,
 
 It helps to see where this chapter fits in the progression of the book's models. Feature engineering for click and install prediction has moved through four stages, and each addresses a limit of the one before it, as @fig-c27-stages shows.[^c27-transformers]
 
-![Four stages of representing a device and an impression. Each stage changes what the model is able to learn from: the bid request, related values, the device's history, and finally events from every source, without waiting for an attributed label.](../images/p4-four-stages.png){#fig-c27-stages width="100%"}
+![Four stages of representing a device and an impression. Each stage changes what the model is able to learn from: the bid request, related values, the device's history, and finally events from every source, without waiting for an attributed label.](../images/p4-four-stages.png){#fig-c27-stages width="100%" fig-alt="Four stages of representing a request, each adding to the last: hashed one-hots and crosses for logistic regression; embeddings and pooling for a DCNv2 or MLP; the last 64 events with attention; and a transformer pretrained on events from every source."}
 
 1. **Hashed one-hots and crosses,** the crawl click model. The model learns from the bid request and a few counters, with interactions chosen by hand.
 2. **Embeddings and pooling,** from the last chapter. Related values share what they learn, and the network learns interactions, but a device's history is a set, with no order or recency.
@@ -57,7 +57,7 @@ Attention is how a model reads a sequence. There are two common forms, and they 
 
 @fig-c27-attention shows the difference in where each runs.
 
-![Self-attention pooled into a device vector depends only on the device, so it runs once per device, offline. Target attention uses the candidate ad as its query, so it runs for every candidate, in the bid path.](../images/p4-attention-kinds.png){#fig-c27-attention width="100%"}
+![Self-attention pooled into a device vector depends only on the device, so it runs once per device, offline. Target attention uses the candidate ad as its query, so it runs for every candidate, in the bid path.](../images/p4-attention-kinds.png){#fig-c27-attention width="100%" fig-alt="Two panels. On the left, self-attention over a device's events is pooled into one device vector, computed once per device offline. On the right, target attention uses the candidate ad as a query to weight each event, so it must run per candidate in the bid path."}
 
 For a DSP, self-attention is the practical default, because it moves the expensive part out of the auction. Target attention comes back in @sec-serving-deep-models, where we estimate what it would cost to run online.
 
@@ -85,7 +85,7 @@ The bid stream is the most interesting addition. If a device shows up in an app'
 
 The **profile context** token describes what the device is rather than what it did: country, OS, device model tier, and connection type, pooled like the many-hots in @sec-deep-models-with-embeddings. Placing it at position zero means attention can use it, and a device with no history still gets a valid state. That matters on mobile, where many devices, especially on iOS, have short histories. @fig-c27-tokens shows a short timeline and how one token is built.
 
-![A device's timeline as tokens, newest first, with the profile token at position zero. Each token is the sum of small embeddings for its app, category, event type, spend band, age, gap, and source.](../images/p4-token-timeline.png){#fig-c27-tokens width="100%"}
+![A device's timeline as tokens, newest first, with the profile token at position zero. Each token is the sum of small embeddings for its app, category, event type, spend band, age, gap, and source.](../images/p4-token-timeline.png){#fig-c27-tokens width="100%" fig-alt="Table of a device's timeline as tokens, newest first: a profile token, then installs, engagement, a purchase, first-seen and dormant events, each with its source and age band. Below, one token is shown as the sum of small embeddings for its app, category, type, spend, age, gap and source."}
 
 Leave room in the format for creative events from the DSP's own impressions, such as video completions and end card clicks. We use them in @sec-personalized-creative-selection.
 
@@ -99,7 +99,7 @@ $$\text{logit}(\text{app}_j \mid h_t) = h_t \cdot e_j + b_j - \alpha \log q_j$$
 
 Here, $h_t$ is the state at position $t$, $e_j$ is the app's embedding, $b_j$ is a learned bias, and $q_j$ is the app's share of installs. With tens of thousands of apps, a sampled softmax keeps training costs manageable. Every install in every history becomes a training label, so a model can learn from billions of events the DSP never paid for, and none of the labels depend on which network was credited. @fig-c27-pretraining shows the setup.
 
-![Pretraining with a causal mask. Each position's state predicts the next install or purchase, through a softmax over apps that shares the input app table and subtracts a popularity correction. Bid stream and profile tokens are inputs only.](../images/p4-pretraining.png){#fig-c27-pretraining width="100%"}
+![Pretraining with a causal mask. Each position's state predicts the next install or purchase, through a softmax over apps that shares the input app table and subtracts a popularity correction. Bid stream and profile tokens are inputs only.](../images/p4-pretraining.png){#fig-c27-pretraining width="100%" fig-alt="Transformer with a causal mask over a device's event tokens. Each position's output state predicts the next install or purchase, using a softmax over apps with a popularity correction."}
 
 Only outcome tokens are used as targets. If bid stream tokens were targets too, the model would spend its capacity learning to predict which apps a device opens next, which is an easier task and a less useful one. Bid stream and profile tokens are inputs, and installs and purchases are what the model learns to predict.
 
@@ -121,7 +121,7 @@ The output of pretraining is a **device state**, $h$: the transformer's hidden v
 
 The pretrained transformer learns a lot about devices and nothing about ads. The second training stage connects it to impressions. This is a multi-task model trained on attributed impressions, with the transformer as the device tower and one head for each term in the install equation, as @fig-c27-towers shows.
 
-![Co-training on attributed impressions. Device, ad, and context towers each output a 64-dimension vector, with one app embedding table shared by all three. Each head combines a small MLP with explicit dot products between the towers, and the heads are trained with ESMM losses over every impression.](../images/p4-three-towers.png){#fig-c27-towers width="100%"}
+![Co-training on attributed impressions. Device, ad, and context towers each output a 64-dimension vector, with one app embedding table shared by all three. Each head combines a small MLP with explicit dot products between the towers, and the heads are trained with ESMM losses over every impression.](../images/p4-three-towers.png){#fig-c27-towers width="100%" fig-alt="Three towers, for the device, the ad and the context, each output a 64-dimension vector from a shared app embedding table. A small MLP and pairwise dot products combine them into logits for click, install after click, and install after view."}
 
 ### Three Towers
 
@@ -235,7 +235,7 @@ Either way, a **LightGBM calibration layer** sits on top. It's trained on recent
 
 @fig-c27-architecture puts the pieces together: pretraining on non-attributed data, co-training the towers and heads on attributed impressions, and serving with batch device states, in-memory vector tables, and a LightGBM model in the bid path.
 
-![The full architecture, from raw events to calibrated probabilities. The transformer and the towers train offline on their own schedules. The bid path does one device lookup, three dot products per candidate, and one pass through a LightGBM model.](../images/p4-full-architecture.png){#fig-c27-architecture width="100%"}
+![The full architecture, from raw events to calibrated probabilities. The transformer and the towers train offline on their own schedules. The bid path does one device lookup, three dot products per candidate, and one pass through a LightGBM model.](../images/p4-full-architecture.png){#fig-c27-architecture width="100%" fig-alt="Three-stage architecture. A transformer pretrained on non-attributed events initializes the device tower; device, ad and context towers are co-trained weekly on attributed impressions; and at serving time the bid path looks up the device state, computes dot products per candidate, and runs LightGBM to produce calibrated probabilities."}
 
 The LightGBM model in Design B doesn't take the 64-dimension vectors as features. Trees split on one feature at a time, so 64 dense dimensions are many weak features that aren't meaningful on their own, and the dimensions change meaning every time the foundation model is retrained. A dot product is one stable number that already says how well two things match, and it stays meaningful across versions as long as both vectors come from the same run. The feature groups I'd use are:
 

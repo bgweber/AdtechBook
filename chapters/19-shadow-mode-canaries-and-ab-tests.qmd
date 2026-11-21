@@ -26,7 +26,7 @@ $$\delta_{canary} = \ln\left(\frac{\bar{p}_{canary}}{\bar{p}_{control}}\right)$$
 
 where $\bar{p}$ is the mean prediction for each group on comparable requests. The deploy system checks this ratio, the share of fallback predictions, the input missing rates, and the version parity check at each stage. If any check fails, it rolls back automatically and notifies the on-call engineer. If all checks pass, traffic moves to the next stage, such as 1%, then 10%, then 50%, then 100%, as shown in @fig-c20-canary.
 
-![A canary deploy. The new model starts on a small share of traffic during the on-call engineer's working hours, and automated checks gate each stage. A failed check rolls back automatically, while passing checks promote the model to more traffic.](../images/oncall-canary.png){#fig-c20-canary width="100%"}
+![A canary deploy. The new model starts on a small share of traffic during the on-call engineer's working hours, and automated checks gate each stage. A failed check rolls back automatically, while passing checks promote the model to more traffic.](../images/oncall-canary.png){#fig-c20-canary width="100%" fig-alt="Step chart of the new model's share of traffic over a day. The deploy starts at 1% during on-call working hours and steps through gates to 10%, 50% and 100%; a failed check would trigger an automatic rollback."}
 
 Teams should move toward automated rollback for these checks. A human reviewing a canary chart at every stage is slow and inconsistent, and the checks are well defined. What should stay with people is promotion to full traffic for large changes, and the decision to try again after a rollback.
 

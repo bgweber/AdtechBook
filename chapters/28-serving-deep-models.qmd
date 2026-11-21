@@ -42,7 +42,7 @@ For the architecture in @sec-sequences-and-transformers, the split looks like th
 
 The transformer runs as a batch job, once per device per day, on GPUs or a large CPU cluster, where cost depends on throughput rather than latency. The ad and publisher vectors are small tables, with thousands to tens of thousands of rows, that fit in the bidder's memory. In the bid path, each request needs one key-value read, which the bidder already does for frequency caps and other device features. For each candidate, the work is three dot products of 64 numbers and one pass through a tree model. None of it needs a neural network. @fig-c28-split shows the two halves, with only two arrows between them.
 
-![Splitting work between offline jobs and the bid path. The only connections are a device lookup and the vector tables and models loaded into the bidder's memory.](../images/p4-batch-vs-bidpath.png){#fig-c28-split width="100%"}
+![Splitting work between offline jobs and the bid path. The only connections are a device lookup and the vector tables and models loaded into the bidder's memory.](../images/p4-batch-vs-bidpath.png){#fig-c28-split width="100%" fig-alt="Offline jobs (transformer device states, tower export and LightGBM training) connect to the bid path only through a device lookup in the profile store and vector tables and models loaded in the bidder's memory; per candidate the bid path does three dot products and one tree pass."}
 
 The main benefit of this design is that the large model and the bid path are decoupled. You can make the transformer deeper, extend its context, or add data sources, and the extra cost is paid in the batch job, not in the auction.
 
@@ -88,7 +88,7 @@ The single most useful rule for serving deep models in a bidder is to separate w
 
 That makes it fine to run a light ONNX model once per bid request. A user or device tower that turns the cached device state and a few bid-time fields, such as the placement and how many ads the device has seen today, into a 64-dimension vector is a small MLP, and it runs in a fraction of a millisecond. What's not fine is running a network per candidate. The campaign and creative vectors depend only on the campaign and creative, so they're precomputed when a campaign or creative changes and held in memory, and scoring every candidate reduces to dot products between the per-request vector and the precomputed ones. @fig-c28-request shows the layout.
 
-![Work once per request and work per candidate. The device tower runs once per request in ONNX. Campaign vectors are precomputed and stored as one matrix, so scoring every candidate is one matrix-vector product, followed by a partial sort and the full models on the top few.](../images/p4-request-vs-candidate.png){#fig-c28-request width="100%"}
+![Work once per request and work per candidate. The device tower runs once per request in ONNX. Campaign vectors are precomputed and stored as one matrix, so scoring every candidate is one matrix-vector product, followed by a partial sort and the full models on the top few.](../images/p4-request-vs-candidate.png){#fig-c28-request width="100%" fig-alt="Once per request, the profile lookup feeds a device tower in ONNX that outputs a 64-dimension vector. Per candidate, a precomputed campaign matrix is multiplied by that vector, a partial sort keeps the top k, and only those go to the full models."}
 
 ### Computing Dot Products Efficiently
 
@@ -107,13 +107,13 @@ The arithmetic is reassuring. With 2,000 eligible campaigns and 64 dimensions, s
 
 Every step in the bid path should have a budget, measured at p99 under load, as in @sec-serving-models-in-the-bid-path. @fig-c28-budget shows an illustrative budget for Design B with retrieval. The profile read and the trees dominate. The deep model's share, the device tower and the dot products, is under half a millisecond, because everything expensive happened offline.
 
-![An illustrative p99 latency budget for one request, with retrieval and Design B. Most of the time goes to the profile read and LightGBM on the top candidates. The device tower and dot products are a small share.](../images/p4-latency-budget.png){#fig-c28-budget width="100%"}
+![An illustrative p99 latency budget for one request, with retrieval and Design B. Most of the time goes to the profile read and LightGBM on the top candidates. The device tower and dot products are a small share.](../images/p4-latency-budget.png){#fig-c28-budget width="100%" fig-alt="Horizontal bar of an illustrative p99 latency budget, totaling about 3.5 ms of a 10 ms budget. The largest pieces are the profile read at 1.5 ms and LightGBM on 20 candidates at 0.6 ms."}
 
 ## Embeddings as Versioned Artifacts, and Cluster IDs
 
 Every signal derived from a deep model carries its version. Store a model version ID with each device record, and refuse to score when the device record, the in-memory app vectors, and the ONNX head come from different versions. Scores from mismatched versions look normal and are wrong, which is the worst kind of failure. During a rollover, keep the previous version's ad and publisher tables loaded, and use the tables that match each device record's version, as @fig-c28-rollover shows. Device records refresh over a day, so for a while both versions are live.
 
-![A model version rollover. Device records carry the version of the model that computed them, and the bidder keeps both versions' tables loaded until no record or model refers to the old one.](../images/p4-version-rollover.png){#fig-c28-rollover width="100%"}
+![A model version rollover. Device records carry the version of the model that computed them, and the bidder keeps both versions' tables loaded until no record or model refers to the old one.](../images/p4-version-rollover.png){#fig-c28-rollover width="100%" fig-alt="Two device records with different model versions, v42 and v41, each matched to the vector tables of the same version. The bidder keeps both versions loaded during the rollover and unloads v41 when nothing refers to it."}
 
 Register embedding models and the online models that depend on them in the same registry, and promote them together when a new embedding version requires retrained downstream models.
 
@@ -194,7 +194,7 @@ $$x_{train}(t) = x(\tau^*), \qquad \tau^* = \max\{\,\tau_k : \tau_k \le t\,\}$$
 
 where $\tau_k$ are the materialization times. This is called a point-in-time join, or an **as-of join**, and @fig-c9b-asof shows how it works.
 
-![An as-of join. Features are materialized on a schedule, and each bid uses the most recent value available when it happened. The training row for a bid uses that same value, not a value recomputed at the bid time or read later.](../images/features-asof-join.png){#fig-c9b-asof width="100%"}
+![An as-of join. Features are materialized on a schedule, and each bid uses the most recent value available when it happened. The training row for a bid uses that same value, not a value recomputed at the bid time or read later.](../images/features-asof-join.png){#fig-c9b-asof width="100%" fig-alt="Timeline from 9:00 to 12:00 with hourly feature materializations. Each bid uses the latest value materialized before it; an event at 10:30 that only becomes available at 11:10 is not visible to the 10:45 bid."}
 
 A few design choices make this reliable:
 
@@ -226,7 +226,7 @@ The two approaches don't have to compete. A DSP can keep logging at bid time and
 3. The bidder reads the registry, fetches the listed features for each request by entity key, and places them in a generic section of the FeatureVector, keyed by feature name and version.
 4. The bidder logs those values with the rest of the FeatureVector, so training still uses exactly what serving saw.
 
-![Moving from a small team to a larger one. Features start in the Go canonicalization layer and are logged at bid time. As more data scientists add features, a registry and feature store supply entity-level features that the bidder fetches by name and still logs at bid time, so training continues to use exactly what serving saw.](../images/features-team-path.png){#fig-c9b-team-path width="100%"}
+![Moving from a small team to a larger one. Features start in the Go canonicalization layer and are logged at bid time. As more data scientists add features, a registry and feature store supply entity-level features that the bidder fetches by name and still logs at bid time, so training continues to use exactly what serving saw.](../images/features-team-path.png){#fig-c9b-team-path width="100%" fig-alt="Three stages, left to right, as more people build features outside the bidder code: a small team with features in Go and logged feature vectors; an extension path where a registry and store add features by name; and a large organization where the feature store is primary and logs check parity."}
 
 This keeps the most important property of logging at bid time, that training data is exactly what the bidder used, while moving feature development to the people who build models. Device-level features that need bid-time aggregation stay in Go, owned by the serving team, and entity-level features move to the store. @fig-c9b-team-path and @tbl-c9b-teams summarize the progression.
 
@@ -260,7 +260,7 @@ The alternative is to compute a device's state when its history changes, rather 
 
 @fig-c28-refresh shows how the pieces fit. The bidder never calls Triton. It reads the profile, as it always did, and finds a state that's minutes old instead of a day old.
 
-![Getting device states into the profile. A daily batch job scores every device, and a refresh path recomputes the state for devices with new events, using Triton off the bid path, and writes it back. The bidder only ever reads the profile.](../images/p4-embedding-refresh.png){#fig-c28-refresh width="100%"}
+![Getting device states into the profile. A daily batch job scores every device, and a refresh path recomputes the state for devices with new events, using Triton off the bid path, and writes it back. The bidder only ever reads the profile.](../images/p4-embedding-refresh.png){#fig-c28-refresh width="100%" fig-alt="Off the bid path, a daily batch job and a refresh queue for devices with new events run Triton inference and write device states to the profile store, with every value also kept offline. In the bid path, the bidder reads the profile once per request and never runs the transformer."}
 
 The refresh path is sized by the rate of new events, not by bid requests. A DSP that sees a hundred million devices might receive tens of millions of install and purchase events a day, which is a few hundred refreshes a second, far less than the bid rate, and a few GPUs or a modest CPU pool can handle it. Pinterest's TransAct takes a related approach, combining a precomputed user embedding with a small real-time transformer over recent actions.[^c28-transact]
 

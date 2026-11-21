@@ -35,7 +35,7 @@ Rewards are also sparse and delayed. An install happens for a small fraction of 
 
 To make the rest of the chapter concrete, consider a new creative for Cozy Farm Tycoon, "Harvest Rush", shown in @fig-c36-mock. It's a 15-second portrait video. It opens on wilted crops and a timer, cuts to a player tapping to water and harvest, upgrades the barn, shows coins and a level-up, and ends on an end card with an install button.
 
-![A mock creative, "Harvest Rush" for Cozy Farm Tycoon, with the tags a multimodal model would assign and the content embedding computed from its frames, audio, and text.](../images/p4-mock-creative.png){#fig-c36-mock width="100%"}
+![A mock creative, "Harvest Rush" for Cozy Farm Tycoon, with the tags a multimodal model would assign and the content embedding computed from its frames, audio, and text.](../images/p4-mock-creative.png){#fig-c36-mock width="100%" fig-alt="Five frames from a mock 15-second portrait video ad for Cozy Farm Tycoon called Harvest Rush, from a hook with wilted crops to an install end card. Below are tags a multimodal model would assign, such as format, hook and mechanic, and a 64-dimension content embedding."}
 
 Before it has a single impression, the DSP can describe it in two ways:
 
@@ -48,7 +48,7 @@ A practical setup uses both: the embedding feeds the model, and the tags explain
 
 @fig-c36-embedding shows how the content embedding is built, extending the content embeddings from @sec-deep-models-with-embeddings to creatives.
 
-![Building a creative's vector. Frozen encoders embed its frames, gameplay clip, audio, and text, and small embeddings encode its tags. The results are pooled and concatenated, and the creative tower turns them, with a creative ID that's randomly dropped in training, into a 64-dimension vector.](../images/p4-creative-embedding.png){#fig-c36-embedding width="100%"}
+![Building a creative's vector. Frozen encoders embed its frames, gameplay clip, audio, and text, and small embeddings encode its tags. The results are pooled and concatenated, and the creative tower turns them, with a creative ID that's randomly dropped in training, into a 64-dimension vector.](../images/p4-creative-embedding.png){#fig-c36-embedding width="100%" fig-alt="A creative's frames, gameplay clip, audio and text each pass through a frozen encoder, and its tags, format and length through small embeddings. These are concatenated and pooled, together with a creative ID that is dropped 30% of the time in training, into a creative tower that outputs a 64-dimension vector."}
 
 - **Frames and end cards,** sampled at a couple of frames per second and embedded with an image-text model such as CLIP or SigLIP, which places frames and on-screen text in a shared space, then mean- and max-pooled across the frames.[^c36-clip]
 - **Gameplay motion,** with a self-supervised video model such as V-JEPA, which learns representations of motion and scene content without labels.[^c36-vjepa] For gameplay footage, what happens over time often matters more than any single frame.
@@ -86,7 +86,7 @@ Start with self-attention, which fits the serving rule below. If target attentio
 - **The context tower** reads the publisher app, placement, OS, and hour, and outputs $x$.
 - **The heads** predict video completion, an end card or CTA click, and an install, each from a small MLP plus explicit dot products $d \cdot c$, $d \cdot x$, and $c \cdot x$, trained over every impression with the ESMM losses from @sec-deep-models-with-embeddings.
 
-![A tower model for creative selection. The device tower reads the device's state and its history with creatives, the creative tower is precomputed for every creative, and the context tower runs per request. Each head combines explicit dot products with a small MLP.](../images/p4-creative-towers.png){#fig-c36-towers width="100%"}
+![A tower model for creative selection. The device tower reads the device's state and its history with creatives, the creative tower is precomputed for every creative, and the context tower runs per request. Each head combines explicit dot products with a small MLP.](../images/p4-creative-towers.png){#fig-c36-towers width="100%" fig-alt="Three towers for creative selection: a device tower with attention over the device's creative history, a precomputed creative tower, and a context tower per request. Dot products and a small MLP feed heads for video completion, click and install."}
 
 The completion and click heads learn fast, from plentiful labels, and they shape the towers early in a creative's life. The install head is what the bid uses, and it's calibrated with a tree layer as in Design B, using the dot products as features.
 
@@ -128,7 +128,7 @@ A creative whose features point in directions the posterior is unsure about gets
 
 @fig-c36-space shows why this beats per-creative sampling. "Harvest Rush" lands in embedding space near the campaign's other gameplay videos, so the bandit starts with a prior that's informed by them, and a wide uncertainty that shrinks as it's shown. Showing it to farming players teaches the model about every gameplay video for farming players, not only about this one creative.
 
-![Creative embeddings projected to two dimensions, grouped by style. A new creative starts with a prior from its neighbors and wide uncertainty, so exploration is spent where it's most informative. Illustrative.](../images/p4-creative-space.png){#fig-c36-space width="100%"}
+![Creative embeddings projected to two dimensions, grouped by style. A new creative starts with a prior from its neighbors and wide uncertainty, so exploration is spent where it's most informative. Illustrative.](../images/p4-creative-space.png){#fig-c36-space width="100%" fig-alt="Scatter plot of creative embeddings in two dimensions, grouped into playables, gameplay videos, story videos and user-generated style. A new creative sits among gameplay videos, with a dashed ellipse showing a prior from its neighbors and wide uncertainty."}
 
 The practical issues are the same as before. Rewards are delayed, so the bandit updates on matured labels in batches, such as hourly. Exploration has a cost to the advertiser, which should be budgeted and measured, and better content priors are the most direct way to reduce it. And the selection probabilities must be logged, so new policies can be evaluated offline with the methods from @sec-offline-evaluation-and-model-iteration.
 
