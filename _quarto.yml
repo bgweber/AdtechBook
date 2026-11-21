@@ -162,8 +162,9 @@ format:
   # PDF is locked by a proof copy.
   epub:
     toc: true
-    # No epub-cover-image: an embedded cover made Kindle Previewer fail
-    # ("Book conversion failed"). Retest when the EPUB is next built.
+    # No epub-cover-image: Quarto's SVG cover page made Kindle Previewer fail
+    # ("Book conversion failed"). scripts/polish_epub.py adds images/cover.jpg
+    # as a plain cover page and cover metadata instead.
     css: styles/epub.css
     description: >-
       Build a mobile demand-side platform, from its first bid to the state of

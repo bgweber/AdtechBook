@@ -7,7 +7,8 @@ It only touches the EPUB, so the web and print editions don't change. It:
 - rebuilds the table of contents as parts > chapters, without every section,
 - adds a copyright page for the ebook (no paperback ISBN),
 - removes the raw build date from the title page,
-- adds landmarks so readers open the book at the start of the content.
+- adds landmarks so readers open the book at the start of the content,
+- adds the cover (metadata and a plain cover page).
 
 Run it by hand with: python scripts/polish_epub.py _book/ml-in-mobile-adtech.epub
 """
@@ -94,7 +95,7 @@ def h1_text(xhtml):
     return text
 
 
-def polish(epub_path):
+def polish(epub_path, cover_page=True):
     epub_path = Path(epub_path)
     with zipfile.ZipFile(epub_path) as z:
         files = {n: z.read(n) for n in z.namelist()}
@@ -239,6 +240,32 @@ def polish(epub_path):
                  '<meta name="dtb:depth" content="2" />', ncx)
     files[ncx_name] = ncx.encode("utf-8")
 
+    # Cover. Quarto's epub-cover-image wraps the image in an SVG page, which
+    # made Kindle Previewer's conversion fail, so add it the plain way: the
+    # image marked as the cover in the metadata (EPUB 3 property and the
+    # older meta tag Kindle reads), and a simple first page with an <img>.
+    cover_src = ROOT / "images" / "cover.jpg"
+    if cover_src.exists():
+        files[base + "media/cover.jpg"] = cover_src.read_bytes()
+        opf = files[opf_name].decode("utf-8")
+        items = ['<item id="cover-image" href="media/cover.jpg" media-type="image/jpeg" '
+                 'properties="cover-image" />']
+        if cover_page:
+            files[base + "text/cover.xhtml"] = page(
+                "Cover",
+                '<div class="cover-page"><img src="../media/cover.jpg" '
+                'alt="Cover of Machine Learning in Mobile AdTech by Ben G Weber" /></div>',
+                "cover").encode("utf-8")
+            items.append('<item id="cover_xhtml" href="text/cover.xhtml" '
+                         'media-type="application/xhtml+xml" />')
+            opf = re.sub(r"(<spine[^>]*>\s*)", r'\1<itemref idref="cover_xhtml" />\n    ',
+                         opf, count=1)
+        opf = opf.replace("</manifest>", "  " + "\n    ".join(items) + "\n  </manifest>")
+        opf = opf.replace("</metadata>", '  <meta name="cover" content="cover-image" />\n  </metadata>')
+        if cover_page:
+            opf = opf.replace("<guide>", '<guide>\n    <reference type="cover" title="Cover" href="text/cover.xhtml" />', 1)
+        files[opf_name] = opf.encode("utf-8")
+
     # Write back: mimetype first and uncompressed, as EPUB requires.
     tmp = epub_path.with_suffix(".tmp")
     with zipfile.ZipFile(tmp, "w") as z:
@@ -256,9 +283,12 @@ def main():
     if not paths:
         out_files = os.environ.get("QUARTO_PROJECT_OUTPUT_FILES", "")
         paths = [p for p in out_files.splitlines() if p.endswith(".epub")]
+    # POLISH_EPUB_COVER_PAGE=0 keeps the cover as metadata only (the library
+    # thumbnail), with no cover page in the book.
+    cover_page = os.environ.get("POLISH_EPUB_COVER_PAGE", "1") != "0"
     for p in paths:
         if Path(p).exists():
-            polish(p)
+            polish(p, cover_page=cover_page)
 
 
 if __name__ == "__main__":
