@@ -54,7 +54,7 @@ Publisher apps and advertised apps are the two most important categorical featur
 
 A better description of an app comes from who plays it. Two apps that are installed by the same devices are similar, whatever their store categories say. **App embeddings** turn that into a vector for every app, and **cluster IDs** turn the vectors into features a tree model can use. Some of the strongest signals I've used came from exactly this: GloVe embeddings trained on advertiser and publisher apps, grouped with k-means at several values of k, with the cluster IDs used as categorical features in a classic model.[^c15-intent] The embeddings were trained offline, and serving them was a lookup. It's also a gentle first step toward the deep models of Part IV, since it uses non-attributed data without putting a neural network anywhere near the bid path. @fig-c15-glove shows the pipeline.
 
-![From device app lists to tree features. App vectors are trained weekly from co-installs, clustered at several scales, and published as a versioned lookup table. At bid time, every feature is a lookup.](../images/p3-glove-pipeline.png){#fig-c15-glove width="100%"}
+![From device app lists to tree features. App vectors are trained weekly from co-installs, clustered at several scales, and published as a versioned lookup table. At bid time, every feature is a lookup.](../images/p3-glove-pipeline.png){#fig-c15-glove width="100%" fig-alt="Vertical pipeline: device app lists become co-occurrence counts, then 64-dimension GloVe vectors trained weekly, then k-means clusters at several sizes, then a versioned lookup table, then LightGBM features looked up on every request."}
 
 ### Training the Embeddings
 
@@ -76,7 +76,7 @@ $$c(a) = \arg\min_k \lVert e_a - \mu_k \rVert^2$$
 
 Run it at several scales, such as $k = 20$, 200, and 1,000. The coarse clusters are stable and well populated, and the fine ones separate subgenres, such as cozy farming games from farm-merge puzzles. Trees can use all three, and they'll pick the level that's supported by enough data in each part of the tree. Keep the distance to the centroid too: an app far from every centroid is a poor fit for its cluster, and the tree can learn to trust its cluster less. @fig-c15-appmap shows what the result looks like.
 
-![App embeddings projected to two dimensions. Apps that share players sit together, coarse clusters group genres, and fine clusters split them into subgenres. A new app lands in a cluster as soon as it has co-install data from the bid stream, before any campaign has run in it. Illustrative.](../images/p3-app-map.png){#fig-c15-appmap width="100%"}
+![App embeddings projected to two dimensions. Apps that share players sit together, coarse clusters group genres, and fine clusters split them into subgenres. A new app lands in a cluster as soon as it has co-install data from the bid stream, before any campaign has run in it. Illustrative.](../images/p3-app-map.png){#fig-c15-appmap width="100%" fig-alt="Scatter plot of app embeddings in two dimensions, grouped into genre clusters such as puzzle, farming and sim, strategy, hypercasual, word and trivia, and casino. Gem Garden sits in the puzzle cluster, Cozy Farm Tycoon in farming, and a new app is placed near the apps it shares players with."}
 
 Before using the clusters, look at them. For each cluster, list its most popular apps and give it a readable name, such as "puzzle" or "casino". Check purity against store genres, without expecting it to be perfect, since the point is to find structure the genres miss. And check stability: retrain the embeddings on a different week, cluster again, and see how many apps change clusters. If a third of apps move every week, $k$ is too large for the data.
 
@@ -89,11 +89,11 @@ The lookup table maps each app to its clusters and distances. From it, the walk 
 - **The cosine** between the publisher app's vector and the advertised app's vector, a numeric feature that's comparable across apps.
 - **The device's cluster shares:** the share of the device's known apps in each coarse cluster, as 20 numeric features, plus the share in the advertised app's cluster. This is a compact, stable summary of what the device plays, and it's the walk DSP's first step toward the device models of Part IV.
 
-![Install rate by publisher cluster and advertised app's cluster, relative to each advertiser's average. Campaigns install best on publishers whose players already play similar games. The cross of the two cluster IDs lets a tree learn this table with 36 values instead of millions of app pairs. Illustrative.](../images/p3-cluster-lift.png){#fig-c15-lift width="85%"}
+![Install rate by publisher cluster and advertised app's cluster, relative to each advertiser's average. Campaigns install best on publishers whose players already play similar games. The cross of the two cluster IDs lets a tree learn this table with 36 values instead of millions of app pairs. Illustrative.](../images/p3-cluster-lift.png){#fig-c15-lift width="85%" fig-alt="Heatmap of install rate by publisher cluster (rows) and advertised app's cluster (columns), relative to each advertiser's average. The diagonal is darkest, from 2.2x to 3.1x, meaning campaigns install best on publishers in their own genre."}
 
 These features earn their place. In the feature importance readout of an install model, the embedding-derived features typically land among the top features, next to placement type and country, as in @fig-c15-importance. The same readout, with embedding features marked, is worth surfacing in the DSP's admin tool, next to the model's metrics, so it's clear what each model relies on.
 
-![A feature importance readout for a LightGBM install model, as the share of total gain. Features derived from app embeddings, in black, are among the strongest. Illustrative values.](../images/p3-feature-importance.png){#fig-c15-importance width="100%"}
+![A feature importance readout for a LightGBM install model, as the share of total gain. Features derived from app embeddings, in black, are among the strongest. Illustrative values.](../images/p3-feature-importance.png){#fig-c15-importance width="100%" fig-alt="Horizontal bar chart of feature importance as share of total gain. Placement type is largest; features from app embeddings, shown in black, include the publisher-by-advertiser cluster cross, the device's share of apps in the advertiser's cluster, and cosine similarity, and several rank near the top."}
 
 ### Keeping Them Honest
 
@@ -161,7 +161,7 @@ There are a few standard tools for recalibration. **Platt scaling** fits a logis
 
 @fig-c15-calibration shows the effect on an install model. Trained on last month's impressions, it predicts about 30% more installs than happen, and most of the excess is in the top deciles, where the bids are highest. An isotonic fit on a held-out day brings the two lines together.
 
-![Calibration plots for a LightGBM install model, before and after isotonic calibration on a held-out day. Simulated data.](../images/ch15-calibration-install.png){#fig-c15-calibration width="100%"}
+![Calibration plots for a LightGBM install model, before and after isotonic calibration on a held-out day. Simulated data.](../images/ch15-calibration-install.png){#fig-c15-calibration width="100%" fig-alt="Two calibration plots of install rate by decile. Before calibration, predictions run high, especially in the top deciles, with a predicted-to-actual ratio of 1.29. After isotonic calibration the lines nearly overlap, with a ratio of 0.99."}
 
 A few practices matter more than the choice of method:
 

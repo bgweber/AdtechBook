@@ -37,7 +37,7 @@ The last row of the table, profile freshness, is the most dangerous, because it 
 
 There are three common patterns, shown in @fig-c9b-three-ways, and most DSPs use some mix of them.
 
-![Three ways to get features into training data. Logging raw inputs requires two implementations of every feature. Recomputing from stores at training time leaks future information unless every lookup is made as of the bid time. Logging feature values at bid time gives training exactly what serving used.](../images/features-three-ways.png){#fig-c9b-three-ways width="100%"}
+![Three ways to get features into training data. Logging raw inputs requires two implementations of every feature. Recomputing from stores at training time leaks future information unless every lookup is made as of the bid time. Logging feature values at bid time gives training exactly what serving used.](../images/features-three-ways.png){#fig-c9b-three-ways width="100%" fig-alt="Three rows comparing ways to get features into training data. Logging raw inputs means computing features twice, with skew risk. Recomputing at training time reads future data, with leakage risk. Logging the bidder's feature vector at bid time gives training exactly what the bidder used."}
 
 **Log raw inputs and compute features twice.** The bidder logs the bid request and the device profile it fetched, often as JSON. The Go bidder computes features for serving, and a Python pipeline computes the same features from the logged inputs for training. This is point-in-time correct, because the profile was captured at bid time, and it makes backfilling new features easy. Its weakness is that every feature exists twice, and the two implementations drift. Most of the incidents above came from this setup.
 
@@ -138,7 +138,7 @@ Padding is a good example of why this matters. In one incident, we couldn't send
 
 Each model ships as a **bundle**: the model file, its preprocessing specification, vocabularies, fitted statistics, the versions of any lookup tables it depends on, and the FeatureVector schema version it expects. A set of **golden vectors** per model version, FeatureVectors with the exact tensors the model should receive, is checked in both the Go library and the Python training path on every build. We cover publishing bundles in @sec-pipelines-validation-and-publishing, and @fig-c9b-one-vector shows how the pieces fit together.
 
-![One logged FeatureVector feeds every model. Each model's bundle contains its own preprocessing specification, vocabularies, fitted statistics, and embedding versions, so a LightGBM model and a DNN can read the same record and build different inputs.](../images/features-one-vector.png){#fig-c9b-one-vector width="100%"}
+![One logged FeatureVector feeds every model. Each model's bundle contains its own preprocessing specification, vocabularies, fitted statistics, and embedding versions, so a LightGBM model and a DNN can read the same record and build different inputs.](../images/features-one-vector.png){#fig-c9b-one-vector width="100%" fig-alt="Raw context is canonicalized in Go into one FeatureVector, which is logged to the bid ledger and fed to two model-specific bundles: a LightGBM bundle and a DNN bundle, each with its own preprocessing."}
 
 ## Bid, Win, Impression, and Click Logs
 

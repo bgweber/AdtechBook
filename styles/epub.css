@@ -1,4 +1,4 @@
-/* Kindle EPUB styling: narrow E-Ink screens, no horizontal scrolling. */
+/* Ebook styling for e-readers, including E-Ink Kindles: no horizontal scrolling. */
 
 body {
   line-height: 1.4;
@@ -81,3 +81,28 @@ figcaption, .caption {
 .callout-title, .callout-header {
   font-weight: bold;
 }
+
+/* Native ebook pages added by scripts/polish_epub.py. */
+.titlepage { text-align: center; margin-top: 25%; }
+.titlepage .title { font-size: 1.8em; line-height: 1.2; }
+.titlepage .subtitle { font-size: 1.1em; font-style: italic; margin-top: 0.8em; }
+.titlepage .author { margin-top: 2.5em; font-size: 1.1em; }
+
+.part-page { text-align: center; margin-top: 35%; }
+.part-label {
+  font-size: 0.9em;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin: 0;
+}
+.part-title { font-size: 1.6em; margin-top: 0.5em; }
+
+.copyright-page { font-size: 0.8em; margin-top: 20%; }
+.copyright-page p { margin: 0 0 0.8em 0; text-indent: 0; }
+
+nav#toc ol { list-style-type: none; padding-left: 1em; }
+nav#toc > ol { padding-left: 0; }
+
+/* Chapter openings: start each chapter with some air. */
+h1 { margin-top: 1.5em; margin-bottom: 1em; line-height: 1.2; }
+h1 .header-section-number { display: block; font-size: 0.6em; margin-bottom: 0.3em; }

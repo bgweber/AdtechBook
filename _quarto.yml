@@ -1,6 +1,9 @@
 project:
   type: book
   output-dir: _book
+  # Turns the EPUB into a native ebook: part pages, contents, copyright page.
+  post-render:
+    - scripts/polish_epub.py
 
 # Code cells are executed once locally and the results are committed in
 # _freeze/. CI reuses those results, so GPU chapters never need a GPU in CI.
@@ -80,11 +83,14 @@ book:
     style: docked
     tools:
       - icon: cart
-        href: https://amazon.com   # TODO: replace with the KDP listing URL
-        text: "Buy Print & Kindle on Amazon"
+        href: https://amazon.com   # TODO: replace with the KDP paperback URL
+        text: "Buy the paperback on Amazon"
+      - icon: download
+        href: https://github.com/bgweber/AdtechBook/releases/latest
+        text: "Download the free EPUB"
   page-footer:
     center: |
-      Free online edition. [Buy the Print & Kindle editions on Amazon](https://amazon.com)
+      Free online edition. [Paperback on Amazon](https://amazon.com) · [Free EPUB](https://github.com/bgweber/AdtechBook/releases/latest)
 
 lang: en
 
@@ -149,11 +155,23 @@ format:
     keep-tex: true
     include-in-header: styles/preamble.tex
 
-  # --- Amazon KDP Kindle eBook (reflowable EPUB 3) ----------------------
+  # --- Free ebook (reflowable EPUB 3) -----------------------------------
+  # Not sold on KDP: a free download from each GitHub release that readers
+  # can send to Kindle, Kobo, or Apple Books. Build it only once the print
+  # PDF is locked by a proof copy.
   epub:
     toc: true
-    epub-cover-image: images/cover.jpg
+    # No epub-cover-image: an embedded cover made Kindle Previewer fail
+    # ("Book conversion failed"). Retest when the EPUB is next built.
     css: styles/epub.css
+    description: >-
+      Build a mobile demand-side platform, from its first bid to the state of
+      the art: click, install, and purchase models, win-rate models and bid
+      shading, pacing, incrementality, deep learning and transformers, and the
+      systems that train, serve, and operate them. Companion code and a bid
+      simulator are at github.com/bgweber/AdtechBook.
+    subject: "Machine learning; Advertising technology; Real-time bidding"
+    publisher: Independently published
     highlight-style: monochrome
     # MathML keeps equations as text. If a Kindle device renders them
     # badly, switch to images with: html-math-method: webtex

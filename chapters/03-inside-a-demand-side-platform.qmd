@@ -44,7 +44,7 @@ We treat the DSP as a standalone system that bids on exchanges and learns from M
 
 A DSP is a handful of systems that pass data in a loop. @fig-ch03-systems shows the main ones.
 
-![The main systems in a DSP. The bidder answers bid requests using campaigns from campaign management, device profiles, and model bundles from training. Tracking servers and postback ingestion collect what happens after a bid, and data pipelines turn those logs into reports, profile updates, and training data.](../images/ch03-systems.png){#fig-ch03-systems width="100%"}
+![The main systems in a DSP. The bidder answers bid requests using campaigns from campaign management, device profiles, and model bundles from training. Tracking servers and postback ingestion collect what happens after a bid, and data pipelines turn those logs into reports, profile updates, and training data.](../images/ch03-systems.png){#fig-ch03-systems width="100%" fig-alt="System diagram of a DSP. The bidder at the center talks to exchanges, reads device profiles and campaigns, and loads model bundles. Tracking servers and postback ingestion feed data pipelines, which feed ML training, device profile updates and reporting."}
 
 - **The bidder** receives bid requests, decides whether to bid and how much, and returns a response. It's the only system on the critical path of the auction, so it has to be fast and it can never go down. Everything the ML team builds for real-time decisions runs inside it, or next to it.
 - **Campaign management** is where campaigns, budgets, and creatives are set up, through a UI and an API. The bidder loads a snapshot of every active campaign and refreshes it every few seconds to minutes.
@@ -82,7 +82,7 @@ Each step is a requirement for the ML system. A short test with a new advertiser
 
 Advertisers organize their spend in a hierarchy: an **advertiser** has one or more **apps**, each app has one or more **campaigns**, and each campaign has a set of **creatives**. Many DSPs add **ad groups** between campaigns and creatives, but they don't change the ML, so we won't cover them. Our running example is Cozy Farm Tycoon. Cozy Games' UA manager sets up a campaign with the settings shown in @fig-ch03-campaign-setup.
 
-![A campaign setup example. The hierarchy runs from the advertiser to the app, the campaign, and its creatives. The campaign's settings include the store ID, tracking links, targeting, budget, the goal and its target, caps, and the creatives to show. The goal and target, highlighted, are where the models come in.](../images/ch03-campaign-setup.png){#fig-ch03-campaign-setup width="100%"}
+![A campaign setup example. The hierarchy runs from the advertiser to the app, the campaign, and its creatives. The campaign's settings include the store ID, tracking links, targeting, budget, the goal and its target, caps, and the creatives to show. The goal and target, highlighted, are where the models come in.](../images/ch03-campaign-setup.png){#fig-ch03-campaign-setup width="100%" fig-alt="Left: a hierarchy from the advertiser Cozy Games to the app Cozy Farm Tycoon, a US D7 ROAS campaign, and its creatives. Right: a table of the campaign's settings, including a $5,000 daily budget, a 40% D7 ROAS target, a $40 CPM bid cap, and a frequency cap."}
 
 - **The store ID**, `com.cozygames.farmtycoon`, identifies the app being advertised, and lets the DSP avoid showing the ad to people who already have it.
 - **MMP tracking links** are the URLs the DSP calls when a user clicks or sees an ad. A broken link means installs that never get attributed, so testing links before launch is one of the first rules a DSP should automate.
@@ -173,7 +173,7 @@ Now let's follow a single bid request through the bidder. A player in Gem Garden
 
 @fig-ch03-bid-path shows the steps, with illustrative timings and the number of items each step considers. The shape is what matters: cheap rules cut a large set of campaigns down to a smaller one, and the expensive models only run on what's left.
 
-![The bid path as a pipeline. Left: illustrative time spent in each step, with prediction taking the largest share. Right: how the set of campaigns shrinks from hundreds of active campaigns to the eligible ones, the candidates, and finally one winner. The numbers are illustrative; the shape is typical.](../images/ch03-bid-path.png){#fig-ch03-bid-path width="100%"}
+![The bid path as a pipeline. Left: illustrative time spent in each step, with prediction taking the largest share. Right: how the set of campaigns shrinks from hundreds of active campaigns to the eligible ones, the candidates, and finally one winner. The numbers are illustrative; the shape is typical.](../images/ch03-bid-path.png){#fig-ch03-bid-path width="100%" fig-alt="Two bar charts of the bid path's ten steps. The left chart shows illustrative milliseconds per step, with prediction the largest at about 5 of 10 ms. The right chart, on a log scale, shows candidates shrinking from 400 campaigns to 60 eligible, 20 scored, and one winning bid."}
 
 The response isn't the end of the story. If the bid wins and the ad is shown, the exchange sends win and billing notifications. If the player installs Cozy Farm Tycoon, the MMP sends an install postback, and later postbacks for purchases. Each is joined back to the bid ledger record by the auction ID or the click ID, and that join is what turns this bid into a training example.
 
@@ -187,7 +187,7 @@ As @fig-ch03-bid-path shows, the time inside the bidder is usually dominated by 
 
 @fig-ch03-device-profile shows what a device profile looks like inside a DSP, where its data comes from, and who reads it.
 
-![A device profile in a NoSQL store, keyed by device ID. Bid requests, impressions and clicks, MMP postbacks, and batch jobs each update the profile. The bidder reads it on every request, and training reads daily snapshots of it to build features.](../images/ch03-device-profile.png){#fig-ch03-device-profile width="100%"}
+![A device profile in a NoSQL store, keyed by device ID. Bid requests, impressions and clicks, MMP postbacks, and batch jobs each update the profile. The bidder reads it on every request, and training reads daily snapshots of it to build features.](../images/ch03-device-profile.png){#fig-ch03-device-profile width="100%" fig-alt="A device profile store keyed by device ID, with example fields such as apps seen, ads shown in the last 7 days, installs, purchases, segments and an embedding. Bid requests, impressions, postbacks and batch jobs write to it; the bidder and training read from it."}
 
 The hard constraint is speed. The profile store has to answer a lookup in a few milliseconds, at the full request rate of the bidder, for billions of devices, so DSPs typically use key-value or wide-column NoSQL stores with the device ID as the key. Streaming updates keep the fast-changing parts fresh: the apps a device has been seen in, the ads it has been shown, and its installs and purchases from MMP postbacks. Batch jobs write back slower-moving values, such as a predicted spender tier or a learned embedding of the device's app history.
 
@@ -197,7 +197,7 @@ Profiles matter a lot for ML. They're where most of the strong features come fro
 
 Every bid comes down to three decisions: **what to show**, **whether to bid**, and **how much to bid**. Each step of the bid path supports one of them, and the steps that aren't rules are driven by models. @fig-ch03-ml-map maps the steps to the models behind them.
 
-![A map from bid path steps to the models behind them, grouped by the decision each one supports. Parsing, eligibility, and building the response are rules and plumbing; every other step depends on at least one model.](../images/ch03-ml-map.png){#fig-ch03-ml-map width="100%"}
+![A map from bid path steps to the models behind them, grouped by the decision each one supports. Parsing, eligibility, and building the response are rules and plumbing; every other step depends on at least one model.](../images/ch03-ml-map.png){#fig-ch03-ml-map width="100%" fig-alt="Table-like diagram that maps bid path steps to models in three groups: what to show (candidate and creative selection), whether to bid (profile signals and conversion and value models), and how much to bid (calibration, win rate, shading, incrementality and pacing)."}
 
 - **Conversion models** predict clicks, installs, and deeper events. They're the core of the bidder.
 - **Value models** predict revenue and retention for ROAS and retention goals.

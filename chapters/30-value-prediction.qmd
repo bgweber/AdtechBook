@@ -20,7 +20,7 @@ Revenue arrives in local currencies, sometimes net of app store fees and sometim
 
 Most installers never pay, and of those who do, a few pay far more than the rest. @fig-c30-revenue shows a typical distribution for a mid-core game: about 97% of installs spend nothing in their first week, and among the payers, spend spans four orders of magnitude, with the top 10% of payers bringing in about half of the revenue.
 
-![D7 revenue per install for a typical mid-core game. Almost all installs spend nothing, and payers' spend is roughly lognormal, with a long tail. Simulated data.](../images/p4-revenue-distribution.png){#fig-c30-revenue width="100%"}
+![D7 revenue per install for a typical mid-core game. Almost all installs spend nothing, and payers' spend is roughly lognormal, with a long tail. Simulated data.](../images/p4-revenue-distribution.png){#fig-c30-revenue width="100%" fig-alt="Two charts. A bar chart shows that 96.6% of installs make no purchase and 3.4% pay. A histogram on a log scale shows payers' D7 revenue is roughly lognormal with a long tail, where the top 10% of payers bring half the revenue."}
 
 This shape breaks most of the defaults from earlier chapters. A model trained with squared error on raw revenue is dominated by the largest payers, and one trained only on payers ignores the fact that most installs are worth nothing. Three approaches handle this well:
 
@@ -34,7 +34,7 @@ $$E[\text{revenue}] = p \cdot e^{\mu + \sigma^2/2}$$
 
 The $\sigma^2/2$ term matters. The mean of a lognormal is above its median, by a lot when the spread is wide, so a model that predicted $e^\mu$ would systematically underprice devices whose spend is uncertain. And because the head predicts a distribution, it also gives quantities a point estimate can't, such as the probability of spending more than \$10, which some studios use as a goal, and the uncertainty of each prediction.
 
-![A ZILN value head. Three outputs share the towers, and together they define the distribution of D7 revenue, whose mean is used for pricing.](../images/p4-ziln-head.png){#fig-c30-ziln width="100%"}
+![A ZILN value head. Three outputs share the towers, and together they define the distribution of D7 revenue, whose mean is used for pricing.](../images/p4-ziln-head.png){#fig-c30-ziln width="100%" fig-alt="Shared towers output three values: the chance of paying within 7 days, and the log-scale mean and spread of spend. Together they give the expected revenue of a zero-inflated lognormal, trained with log loss on paying plus a lognormal likelihood on payers' spend."}
 
 In run, value models are heads on the shared base from @sec-deep-models-with-embeddings, trained over every impression by multiplying through the funnel, or LightGBM models that use the transformer's purchase and spend head outputs as features, in Design A. Non-attributed purchase data is especially valuable here, because spending behavior carries across apps: a device that spends heavily in three strategy games is a much better prospect for a fourth than its install history alone would suggest.[^c30-intent]
 
@@ -81,9 +81,9 @@ Value models need different evaluation from classifiers:
 - **The product with installs.** For bidding, what matters is the calibration of $P(\text{install}) \times E[\text{value} \mid \text{install}]$ by bid range, as in @sec-pricing-for-goals.
 - **Enough days.** A few large payers can swing any revenue metric, so evaluate over enough days, and report confidence intervals from a bootstrap over users.
 
-![A calibration plot for a value model: mean predicted and actual D7 revenue per install, by decile of the prediction. The model is calibrated overall but too high in the top decile, where a few large payers dominate and where ROAS campaigns bid the most. Simulated data.](../images/p4-value-calibration.png){#fig-c30-calibration width="100%"}
+![A calibration plot for a value model: mean predicted and actual D7 revenue per install, by decile of the prediction. The model is calibrated overall but too high in the top decile, where a few large payers dominate and where ROAS campaigns bid the most. Simulated data.](../images/p4-value-calibration.png){#fig-c30-calibration width="100%" fig-alt="Calibration plot of mean predicted and actual D7 revenue per install by decile. The lines match closely from near zero to about $1.20, and the prediction is too high in the top decile."}
 
-![Cumulative gain curves for D7 revenue. Ranking installs by a value model captures most of the revenue in the top fifth of installs. Ranking by install probability alone captures much less, because likely installers aren't the same as likely payers. Simulated data.](../images/p4-gain-curve.png){#fig-c30-gain width="100%"}
+![Cumulative gain curves for D7 revenue. Ranking installs by a value model captures most of the revenue in the top fifth of installs. Ranking by install probability alone captures much less, because likely installers aren't the same as likely payers. Simulated data.](../images/p4-gain-curve.png){#fig-c30-gain width="100%" fig-alt="Cumulative gain curves for D7 revenue. Ranking installs by the value model captures revenue fastest, with a Gini of 0.63, ahead of ranking by an install model alone at 0.40, and both are well above random."}
 
 ::: {.callout-tip title="Try it on the simulator"}
 Train a two-part value model and a ZILN head on simulated installs and purchases. Compare predicted D7 revenue with the true expected revenue from the ground truth, by decile and by country, and plot the cumulative gain curves of both models.

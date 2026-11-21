@@ -11,7 +11,7 @@ Source for the book *Machine Learning in Mobile AdTech*. One set of
 |---|---|---|
 | Free web edition | HTML on GitHub Pages | Every push to `main` |
 | Paperback | KDP 7" x 10" black-and-white interior PDF | Version tags (`v*`) or a manual run |
-| Kindle | Reflowable EPUB 3 | Version tags (`v*`) or a manual run |
+| Free ebook | Reflowable EPUB 3, a free download from each GitHub release | Version tags (`v*`) or a manual run |
 
 Read online: <https://bgweber.github.io/AdtechBook/>
 
@@ -130,10 +130,11 @@ appendices/                 Glossary, OpenRTB fields, templates, reading, the si
 code/sim/                   Python: adsim, the simulated market
 code/dsp/                   Go: the reference bidder (planned)
 code/training/              Python: training, validation, publishing (planned)
-images/                     Figures, the Kindle cover (cover.jpg), and the front cover
-                            shown in this README (cover-front.jpg)
+images/                     Figures, the ebook cover (cover.jpg, not embedded in the
+                            EPUB), and the README cover (cover-front.jpg)
 styles/preamble.tex         Print styling: headers, code boxes, copyright page
-styles/epub.css             Kindle styling
+styles/epub.css             Ebook styling
+scripts/polish_epub.py      Makes the EPUB a native ebook (runs after each render)
 _freeze/                    Saved code output (committed; see below)
 requirements.txt            Python packages CI needs to render
 .github/workflows/          Book build/publish and code test workflows
@@ -190,7 +191,7 @@ CI has no GPU, so for any chapter with GPU code:
 **Web edition.** Enable GitHub Pages once: *Settings > Pages > Source:
 GitHub Actions*. After that, every push to `main` deploys the site.
 
-**Paperback and Kindle.** Tag a release:
+**Paperback and free ebook.** Tag a release:
 
 ```bash
 git tag v1.0.0
@@ -201,21 +202,28 @@ git push origin v1.0.0
 ```
 
 The workflow attaches the PDF and EPUB to the GitHub release for that tag.
-Upload the PDF as the KDP paperback interior and the EPUB as the Kindle
-manuscript. You can also run the workflow manually from the *Actions* tab and
-download the files from the run's artifacts.
+Upload the PDF as the KDP paperback interior. The EPUB is not sold on
+KDP: it stays on the GitHub release as a free download, which the web
+edition links to, and readers can send it to Kindle, Kobo, or Apple Books.
+The EPUB has no embedded cover for now: an embedded cover made Kindle
+Previewer's conversion fail. You can also run the workflow manually from the
+*Actions* tab and download the files from the run's artifacts.
 
 ## Releases
 
 - `main` is the online book. It changes whenever a chapter or the code changes.
-- A git tag (`v1.0.0`, `v1.1.0`, ...) marks each print and Kindle edition.
+- A git tag (`v1.0.0`, `v1.1.0`, ...) marks each print edition and its free EPUB.
   Readers of a printed copy can check out that tag to get the text and code
   that match their book.
 - Each tag's release notes record the simulator version it was built and
   tested with (for example, `adsim 0.1`), and which "Try it on the
   simulator" exercises are runnable at that tag.
-- Before tagging, open the EPUB in Kindle Previewer and check tables,
-  equations, figures, and long code lines.
+- Print comes first. Lock the PDF with a KDP proof copy before building the
+  EPUB: during print work, build only the PDF and web editions
+  (`quarto render --to pdf`, `quarto preview`). Then build the EPUB once
+  (`quarto render --to epub`), open it in Kindle Previewer, and check tables,
+  equations, figures, and long code lines. Kindle Previewer's conversion is
+  CPU-heavy for this book, so don't rebuild the EPUB for every change.
 
 ## Before the first release
 

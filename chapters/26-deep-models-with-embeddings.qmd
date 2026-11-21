@@ -16,7 +16,7 @@ The click model in @sec-a-click-model learned one weight per token. It's worth b
 
 Factorization machines were the first step past these limits. They give each value a small vector and model the interaction between two values as the dot product of their vectors, so every pair has an interaction term without being built by hand, and related values share information through their vectors. Learning a vector for each value is the idea that the rest of this chapter builds on. @fig-c26-onehot shows the difference.
 
-![One weight per token compared with one vector per value. Logistic regression adds the weights of the tokens present in a request. A deep model looks up a vector for each field, pools many-hot fields, and learns interactions with cross layers and an MLP.](../images/p4-onehot-vs-embedding.png){#fig-c26-onehot width="100%"}
+![One weight per token compared with one vector per value. Logistic regression adds the weights of the tokens present in a request. A deep model looks up a vector for each field, pools many-hot fields, and learns interactions with cross layers and an MLP.](../images/p4-onehot-vs-embedding.png){#fig-c26-onehot width="100%" fig-alt="Two panels. Logistic regression sums one weight per token, such as the publisher app or placement, then applies a sigmoid, with no sharing between values. A deep model looks up an embedding vector for each value, pools installed apps, and passes them through DCNv2 to click and install heads."}
 
 In my own experiments on a public click dataset, a small neural network with embedding layers improved on a logistic regression model built from tokens and crosses, on log loss, ROC AUC, and especially precision-recall AUC, but its calibration was worse.[^c26-click] Both results recur throughout this chapter. Embeddings help most when there are many high-cardinality fields, which is exactly the situation in a DSP, where publisher app, device model, campaign, and creative each have thousands to hundreds of thousands of values. And calibration needs its own treatment.
 
@@ -51,7 +51,7 @@ Many of the best features are sets: the apps a device was seen in, the genres of
 
 Mean and max pooling together is a good default. Mean summarizes the overall profile, such as the average of a device's installed genres, and max keeps a single rare but informative value from being averaged away. @fig-c26-pooling shows the idea for a device's installed apps.
 
-![Pooling a many-hot field. Each installed app's embedding is looked up, and the mean and max across the set are concatenated into one fixed-size vector, whatever the size of the set.](../images/p4-pooling.png){#fig-c26-pooling width="100%"}
+![Pooling a many-hot field. Each installed app's embedding is looked up, and the mean and max across the set are concatenated into one fixed-size vector, whatever the size of the set.](../images/p4-pooling.png){#fig-c26-pooling width="100%" fig-alt="The embeddings of five installed apps are pooled with a mean and a max, and the two results are concatenated into one fixed-size 16-dimension vector, whatever the number of apps."}
 
 Pooling treats a set as unordered, which is right for sets and wrong for sequences. When order and recency matter, as they do for device histories, the model needs attention, which we cover in @sec-sequences-and-transformers.
 
@@ -79,7 +79,7 @@ The two paths behave differently. Click-through installs depend heavily on the c
 
 @fig-c26-multitask shows three ways to train models for the three terms.
 
-![Three ways to train click and install predictions. Separate models train each term on its own slice of impressions. Shared towers with conditional heads share a representation, but each install head still trains only on its slice. The entire space multi-task model (ESMM) defines every loss over all impressions, by multiplying through the funnel.](../images/p4-multitask-setups.png){#fig-c26-multitask width="100%"}
+![Three ways to train click and install predictions. Separate models train each term on its own slice of impressions. Shared towers with conditional heads share a representation, but each install head still trains only on its slice. The entire space multi-task model (ESMM) defines every loss over all impressions, by multiplying through the funnel.](../images/p4-multitask-setups.png){#fig-c26-multitask width="100%" fig-alt="Three setups for click and install prediction: separate models trained on different slices of impressions; shared towers with heads for click, install after click, and install after view; and an entire-space model where every loss is computed over all impressions."}
 
 **Separate models,** each trained on the impressions where its term applies, are where most teams start, because it's the obvious reading of the equation: train the click model on everything, and train the install-after-click model on just the clicked impressions, since that's what the term is conditioned on. The install-after-view model trains on the impressions without a click. Each model is simple, and each can be a LightGBM model like the ones in Part III.
 
@@ -87,7 +87,7 @@ This works, and it's a reasonable baseline, but it has two problems that get wor
 
 The first is **data sparsity**. @fig-c26-subsets shows the training data per million impressions for a typical interstitial campaign. The click model gets a million examples. The install-after-click model gets 25,000, of which 500 are positives. A deep model with millions of embedding parameters can't learn much from 500 positives, and the embedding rows for most publishers and device models never see a clicked impression at all.
 
-![Training examples per million impressions for an interstitial campaign with a 2.5% click rate. Training install-after-click only on clicked impressions leaves it with about 2.5% of the data and 500 positives. Illustrative counts.](../images/p4-training-subsets.png){#fig-c26-subsets width="100%"}
+![Training examples per million impressions for an interstitial campaign with a 2.5% click rate. Training install-after-click only on clicked impressions leaves it with about 2.5% of the data and 500 positives. Illustrative counts.](../images/p4-training-subsets.png){#fig-c26-subsets width="100%" fig-alt="Horizontal bars on a log scale of training examples per million impressions: 1,000,000 for the click head, 25,000 clicked impressions, 500 clicks that installed, and 300 installs without a click."}
 
 The second is **sample selection bias**. The install-after-click model is trained on clicked impressions, but at bid time it's applied to every candidate impression, most of which would never be clicked. Clicked impressions aren't a random sample. They're over-represented in placements with accidental clicks, in creatives with misleading hooks, and in devices that click a lot. A model trained only on them learns what installs look like among clickers, and its predictions for the typical impression, which is unlike anything it trained on, are extrapolations.
 
@@ -140,7 +140,7 @@ A few checks catch this and its relatives:
 
 Deep models are often worse calibrated than trees, and this is the main reason they don't set bids directly in this book's designs. @fig-c26-calibration shows the typical pattern, on install prediction. The DNN ranks impressions better than LightGBM, with an AUC of 0.768 against 0.752, so on ranking metrics alone it looks like the better model. But its calibration plot fans out: it predicts too few installs in the low deciles and far too many in the top decile. Its expected calibration error is about ten times the LightGBM model's.
 
-![Calibration plots for install prediction on the same impressions. The DNN ranks better but is overconfident: too low in the bottom deciles and far too high in the top decile. LightGBM ranks slightly worse and is well calibrated. Simulated data.](../images/ch26-calibration-dnn-vs-gbm.png){#fig-c26-calibration width="100%"}
+![Calibration plots for install prediction on the same impressions. The DNN ranks better but is overconfident: too low in the bottom deciles and far too high in the top decile. LightGBM ranks slightly worse and is well calibrated. Simulated data.](../images/ch26-calibration-dnn-vs-gbm.png){#fig-c26-calibration width="100%" fig-alt="Two calibration plots of install rate by decile on the same impressions. LightGBM has AUC 0.752 and is well calibrated, with ECE of 4%. The DNN has a higher AUC of 0.768 but overpredicts sharply in the top decile, with ECE of 39%."}
 
 Here, the **expected calibration error** (ECE) is the average absolute gap between the predicted and actual rates across the deciles, divided by the overall rate, so 4% means the model is off by 4% of the base rate in a typical decile. It's a rougher measure than log loss, but it answers the question that matters for bidding: by how much would bids be wrong?
 

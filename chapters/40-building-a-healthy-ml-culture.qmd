@@ -84,7 +84,7 @@ With the right tooling, the conversation changes. Instead of "what did the ML te
 
 Ideally, the DSP has a single timeline that shows model deployments, code deployments, configuration changes, and experiment changes, in one place and in an auditable way, as @fig-c40-timeline shows. Even that isn't enough on its own if deployments are slow. Knowing when a change merged to main in the bidder codebase doesn't tell you when it reached production, if deployments take a long time to roll out. I've seen that process take up to 24 hours. The timeline needs actual production rollout times, not merge times, for it to settle an argument.
 
-![A single timeline of every change to the system, next to a model health metric. When IPM drops, the timeline shows that no model shipped in the window, and that an attribution change finished rolling out to production just before the drop. Illustrative.](../images/p5-change-timeline.png){#fig-c40-timeline width="100%"}
+![A single timeline of every change to the system, next to a model health metric. When IPM drops, the timeline shows that no model shipped in the window, and that an attribution change finished rolling out to production just before the drop. Illustrative.](../images/p5-change-timeline.png){#fig-c40-timeline width="100%" fig-alt="A chart of installs per mille over 72 hours, which drops sharply around hour 41, above a timeline of changes by type. No model shipped in the window, but server-to-server click tracking reached 100% of traffic right when the drop began."}
 
 ## Blameless Postmortems
 
@@ -96,7 +96,7 @@ When the answer to "why?" needs more depth, I like the **5 Whys** from Amazon's 
 
 Applied to a DSP, "the model got worse" is the first why, not the root cause. @fig-c40-whys shows a chain for the attribution example from earlier in the chapter. It runs from a drop in IPM, to attributed installs lost by a server-to-server tracking change, to a retrain that learned the wrong install rates from the lossy days, to two missing guardrails: nothing quarantined the incident's data, and nothing checked attributed installs before the tracking change rolled out. The last answers point to missing guardrails, not people, and that's where the action items belong.
 
-![The 5 Whys for an IPM drop. Each answer becomes the next question, and the chain ends at missing guardrails rather than at the model or at a person.](../images/p5-five-whys.png){#fig-c40-whys width="100%"}
+![The 5 Whys for an IPM drop. Each answer becomes the next question, and the chain ends at missing guardrails rather than at the model or at a person.](../images/p5-five-whys.png){#fig-c40-whys width="100%" fig-alt="Five stacked questions and answers. IPM dropped because attributed installs fell; they fell because server-to-server click tracking dropped click IDs; IPM didn't recover because the daily retrain learned the lower rates; the retrain used the bad days because nothing quarantines incident data; and the change reached production because nothing checked attributed installs before a tracking rollout."}
 
 A few practices help postmortems build trust across teams. Invite engineering, product, and operations to ML postmortems, and ask to attend theirs. Share the write-ups widely, including the ones where ML caused the incident. And watch how leaders behave in the room. The first time a leader opens a review by asking whose fault it was, people learn to stay quiet, and the process stops working.
 

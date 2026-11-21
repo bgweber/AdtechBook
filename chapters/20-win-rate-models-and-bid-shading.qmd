@@ -30,7 +30,7 @@ $$W(b \mid x) = \sigma\big(a(x) + \beta(x)\ln b\big), \qquad \beta(x) > 0$$
 
 Here, $\sigma$ is the logistic function, and $a(x)$ and $\beta(x)$ are predicted for each request. The median price, where the bid wins half the time, is $\exp(-a/\beta)$, and $1/\beta$ controls how spread out the competing bids are. The form is monotone in the bid by construction, and it makes the optimal bid easy to compute, as we show later in the chapter. @fig-c25-curves shows how different these curves can be.
 
-![Win rate curves for three kinds of requests. Low-competition supply clears at low prices, typical supply around $3.00, and premium supply, such as top games in the US with high-value users, only at much higher prices. The same bid can win almost always on one request and almost never on another.](../images/winrate-curves.png){#fig-c25-curves width="100%"}
+![Win rate curves for three kinds of requests. Low-competition supply clears at low prices, typical supply around $3.00, and premium supply, such as top games in the US with high-value users, only at much higher prices. The same bid can win almost always on one request and almost never on another.](../images/winrate-curves.png){#fig-c25-curves width="100%" fig-alt="Three S-shaped win rate curves against bid on a log scale, for low-competition, typical and premium supply. At a $4.00 bid, the win rate is 94%, 72% and 18% respectively."}
 
 [^c20-rtbmono]: Jun Wang, Weinan Zhang, and Shuai Yuan, "Display Advertising with Real-Time Bidding (RTB) and Behavioural Targeting," *Foundations and Trends in Information Retrieval*, 2017, <https://arxiv.org/abs/1610.03013>. Chapter 6 covers bid landscape forecasting.
 
@@ -139,7 +139,7 @@ Because the win rate multiplies directly into the surplus, it has to be calibrat
 
 @fig-c20-calibration shows a typical first win model. It's well calibrated through the middle deciles and too high at the top, where most of the bids are exploration bids above the usual shade and where the model has seen fewer examples. A win model that's too high at high bids makes raising the bid look more valuable than it is, so the shading step leaves too little room below the value.
 
-![A calibration plot for the first win model. Simulated data.](../images/ch20-calibration-win.png){#fig-c20-calibration width="100%"}
+![A calibration plot for the first win model. Simulated data.](../images/ch20-calibration-win.png){#fig-c20-calibration width="100%" fig-alt="Calibration plot of actual and predicted win rate across ten deciles. The lines match closely from about 7% to 80%, with predictions slightly too high in the top deciles."}
 
 ## Floors
 

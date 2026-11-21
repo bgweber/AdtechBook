@@ -30,7 +30,7 @@ where $\rho(x) = 1 - \alpha + \alpha\, r(x)$ is the incrementality tilt from @se
 
 @fig-c33-pipeline shows the whole path from predictions to a bid, with the three controllers that adjust it.
 
-![The unified pricing equation as a pipeline. Predictions become a goal value, which is tilted for incrementality, reduced by margin and fees, and scaled by the pacing multiplier, before the win model shades it and floors and caps apply. The goal and pacing controllers adjust their terms from realized spend and outcomes.](../images/p4-pricing-pipeline.png){#fig-c33-pipeline width="100%"}
+![The unified pricing equation as a pipeline. Predictions become a goal value, which is tilted for incrementality, reduced by margin and fees, and scaled by the pacing multiplier, before the win model shades it and floors and caps apply. The goal and pacing controllers adjust their terms from realized spend and outcomes.](../images/p4-pricing-pipeline.png){#fig-c33-pipeline width="100%" fig-alt="Vertical pipeline of the unified pricing equation: predictions become a goal value, which is tilted for incrementality, reduced by margin and fees, multiplied by the pacing multiplier, shaded using the win model, and checked against floors and caps. Goal and pacing controllers update their terms from spend and outcomes."}
 
 Weights work well for goals that trade off smoothly. For goals that are really constraints, such as a ROAS floor below which the advertiser doesn't want installs at any price, constraints work better, and the pacing system enforces them, as in the next section.
 
@@ -96,7 +96,7 @@ Here's one bid for Cozy Farm Tycoon in Brazil, through every term, as @fig-c33-w
 - **Shading.** The win model's curve for this request puts the best bid at \$5.00, which maximizes $W(b)(\$7.10 - b)$.
 - **Floor and cap.** The floor is \$3.50 and the campaign's cap is \$15.00, so the bid of \$5.00 goes out.
 
-![One bid through the unified equation. Each bar is one term from the bid ledger. Illustrative values.](../images/p4-bid-waterfall.png){#fig-c33-waterfall width="100%"}
+![One bid through the unified equation. Each bar is one term from the bid ledger. Illustrative values.](../images/p4-bid-waterfall.png){#fig-c33-waterfall width="100%" fig-alt="Waterfall chart of one illustrative bid: a goal value of $12.00 drops to $10.20 after the incrementality tilt, $8.16 after a 20% margin, $7.10 after pacing, and $5.00 after shading, above a $3.50 floor."}
 
 Every number in that list is a column in the bid ledger. If the account manager asks why the campaign bid \$5.00, the answer is this list. If the campaign's bids fall tomorrow, the ledger shows whether it was the models, the calibration, the tilt, the controller, or the auction that moved.
 

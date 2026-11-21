@@ -18,7 +18,7 @@ The most useful mental model for a DSP's data is a funnel. Each step is a filter
 
 @fig-ch2-funnel shows these steps, and which partner reports each one. The volumes fall off quickly. A large DSP may see millions of bid requests per second, bid on a fraction of them, win a fraction of those, and see installs on a tiny fraction of its impressions. Most of the modeling work in this book is about predicting the later steps of the funnel, which are rare and delayed, using what the DSP can see at the earlier steps, which are plentiful and immediate.
 
-![The DSP's data funnel. Each step is reported by a different partner, and each is a subset of the step before it. This chapter covers the auction lifecycle, from opportunity to impression. The next chapter covers the measurement lifecycle, from impression to purchase.](../images/ch02-funnel.png){#fig-ch2-funnel width="100%"}
+![The DSP's data funnel. Each step is reported by a different partner, and each is a subset of the step before it. This chapter covers the auction lifecycle, from opportunity to impression. The next chapter covers the measurement lifecycle, from impression to purchase.](../images/ch02-funnel.png){#fig-ch2-funnel width="100%" fig-alt="Funnel of seven shrinking boxes: opportunity, bid, win, impression, click, install, purchase. Labels underneath show who reports each step, and brackets group the first four as the auction lifecycle and the last three as the measurement lifecycle."}
 
 The language that ties the first half of the funnel together is the **OpenRTB** specification, maintained by the IAB Tech Lab.[^c2-ortb-spec] OpenRTB defines the bid request that an exchange sends, the bid response that a DSP returns, and the notification URLs that tell the DSP what happened next. Nearly every mobile exchange implements some version of it, usually 2.5 or 2.6, with its own extensions. If you're joining an ad tech team, the spec is worth reading end to end once. It's long, but it's the closest thing the industry has to a shared data dictionary.
 
@@ -34,7 +34,7 @@ From the publisher's point of view, the goal is simple: earn the most money per 
 
 @fig-ch2-publisher shows the pieces involved when Gem Garden fills an ad slot, and how the money flows back.
 
-![How Gem Garden fills an ad slot. Requests flow from the game's mediation SDK through the mediation platform to an exchange, which asks DSPs to bid on behalf of advertisers like Cozy Games. Money flows the other way: the advertiser pays the DSP, the DSP keeps its margin and pays the exchange, and the exchange keeps a fee and passes the rest to the publisher. The amounts are the illustrative example from the next section.](../images/ch02-publisher.png){#fig-ch2-publisher width="100%"}
+![How Gem Garden fills an ad slot. Requests flow from the game's mediation SDK through the mediation platform to an exchange, which asks DSPs to bid on behalf of advertisers like Cozy Games. Money flows the other way: the advertiser pays the DSP, the DSP keeps its margin and pays the exchange, and the exchange keeps a fee and passes the rest to the publisher. The amounts are the illustrative example from the next section.](../images/ch02-publisher.png){#fig-ch2-publisher width="100%" fig-alt="Flow from Gem Garden through mediation and the exchange to the DSP, with Cozy Games as the advertiser. Below, money flows the other way per 1,000 impressions: the advertiser pays $10.00, the DSP keeps $2.00, the exchange keeps $1.20, and the publisher earns $6.80."}
 
 ## Following the Money
 
@@ -52,7 +52,7 @@ Once the game decides to show an ad, its mediation SDK has to decide which deman
 
 For a DSP, in-app bidding is what makes impression-level pricing possible. The mediation platform runs an auction, often with an exchange of its own, and sends a bid request to each connected bidder. Each bidder decides whether to bid and how much, and the highest valid bid wins. @fig-ch2-auction shows this fan-out for a single ad opportunity.
 
-![From ad slot to auction. The game's mediation SDK sends an ad request to an exchange, which sends bid requests to many bidders at the same time. Each bidder either returns a bid or declines, and the exchange picks the winner.](../images/ch02-auction.png){#fig-ch2-auction width="100%"}
+![From ad slot to auction. The game's mediation SDK sends an ad request to an exchange, which sends bid requests to many bidders at the same time. Each bidder either returns a bid or declines, and the exchange picks the winner.](../images/ch02-auction.png){#fig-ch2-auction width="100%" fig-alt="Diagram of one auction: the publisher app sends an ad request to the exchange, which sends bid requests to DSP A, DSP B and ad network C at once. DSP A bids $8.10 and wins, DSP B bids $6.40, and network C returns no bid."}
 
 The same impression can reach a DSP through several paths. A DSP might receive a bid request directly from the exchange run by the mediation platform, and also from a separate SSP or exchange that the publisher has connected as a bidder inside that mediation auction. In the second case, the SSP runs its own auction first, and its winner then competes in the mediation platform's auction. A DSP that's connected to both may effectively bid against itself, and will see what looks like two different opportunities for the same ad slot. Deduplicating these paths, and learning which path tends to win at what price, becomes important once a DSP has more than a handful of supply integrations.
 
@@ -107,7 +107,7 @@ Consider a rewarded video in Gem Garden. If the game waited until the player tap
 
 This creates a gap between winning and showing, as @fig-ch2-win-vs-show shows. Between the auction and the moment an ad could be shown, many things can happen. The player might quit the game. The cached ad might expire before it's used. The mediation platform might run another auction for the same slot, and show a different ad. Each of these leaves the DSP with a won auction that never becomes an impression.
 
-![Winning vs. showing. The auction runs when the SDK pre-fetches an ad, and the winning creative is cached on the device. The DSP receives a win notification right away, but the impression and billing notifications only arrive if the ad is actually shown. Many wins never become impressions.](../images/ch02-win-vs-show.png){#fig-ch2-win-vs-show width="100%"}
+![Winning vs. showing. The auction runs when the SDK pre-fetches an ad, and the winning creative is cached on the device. The DSP receives a win notification right away, but the impression and billing notifications only arrive if the ad is actually shown. Many wins never become impressions.](../images/ch02-win-vs-show.png){#fig-ch2-win-vs-show width="100%" fig-alt="Timeline of an ad from pre-fetch to auction, win notice and caching on the device. It then branches: if the player reaches an ad break the ad is shown and billed; if the player quits or the ad expires, it was won but never shown."}
 
 Header bidding and in-app bidding make this gap larger. In-app bidding was designed in part to bring the idea of header bidding from the web to apps: run an auction across many buyers before the ad server decides what to show. When an SSP runs its own auction and then submits the winner into a mediation auction, the DSP's "win" in the SSP's auction may still lose the mediation auction one level up. Depending on the exchange, the DSP may see a win notice for a bid that never had a chance to be shown.
 
@@ -186,7 +186,7 @@ Efficiency matters too, because parsing is on the hot path for every request. A 
 
 @fig-ch2-adapters shows the idea.
 
-![Exchange adapters. Each exchange sends requests in its own encoding, spec version, and extensions. An adapter per exchange decodes them into one internal bid request, so everything downstream, including features and models, sees a single format.](../images/ch02-adapters.png){#fig-ch2-adapters width="100%"}
+![Exchange adapters. Each exchange sends requests in its own encoding, spec version, and extensions. An adapter per exchange decodes them into one internal bid request, so everything downstream, including features and models, sees a single format.](../images/ch02-adapters.png){#fig-ch2-adapters width="100%" fig-alt="Three exchanges, each with its own format and OpenRTB version, feed separate adapters that convert their requests into one internal bid request format used by the features and models."}
 
 [^c2-adx]: Google, "Real-time Bidding," Authorized Buyers developer documentation, <https://developers.google.com/authorized-buyers/rtb/>.
 [^c2-adx-migration]: Google, "OpenRTB migration guide," Authorized Buyers developer documentation. The guide also notes that Google's older RTB protocol has been sunset in favor of OpenRTB.

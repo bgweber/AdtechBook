@@ -59,7 +59,7 @@ $$\text{mismatch}_j = \frac{1}{N}\sum_{i=1}^{N} \mathbb{1}\left[\,\lvert x^{back
 
 where $x_{ij}$ is feature $j$ for bid $i$, and $\epsilon_j$ is a tolerance, zero for strings and sets. A mismatch rate below a threshold, such as 0.1%, means the backfill can be used for training. Higher rates usually come from availability times, event ordering, or list truncation, and are worth fixing before any model sees the data.
 
-![Backfilling a new feature. The feature is reconstructed for past bids by replaying logged raw context through the bidder's feature code. During the overlap window, after live logging begins, backfilled values are compared with logged values before the backfill is trusted for training.](../images/features-backfill.png){#fig-c9b-backfill width="100%"}
+![Backfilling a new feature. The feature is reconstructed for past bids by replaying logged raw context through the bidder's feature code. During the overlap window, after live logging begins, backfilled values are compared with logged values before the backfill is trusted for training.](../images/features-backfill.png){#fig-c9b-backfill width="100%" fig-alt="Timeline in days around shipping a new feature. Raw context has been logged throughout; the past 90 days are backfilled by replay; live logging starts at day 0; a two-week parity check follows; and training data for the feature spans the whole range once the backfill is trusted."}
 
 ## Delayed Labels and Training Windows
 

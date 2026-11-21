@@ -161,7 +161,7 @@ We train with **FTRL-Proximal** (Follow The Regularized Leader), the algorithm G
 
 FTRL is an **online** algorithm. It passes over the examples one at a time and updates only the weights of the tokens present in each example. For each bucket $i$, it keeps two numbers, $z_i$ and $n_i$, and computes the weight from them when it's needed:
 
-$$w_i = \begin{cases} 0 & \text{if } |z_i| \le \lambda_1 \\ -\dfrac{z_i - \operatorname{sgn}(z_i)\,\lambda_1}{(\beta + \sqrt{n_i})/\alpha + \lambda_2} & \text{otherwise} \end{cases}$$
+$$w_i = \begin{cases} 0 & \text{if } |z_i| \le \lambda_1 \\ -{\displaystyle\frac{z_i - \operatorname{sgn}(z_i)\,\lambda_1}{(\beta + \sqrt{n_i})/\alpha + \lambda_2}} & \text{otherwise} \end{cases}$$
 
 For an example with prediction $p = \sigma(\sum_i w_i x_i)$ and label $y$, the gradient for each active bucket is $g_i = p - y$, and the update is:
 
@@ -266,7 +266,7 @@ We evaluate the click model with three kinds of metric, because each answers a d
 - **AUC** measures ranking: the probability that a randomly chosen click gets a higher prediction than a randomly chosen non-click. It ignores calibration entirely. A model can have a good AUC and predict click rates that are all twice too high.
 - **Calibration** measures whether predicted rates match observed rates. The simplest check is the ratio of the sum of predictions to the number of clicks, overall and by segment. A calibration plot shows where the model is off. Sort the examples by their prediction, split them into ten equal groups, or deciles, and plot the mean predicted click rate and the observed click rate in each group, as in @fig-c9-calibration.
 
-![A calibration plot for the crawl click model on interstitial video. The model is close to calibrated in most deciles and predicts too high in the top decile, where the data is thinnest and where the bidder spends the most. Simulated data.](../images/ch09-calibration-click.png){#fig-c9-calibration width="100%"}
+![A calibration plot for the crawl click model on interstitial video. The model is close to calibrated in most deciles and predicts too high in the top decile, where the data is thinnest and where the bidder spends the most. Simulated data.](../images/ch09-calibration-click.png){#fig-c9-calibration width="100%" fig-alt="Calibration plot of actual and predicted click rate across ten deciles of the prediction. The two lines track closely from about 1% to 5%, and the model predicts somewhat too high in the top decile. AUC is 0.66."}
 
 The two lines should overlap. When the predicted line is above the actual line, the model overpredicts and the DSP overbids in those impressions. The top decile matters most, because that's where the bidder bids highest and wins most often, and it's also where a click model is most often too high.
 

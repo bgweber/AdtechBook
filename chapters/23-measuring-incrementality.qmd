@@ -41,7 +41,7 @@ A naive comparison of exposed and unexposed users is badly biased, because the b
 3. For treatment users, submit the bid as usual. For control users, log a ghost bid with the would-be bid and its predicted win rate, and send nothing to the exchange.
 4. Collect outcomes for both groups from the advertiser's complete install data, including organic and other-channel installs. Control users can never be attributed to the DSP, so attributed data alone can't be used.
 
-![The ghost-bid design. Every request runs through the full bid path. Treatment users get real bids, and control users get a logged ghost bid that is never sent. Lift is the difference in all installs between the two groups, using the advertiser's complete install data.](../images/incr-ghost-bids.png){#fig-c24b-ghost width="100%"}
+![The ghost-bid design. Every request runs through the full bid path. Treatment users get real bids, and control users get a logged ghost bid that is never sent. Lift is the difference in all installs between the two groups, using the advertiser's complete install data.](../images/incr-ghost-bids.png){#fig-c24b-ghost width="100%" fig-alt="Diagram of the ghost-bid experiment. Bid requests are split by device hash: 90% treatment users go through the full bid path and get real bids, and 10% control users go through the same path but only a ghost bid is logged. Installs from the MMP are compared between groups."}
 
 The cost of the test is only the impressions withheld from the control group, as shown in @fig-c24b-ghost. No media is spent on control users, which is the main advantage over older designs that served public service ads to a control group. Large-scale field experiments have also shown how far observational comparisons can be from randomized ones in advertising, which is a good reason to insist on randomization.[^c23-gordon]
 
@@ -80,7 +80,7 @@ $$\text{displacement}_c = -\Delta_c, \qquad \sum_c \text{displacement}_c = \text
 
 The DSP is credited with 250 installs, but total installs rose by 100, so incrementality is 40%. The other 150 installs were displaced, mostly from another network, as shown in @fig-c24b-displacement. For the advertiser, those installs were paid for twice. For the DSP, the displacement shows which segments overlap with other channels, which is where to look next.
 
-![Installs per 100,000 bid-on users by source, for the control and treatment groups. The DSP is credited with 250 installs, but total installs rise by only 100. The difference comes from installs displaced from another network, other paid channels, and organic installs.](../images/incr-displacement.png){#fig-c24b-displacement width="90%"}
+![Installs per 100,000 bid-on users by source, for the control and treatment groups. The DSP is credited with 250 installs, but total installs rise by only 100. The difference comes from installs displaced from another network, other paid channels, and organic installs.](../images/incr-displacement.png){#fig-c24b-displacement width="90%" fig-alt="Stacked bars of installs per 100,000 users. Control totals 600 and treatment totals 700, so the DSP added 100 incremental installs, even though it is credited with 250, because it displaced installs from organic and other channels."}
 
 ### Inputs and Practical Limits
 

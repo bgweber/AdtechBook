@@ -17,6 +17,7 @@ venv/
 /out/
 code/sim/out/
 .pytest_cache/
+*.egg-info/
 *.pt
 *.pth
 *.ckpt
