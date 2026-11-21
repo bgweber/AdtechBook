@@ -109,9 +109,9 @@ As the code lands, the status lines change and the boxes get exact commands. The
 
 All of the code is in the book's GitHub repository. Longer listings, schema walkthroughs, and notebooks are in the online edition and the repository rather than in print.
 
-The book is available in two editions. The online edition is free, in full color, and includes interactive figures where possible. The print edition is in black and white, and figures are designed to be readable in grayscale. Some long lines of code are wrapped in the print edition to fit the page.
+The book is available in three editions. The online edition and an EPUB for e-readers are free, at <https://bgweber.github.io/AdtechBook/>. The print edition is in black and white, and figures are designed to be readable in grayscale. Some long lines of code are wrapped in the print edition to fit the page.
 
-<!-- TODO: add the repo URL, license details, and any typographic conventions once the Quarto setup is final. -->
+The book is open source, at [github.com/bgweber/AdtechBook](https://github.com/bgweber/AdtechBook). The text and figures are licensed under CC BY-NC-SA 4.0, and the code, including the code samples in this book, under the MIT License, so you can copy the code into your own projects. Corrections and contributions are welcome; the repository explains how.
 
 ## Recommended Reading
 

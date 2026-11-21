@@ -111,7 +111,6 @@ These are the posts I've written on ML in mobile ad tech, which several chapters
 - "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, 2026.
 - "Transformers for Mobile User Acquisition," *AI Advances*, 2026.
 
-<!-- TODO: Ch 8 and Ch 39 give different subtitles for the "Structuring an ML Org" post ("Effective Model Development" vs. "Effective Model Delivery"); check the post and make both match. -->
 
 ## Podcasts and Newsletters
 
