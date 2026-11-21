@@ -172,7 +172,7 @@ Both designs start with the same building block: embeddings. Next, we build mult
 
 [^c25-outofcloud]: Ben Weber, "Out of the Cloud: Building On-Prem Machine Learning Pipelines," *Data Science Collective*, September 27, 2025, <https://medium.com/data-science-collective/out-of-the-cloud-building-on-prem-machine-learning-pipelines-597d5603502f>
 
-[^c25-pods]: Ben Weber, "Structuring an ML Org for a DSP: Pods not Silos for Effective Model Development," *Data Science Collective*, May 19, 2026, <https://medium.com/data-science-collective/structuring-an-ml-org-for-a-dsp-9fae5a01c671>
+[^c25-pods]: Ben Weber, "Structuring an ML Org for a DSP: Pods not Silos for Effective Model Delivery," *Data Science Collective*, May 19, 2026, <https://medium.com/data-science-collective/structuring-an-ml-org-for-a-dsp-9fae5a01c671>
 
 [^c25-transformers]: Ben Weber, "Transformers for Mobile User Acquisition," *AI Advances*, November 2026, <https://medium.com/ai-advances/transformers-for-mobile-user-acquisition-f3816d8b0c41>
 

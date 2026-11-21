@@ -28,7 +28,12 @@ COPYRIGHT_BODY = f"""\
 <p class="copyright-title"><em>Machine Learning in Mobile AdTech:
 From Foundations to the Frontier of Demand Side Platforms</em></p>
 <p>Copyright &#169; {YEAR} Ben G Weber.</p>
-<p>Code examples and the bid simulator are available at
+<p>The text and figures of this book are licensed under the Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International License
+(<a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>),
+except the cover and the author photo. The code, including the code samples
+in this book, is licensed under the MIT License. The code and the bid
+simulator are available at
 <a href="https://github.com/bgweber/AdtechBook">github.com/bgweber/AdtechBook</a>.</p>
 <p>A free online edition is available at
 <a href="https://bgweber.github.io/AdtechBook/">bgweber.github.io/AdtechBook</a>.</p>

@@ -83,14 +83,15 @@ book:
     style: docked
     tools:
       - icon: cart
-        href: https://amazon.com   # TODO: replace with the KDP paperback URL
+        href: https://www.amazon.com/s?k=9798144378116   # ISBN search; swap for the product page URL once it is live
         text: "Buy the paperback on Amazon"
       - icon: download
         href: https://github.com/bgweber/AdtechBook/releases/latest
         text: "Download the free EPUB"
   page-footer:
     center: |
-      Free online edition. [Paperback on Amazon](https://amazon.com) · [Free EPUB](https://github.com/bgweber/AdtechBook/releases/latest)
+      Free online edition. [Paperback on Amazon](https://www.amazon.com/s?k=9798144378116) · [Free EPUB](https://github.com/bgweber/AdtechBook/releases/latest)<br>
+      Text and figures [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) · Code [MIT](https://github.com/bgweber/AdtechBook/blob/main/LICENSE-CODE) · [Contribute](https://github.com/bgweber/AdtechBook/blob/main/CONTRIBUTING.md)
 
 lang: en
 

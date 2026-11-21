@@ -59,7 +59,7 @@ This book recommends logging features at bid time as the default, with raw input
 
 The log that holds these records is the **bid ledger** from @sec-inside-a-demand-side-platform: one row per bid, keyed by the auction's request ID, with the FeatureVector, the model predictions, the model, lookup, and configuration versions, and every term of the price. The bid ledger shows up again in the training, monitoring, and on-call chapters, because it's the ground truth for what the bidder knew and did.
 
-[^c8-pods]: Ben Weber, "Structuring an ML Org for a DSP: Pods not Silos for Effective Model Development," *Data Science Collective*, May 19, 2026, <https://medium.com/data-science-collective/structuring-an-ml-org-for-a-dsp-9fae5a01c671>
+[^c8-pods]: Ben Weber, "Structuring an ML Org for a DSP: Pods not Silos for Effective Model Delivery," *Data Science Collective*, May 19, 2026, <https://medium.com/data-science-collective/structuring-an-ml-org-for-a-dsp-9fae5a01c671>
 
 ## One FeatureVector for Every Model
 

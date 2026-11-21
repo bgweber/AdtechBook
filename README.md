@@ -118,7 +118,16 @@ fallback.
 The book and the code are open source, and contributions are welcome. Good
 places to start are the planned exercises and simulator features above: each
 one says what it needs. Open an issue to discuss a change before a large
-pull request.
+pull request. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+- **Text and figures:** [CC BY-NC-SA 4.0](LICENSE). You can share and adapt
+  them for non-commercial purposes, with credit, under the same license. The
+  cover and the author photo are not covered by this license.
+- **Code:** [MIT](LICENSE-CODE). This covers `code/`, `scripts/`, `filters/`,
+  the build configuration, and the code samples in the book, so you can use
+  them in your own projects, including commercial ones.
 
 ## Repository layout
 
@@ -137,6 +146,8 @@ styles/epub.css             Ebook styling
 scripts/polish_epub.py      Makes the EPUB a native ebook (runs after each render)
 _freeze/                    Saved code output (committed; see below)
 requirements.txt            Python packages CI needs to render
+LICENSE, LICENSE-CODE       CC BY-NC-SA 4.0 for text and figures; MIT for code
+CONTRIBUTING.md             How to contribute, and how contributions are licensed
 .github/workflows/          Book build/publish and code test workflows
 ```
 
@@ -227,4 +238,5 @@ Previewer's conversion fail. You can also run the workflow manually from the
 
 ## Before the first release
 
-- Replace the Amazon URL placeholders (`https://amazon.com`).
+- Once the paperback is live, optionally swap the Amazon ISBN search links
+  (`https://www.amazon.com/s?k=9798144378116`) for the product page URL.

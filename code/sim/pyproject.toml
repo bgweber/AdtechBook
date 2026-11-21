@@ -1,6 +1,7 @@
 [project]
 name = "adsim"
 version = "0.1.0"
+license = {text = "MIT"}
 description = "The simulated mobile ad market behind Machine Learning in Mobile AdTech"
 requires-python = ">=3.12"
 dependencies = ["numpy>=1.26", "pandas>=2.1", "pyarrow>=14"]
