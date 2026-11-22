@@ -1,14 +1,14 @@
 # Code
 
-The runnable code behind the book. The simulator (`sim/`) works today; the
-bidder (`dsp/`) and training code (`training/`) are planned. As they land,
-chapters will show excerpts from these files, so the code in the book is code
-that builds and passes tests.
+The runnable code behind the book: the simulated market (`sim/`), the Go
+bidder (`dsp/`), and the training code (`training/`). They grow part by
+part. Chapters will show excerpts from these files, so the code in the book
+is code that builds and passes tests.
 
 ```
 code/
-  dsp/        Go: the reference DSP (bid path, features, in-process inference), planned
-  training/   Python: training datasets, training, validation, publishing, planned
+  dsp/        Go: the reference DSP (bid path, features, model serving, console)
+  training/   Python: training datasets, training, validation, publishing
   sim/        Python: the simulated market (adsim) that every example runs on
 ```
 
@@ -27,4 +27,4 @@ code/
 - Lines stay within about 80 characters so listings fit the print page.
 
 The `Tests` workflow runs `go test` and `pytest` on every push and pull
-request, and skips each language until it has code.
+request.

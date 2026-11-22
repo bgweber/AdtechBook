@@ -28,9 +28,9 @@ What exists today and what's planned:
 | Component | Status |
 |---|---|
 | `code/sim/`: adsim 0.1, the simulated market | **Works.** Crawl, walk, and run markets; OpenRTB requests with exchange quirks; first-price auctions with a winner's curse; clicks, installs, organic installs, MMP attribution, delayed postbacks, purchases; holdouts; truth tables |
-| `code/dsp/`: the Go reference bidder | Planned |
-| `code/training/`: training, validation, publishing | Planned |
-| `docker/`: Docker Compose for the whole stack | Planned |
+| `code/dsp/`: the Go reference bidder | **Part II complete: bidding, crawl stage, with a click model and operations.** Parsing and normalization of each exchange's quirks, device profiles, eligibility and weighted selection, crawl pricing, a 5% holdout, the bid ledger with FeatureVectors, win, loss, billing, and click notices, serving the click model with a parity check before every deploy, CPI pricing from MMP postbacks, kill switches, a fallback ladder, throttling, alerts, and reconciliation, and a live console with Models and Controls tabs. See [`code/dsp/README.md`](code/dsp/README.md) |
+| `code/training/`: training, validation, publishing | **Click model works.** Click examples from the ledger, hashed tokens with crosses, FTRL, out-of-time validation (ROC and PR curves, calibration, readouts, cosine stability), and model artifacts with golden examples. See [`code/training/README.md`](code/training/README.md) |
+| `compose.yaml`: Docker Compose | **Started.** The bidder, the training service, and the simulator; infrastructure services are planned |
 
 Each chapter's "Try it on the simulator" box says whether its exercise runs
 on adsim 0.1 today or what it still needs.
@@ -45,6 +45,32 @@ pytest code/sim
 
 See [`code/sim/README.md`](code/sim/README.md) for the tables it writes and
 how the market works.
+
+Watch the Go bidder trade in the simulated market, with Docker:
+
+```bash
+docker compose up --build
+```
+
+Then open the console at <http://localhost:8081>. The simulator plays two
+days and stops. Open the **Models** tab and click **Train**: the training
+service builds click examples from the bidder's logs, trains a click
+model, validates it, and the bidder deploys it if it passes its checks.
+Then play more days with the model pricing the bids:
+
+```bash
+docker compose run --rm sim
+```
+
+Each run continues the market where the bidder's ledger left off, so the
+model sees new days, never a replay. To start over, stop everything and
+delete the `out` folder.
+
+This needs a current
+Docker with Compose v2, the `docker compose` command (Docker Desktop
+includes it). If you get `unknown flag: --build` or `'compose' is not a
+docker command`, your Docker is too old: update Docker Desktop. Without
+Docker, see [`code/dsp/README.md`](code/dsp/README.md).
 
 ## Toward a full simulator
 
@@ -137,8 +163,9 @@ index.qmd, preface.qmd      Welcome page and preface
 parts/, chapters/           Part pages and one .qmd file per chapter
 appendices/                 Glossary, OpenRTB fields, templates, reading, the simulated world
 code/sim/                   Python: adsim, the simulated market
-code/dsp/                   Go: the reference bidder (planned)
-code/training/              Python: training, validation, publishing (planned)
+code/dsp/                   Go: the reference bidder and its console
+code/training/              Python: training, validation, publishing (adtrain)
+compose.yaml                Docker Compose: the bidder, the trainer, and the simulator
 images/                     Figures, the ebook cover (cover.jpg, added to the EPUB by
                             scripts/polish_epub.py), and the README cover (cover-front.jpg)
 styles/preamble.tex         Print styling: headers, code boxes, copyright page
@@ -154,12 +181,19 @@ CONTRIBUTING.md             How to contribute, and how contributions are license
 ## Tests
 
 The `Tests` workflow runs on every push and pull request: `pytest code` for
-the Python code, and `go vet` and `go test ./...` in `code/dsp/` once the
-bidder exists. To run them locally:
+the Python code, and `go vet` and `go test ./...` in `code/dsp/`. To run
+them locally:
 
 ```bash
+pip install -e code/sim[test] -e code/training[test]
 pytest code
+cd code/dsp && go test ./...
 ```
+
+The Go tests include a parity test against a model the Python code
+trained (`code/dsp/internal/model/testdata`, made with
+`python -m adtrain.fixture`), so training and serving can't drift apart
+without a test failing.
 
 ## Setup
 

@@ -76,6 +76,7 @@ class SimConfig:
 
     seed: int = 7
     days: int = 1
+    start_day: int = 0  # continue a market at a later day, same world
     start: str = "2026-01-05T00:00:00Z"  # a Monday, UTC
     n_devices: int = 20_000
     n_apps: int = 300  # publisher and advertiser apps share one catalog

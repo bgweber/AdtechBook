@@ -36,17 +36,41 @@ If the DSP wins a thousand impressions like this one at \$0.67, it pays \$0.67 f
 
 One detail about units: $p_{\text{click}}$ has to be a click rate per impression shown, which is why we trained on impressions in @sec-a-click-model. Most exchanges bill on the billing notice, which fires when the ad is shown, so a price per impression is what we pay. If an exchange bills on the win instead, the value per win is lower by the clear rate, and the bid has to be multiplied by it.
 
-<!-- CODE: replace with an include from code/dsp/pricing once it exists. -->
+In the reference bidder, the advertiser value is one function, with a case for each goal. The CPI case uses the install rate from the next section:
 
 ```go
-// PriceCPC returns the media value and the bid, both as CPM.
-func PriceCPC(targetCPC, pClick float64, p Params) (vm, bid float64) {
-    a := targetCPC * pClick * 1000
-    vm = a * p.Kappa * p.Gamma * (1 - p.Margin) - p.FeeCPM
-    bid = p.Shade * vm
-    return vm, bid
+func (p *Crawl) Value(c *campaigns.Campaign,
+    pClick, pInstall float64) float64 {
+    switch c.Goal {
+    case "CPC":
+        return c.Target * pClick * 1000
+    case "CPI":
+        return c.Target * pClick * pInstall * 1000
+    }
+    return 0
 }
 ```
+
+The rest of the price is a few lines in the policy's `Decide` method. With $\kappa$, $\gamma$, and $f$ fixed, they reduce to the margin, the shade, the random multiplier we come to below, the floor, and a cap:
+
+```go
+d.AdvertiserValue = p.Value(c.Campaign, d.PClick, pInstall)
+d.MediaValue = d.AdvertiserValue * (1 - p.Margin)
+if rng.Float64() < p.ExploreShare {
+    lo, hi := math.Log(p.ExploreLo), math.Log(p.ExploreHi)
+    d.ExploreMult = math.Exp(lo + rng.Float64()*(hi-lo))
+}
+if d.MediaValue < floor {
+    d.Action, d.Reason = "nobid", "below_floor"
+    return d
+}
+bid := math.Min(d.MediaValue*p.Shade*d.ExploreMult, p.CapCPM)
+if floor > 0 {
+    bid = math.Max(bid, floor)
+}
+```
+
+Every term is kept in the decision and logged with the bid. The banner request we followed in @sec-logging-at-bid-time was priced before any model was deployed, from the banner prior of 0.6%, for a CPC campaign with a target of \$0.083: $0.083 \times 0.006 \times 1000 \times 0.8 \times 0.7 = \$0.2789$ CPM, which is the bid in its ledger record.
 
 ## A First CPI Campaign Priced from Clicks
 
@@ -71,6 +95,29 @@ This is the realistic first campaign for a new DSP, because it buys what adverti
 - **Labels are slow and sparse.** Installs arrive hours to days after a click, so the rates lag, and small segments stay noisy even with smoothing.
 
 We replace segment rates with install models in @sec-from-clicks-to-installs-and-purchases.
+
+The reference DSP computes these rates with every model it trains, for each country and placement within a campaign, shrunk toward the campaign, which is shrunk toward all campaigns, which starts from a 3% prior, all with $k = 200$. They ship in the model bundle, so a CPI campaign's prices change only when a new bundle is deployed. @fig-c10-install-rates shows them for the first bundle, next to the simulator's true rates.
+
+::: {.content-visible when-format="html"}
+![Click-to-install rates by campaign in the reference DSP's first model bundle, with the observed rate, the smoothed rate the bidder prices with, and the simulator's true rate for the same clicks.](../images/ch10-console-install-rates.png){#fig-c10-install-rates width="100%" fig-alt="Screenshot of a console table of eight campaigns with clicks, installs, observed, smoothed, and true install rates. Campaign 5, a CPI campaign, had 633 clicks and 24 installs: 3.79% observed, 3.76% smoothed, and 6.35% true. Campaign 6 had 135 clicks and 15 installs: 11.11% observed, shrunk to 6.67%, with 6.96% true. Across all campaigns, 102 installs from 2,745 clicks, 3.67% smoothed. In most rows the true rate is higher than the observed rate."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Click-to-install rates by campaign in the reference DSP's first model bundle, with the observed rate, the smoothed rate the bidder prices with, and the simulator's true rate for the same clicks.](../images/ch10-console-install-rates-print.png){#fig-c10-install-rates width="100%" fig-alt="Screenshot of a console table of eight campaigns with clicks, installs, observed, smoothed, and true install rates. Campaign 5, a CPI campaign, had 633 clicks and 24 installs: 3.79% observed, 3.76% smoothed, and 6.35% true. Campaign 6 had 135 clicks and 15 installs: 11.11% observed, shrunk to 6.67%, with 6.96% true. Across all campaigns, 102 installs from 2,745 clicks, 3.67% smoothed. In most rows the true rate is higher than the observed rate."}
+:::
+
+Two things stand out. Smoothing does its job on small campaigns: campaign 6 had 15 installs from 135 clicks, an observed rate of 11%, and the smoothed 6.7% is much closer to its true 7.0%. But the observed rates are below the true rates for almost every campaign, and smoothing can't fix that, because it isn't noise. The true rate counts every install our clicks caused. The observed rate counts only the installs the MMP credited to us, and the simulated MMP, like a real one, uses last-touch attribution: when another ad network touched the device after our click, it gets the install, and some postbacks never arrive at all. For campaign 5, the gap is 3.8% against 6.3%. A CPI campaign priced on attributed installs values clicks at what the advertiser will pay us for, not at what they're worth, which is the right price for the DSP's business, and the gap is why we come back to incrementality in @sec-measuring-incrementality.
+
+The first CPI campaigns did well on the simulator even so. Before the first bundle, the bidder priced them with the 3% prior for every click. @fig-c10-campaigns shows the next simulated day, when the bundle, with these rates, was deployed at 06:00: campaign 5 spent its whole budget, at \$0.78 per attributed install against a \$1.75 target, and campaign 2 came in at \$1.26 against \$1.46. With five installs and one, those costs are noisy, and they're the right numbers to watch as the counts grow.
+
+::: {.content-visible when-format="html"}
+![Campaign delivery on the reference DSP's console for one simulated day, the day the first click model was deployed, with spend against budget, wins, impressions, clicks, the mean predicted against the actual click rate, and cost per install.](../images/ch10-console-campaigns.png){#fig-c10-campaigns width="100%" fig-alt="Screenshot of a console table of eight campaigns for simulated day 7. For each: goal, target, countries, budget, spend with a progress bar, bids, wins, win rate between 25% and 46%, impressions, eCPM, clicks, CTR, predicted CTR, the ratio of predicted to actual, installs, and cost per install. Campaign 5, CPI with a $1.75 target, spent $3.92 of $3.88, with 105 clicks, a predicted to actual ratio of 1.00, 5 installs, and $0.78 per install. Campaign 2, CPI with a $1.46 target, spent $1.26 of $1.65, with a ratio of 1.63 and $1.26 per install."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Campaign delivery on the reference DSP's console for one simulated day, the day the first click model was deployed, with spend against budget, wins, impressions, clicks, the mean predicted against the actual click rate, and cost per install.](../images/ch10-console-campaigns-print.png){#fig-c10-campaigns width="100%" fig-alt="Screenshot of a console table of eight campaigns for simulated day 7. For each: goal, target, countries, budget, spend with a progress bar, bids, wins, win rate between 25% and 46%, impressions, eCPM, clicks, CTR, predicted CTR, the ratio of predicted to actual, installs, and cost per install. Campaign 5, CPI with a $1.75 target, spent $3.92 of $3.88, with 105 clicks, a predicted to actual ratio of 1.00, 5 installs, and $0.78 per install. Campaign 2, CPI with a $1.46 target, spent $1.26 of $1.65, with a ratio of 1.63 and $1.26 per install."}
+:::
+
 
 ## Margin and Billing
 
@@ -135,7 +182,7 @@ Each notice is logged with its own event ID, the request ID and impression ID it
 ::: {.callout-tip title="Try it on the simulator"}
 Trace the pricing ledger for one CPC bid and one CPI bid: the prediction, the advertiser value, the margin, the media value, the shade, the floor check, and the bid. Then find a bid in the explored share, and check that its multiplier was logged and that it was clipped to the floor and the cap.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: runs with the companion bidder (dsp 0.5). Every bid record in the ledger has the decision's terms: the predicted click rate and the model version that made it, the advertiser value, the media value after margin, the exploration multiplier, the bid, and for no-bids, the reason, such as `below_floor`. For CPI campaigns, it also has the install rate after a click and where it came from: a segment, the campaign, all campaigns, or the 3% prior. The shade is the crawl policy's fixed 0.7. See `code/dsp/README.md` for reading the ledger.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

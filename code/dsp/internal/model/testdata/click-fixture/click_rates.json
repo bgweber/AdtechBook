@@ -1,0 +1,38 @@
+{
+ "k": 200.0,
+ "overall": 0.06366666666666666,
+ "placement": {
+  "native": 0.056895356895356894,
+  "banner": 0.02398822663723326,
+  "interstitial": 0.08676574663835811,
+  "rewarded_video": 0.08457912457912457
+ },
+ "placement_country": {
+  "native|bra": 0.04894076322647751,
+  "banner|ind": 0.019024554033876994,
+  "native|": 0.06312401100674715,
+  "interstitial|ind": 0.08987574224474278,
+  "banner|bra": 0.015784707140580268,
+  "interstitial|": 0.08697409019033538,
+  "interstitial|bra": 0.09252125614305712,
+  "native|ind": 0.05887416933928561,
+  "rewarded_video|ind": 0.0909221413097382,
+  "rewarded_video|bra": 0.0886156248475089,
+  "banner|": 0.019520691338204214,
+  "rewarded_video|": 0.08048392831001526
+ },
+ "segments": {
+  "native|bra|alpha_exchange": 0.045989151475501866,
+  "banner|ind|alpha_exchange": 0.017096914187913398,
+  "native||alpha_exchange": 0.06718176612817404,
+  "interstitial|ind|alpha_exchange": 0.09103187444042483,
+  "banner|bra|alpha_exchange": 0.012463444186469745,
+  "interstitial||alpha_exchange": 0.08711161068669002,
+  "interstitial|bra|alpha_exchange": 0.09481886472776731,
+  "native|ind|alpha_exchange": 0.05964115090669985,
+  "rewarded_video|ind|alpha_exchange": 0.09338067492625513,
+  "rewarded_video|bra|alpha_exchange": 0.09007812494474961,
+  "banner||alpha_exchange": 0.016512250059396775,
+  "rewarded_video||alpha_exchange": 0.07794032814286661
+ }
+}

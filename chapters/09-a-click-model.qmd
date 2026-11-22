@@ -18,9 +18,9 @@ Before training, remove the rows we don't want the model to learn from. Impressi
 
 ## Features for the First Model
 
-<!-- Ben will review the feature list once the click model and simulator are further along (2026-11-19). -->
-
 The first model's features come from three sources: the bid request, the device profile, and the campaign and creative being considered. All of them are computed in the Go bidder at bid time and logged in the FeatureVector, so training uses exactly what the bidder saw. Early on, the gains usually come from getting a handful of strong features right rather than from having many features, so it's worth understanding what each one captures, how it's encoded, and how it can go wrong.
+
+The tables in this section list the features worth building for a production click model. The reference DSP's first model uses the subset the simulator can supply: nine strings from the request (exchange, publisher app, placement type, country, OS, OS major version, make, model, and connection type), eight from the campaign and creative (campaign, advertised app, goal, creative, and the creative's format, length, orientation, and style), eight bucketed numerics from the request and profile (floor, hour, whether the device is known, its request count, the time since we first and last saw it, our impressions today, and the time since our last impression), the set of apps the device was seen in, and five crosses.
 
 ### Features from the Request
 
@@ -106,49 +106,62 @@ There's no shortage of possible features, so each one should earn its place. A s
 Logistic regression needs numeric inputs, and most of these features are strings. The approach I've used is to turn every feature into one or more **tokens**, strings of the form `name_value`, and give the model one binary input per token. For a rewarded video in Gem Garden on a Samsung phone in India, the tokens might look like this:
 
 ```
-pub_app_com.example.gemgarden
+publisher_app_com.example.gemgarden
 placement_rewarded_video
 country_ind
-device_model_sm-a155f
+model_sm-a155f
 campaign_cozyfarm_cpc_in
 ```
 
 Each type of value in the FeatureVector maps to tokens in its own way:
 
-- **Strings** become one token each, as above. A missing value gets its own token, such as `device_model_null`, so the model learns what missing means.
+- **Strings** become one token each, as above. A missing value gets its own token, such as `model_null`, so the model learns what missing means.
 - **String sets** become many tokens, one per member, such as one token for each publisher app the device was seen in recently. These are **many-hot** features.
-- **Numerics** are bucketed first, and each bucket becomes a token, such as `imps_today_3to5`. Buckets let a linear model learn a nonlinear effect, for example that the click rate falls as a device sees more of our ads in a day.
+- **Numerics** are bucketed first, and each bucket becomes a token, such as `our_imps_today_b3` for the fourth bucket, three or four of our impressions today. Buckets let a linear model learn a nonlinear effect, for example that the click rate falls as a device sees more of our ads in a day.
 
 A linear model can't learn interactions on its own. It can learn that rewarded video gets more clicks than banners, and that Cozy Farm Tycoon's ads get more clicks than average, but not that Cozy Farm Tycoon's ads do especially well in rewarded video. So we add **crosses**: tokens that combine two features, such as `placement_rewarded_video*campaign_cozyfarm_cpc_in`. The most useful crosses pair the campaign or advertised app with features of the supply and device:
 
+- Placement type × campaign.
 - Publisher app × campaign.
-- Placement type × creative format.
 - Country × campaign.
+- Placement type × creative format.
 - Device model × publisher app.
 
 Crosses are where the token count explodes. There are many publisher apps, many device models, and many campaigns, so their pairs number in the millions or more. Rather than keeping a dictionary from token to index, which would have to be built, versioned, and shared between training and serving, we use the **hashing trick**: hash each token to an integer and take it modulo a fixed number of buckets, such as $2^{24}$.[^c9-hashing] The model has one weight per bucket. Two tokens can collide into one bucket, which adds a little noise, but with enough buckets, collisions among the tokens that matter are rare, and the model needs no vocabulary at all.
 
-<!-- CODE: replace with an include from code/training/click once it exists. -->
+This is the tokenizer from the reference DSP's training code, `adtrain`, lightly trimmed. The bidder has a Go twin of it, and the model artifact carries the lists it reads, so the two can't drift apart:
 
 ```python
-import mmh3
+def tokens(self, fv: dict, ad: dict) -> list[str]:
+    strings = fv.get("strings") or {}
+    numeric = fv.get("numeric") or {}
+    sets = fv.get("sets") or {}
 
-NUM_BUCKETS = 2 ** 24
+    def val(k):
+        v = ad.get(k) or strings.get(k)
+        return v if v else None
 
-def tokens(fv: dict) -> list[str]:
-    s = fv["strings"]
-    toks = [f"{k}_{v}" for k, v in s.items()]
-    for k, vals in fv["sets"].items():
-        toks += [f"{k}_{v}" for v in vals]
-    toks += [f"{k}_{bucket(k, x)}" for k, x in fv["numeric"].items()]
-    for a, b in CROSSES:  # pairs of feature names
-        if a in s and b in s:
-            toks.append(f"{a}_{s[a]}*{b}_{s[b]}")
+    toks = []
+    for k in self.strings:
+        v = val(k)
+        toks.append(f"{k}_{v if v is not None else 'null'}")
+    for k in sorted(self.numeric_buckets):
+        if k not in numeric:
+            toks.append(f"{k}_missing")
+            continue
+        i = bisect.bisect_right(self.numeric_buckets[k], numeric[k])
+        toks.append(f"{k}_b{i}")
+    for k in sorted(self.sets):
+        for m in sorted(sets.get(k) or [])[: self.sets[k]]:
+            toks.append(f"{k}_{m}")
+    for a, b in self.crosses:
+        va, vb = val(a), val(b)
+        if va is not None and vb is not None:
+            toks.append(f"{a}_{va}*{b}_{vb}")
     return toks
 
-def hashed(toks: list[str]) -> list[int]:
-    return sorted({mmh3.hash(t, seed=0, signed=False) % NUM_BUCKETS
-                   for t in toks})
+def bucket(self, tok: str) -> int:
+    return mmh3.hash(tok, self.seed, signed=False) % self.num_buckets
 ```
 
 The hash function has to be stable and identical in Python and Go. Python's built-in `hash()` is randomized per process for strings, so it can't be used, and two libraries that both call themselves MurmurHash can still differ in seed and output type. Pick one algorithm and one seed, and check that both languages produce the same indexes for a fixed set of tokens. That check becomes part of the golden-file test in @sec-shipping-the-first-model.
@@ -177,7 +190,35 @@ FTRL is also the first step in a thread that runs through the book. Because it u
 
 A practical warning: general-purpose libraries don't always handle this kind of model well. When I trained logistic regression models with tens of millions of parameters in Spark's MLlib, training ran into problems because the implementation densified the feature vectors in its training loop. A library that works on the sparse vectors directly, with model averaging across workers, avoided the bottleneck. FTRL is short enough to implement yourself, which is what the reference DSP does, and it's worth checking that whatever you use never builds a dense vector of all the buckets.
 
-<!-- CODE: include the FTRL trainer from code/training/click, about 40 lines, once it exists. -->
+The reference trainer is about 90 lines of Python, and the core of it is the two formulas above. The bias is a bucket of its own, keyed `BIAS`, with no L1 penalty, so it's never zeroed out:
+
+```python
+def weight(self, i: int) -> float:
+    z = self.z.get(i, 0.0)
+    l1 = 0.0 if i == BIAS else self.l1
+    if abs(z) <= l1:
+        return 0.0
+    n = self.n.get(i, 0.0)
+    return -(z - math.copysign(l1, z)) / (
+        (self.beta + math.sqrt(n)) / self.alpha + self.l2)
+
+def update(self, buckets: list[int], y: int) -> float:
+    keys = [BIAS, *buckets]
+    w = {i: self.weight(i) for i in keys}
+    s = max(min(sum(w.values()), 35.0), -35.0)
+    p = 1.0 / (1.0 + math.exp(-s))
+    g = p - y  # the gradient for every active bucket, as x_i = 1
+    for i in keys:
+        n = self.n.get(i, 0.0)
+        sigma = (math.sqrt(n + g * g) - math.sqrt(n)) / self.alpha
+        self.z[i] = self.z.get(i, 0.0) + g - sigma * w[i]
+        self.n[i] = n + g * g
+    return p
+```
+
+It uses $\alpha = 0.1$, $\beta = 1$, and $\lambda_1 = \lambda_2 = 1$, and stores $z$ and $n$ only for the buckets it has seen, so memory grows with the data rather than with the $2^{24}$ buckets.
+
+Building the reference trainer also turned up a trap in using an online algorithm for a daily retrain. The first version passed over the training days in time order, as an online learner would, and its models came out badly miscalibrated: on one run, they predicted only 64% of the clicks in their own training data. Yet the predictions FTRL made along the way, each one before seeing its example, were well calibrated hour by hour. The model wasn't wrong. It was tracking the data as it went, and its final weights fit the last hours of the last day, after most budgets had run out and the "today" counters were about to reset, better than they fit the day as a whole. That's the right behavior for a model that keeps learning online, and the wrong one for a model that's trained once and then serves a whole day. The reference trainer now does three things: it starts the bias at the log-odds of the training click rate rather than at zero, it shuffles the training days with a fixed seed, and after its one pass, it refits the bias so the model's predictions on the training data sum to the number of clicks. On the run that came in at 64%, the same data then gave about 90%, which matched a real difference in click rates between the training days and the evaluation day.
 
 ## Negative Downsampling and Correcting Probabilities
 
@@ -189,74 +230,89 @@ $$q = \frac{p}{p + (1 - p)/w}$$
 
 For example, with $w = 0.1$, a prediction of 10% on downsampled data corresponds to about 1.1% on the original data. The correction has to be applied wherever the model's output is used, which in the crawl DSP means in the Go bidder, before pricing. We store $w$ in the model's metadata, so the bidder applies the right correction for each model version, and a model trained with a different rate can't be served with the wrong correction by accident.
 
-Record the sampling rate on every training row, too. The same correction applies when evaluating calibration offline, and the no-bid sampling from @sec-logging-at-bid-time is a second rate that has to be tracked separately.
+The reference trainer supports downsampling, but keeps every non-click by default: at the simulator's scale, a day's training data fits easily in memory, and there's no reason to throw any of it away. Record the sampling rate on every training row, too. The same correction applies when evaluating calibration offline, and the no-bid sampling from @sec-logging-at-bid-time is a second rate that has to be tracked separately.
 
 ## The Model Artifact
 
-The trained model is just a table of weights, one for each hashed bucket that L1 didn't zero out, plus a bias. That table, and the rules for turning a request into buckets, is everything the bidder needs. @tbl-c9-weights shows what part of it looks like for one request: an interstitial video in Gem Garden, for the Cozy Farm Tycoon campaign in Brazil.
+The trained model is just a table of weights, one for each hashed bucket that L1 didn't zero out, plus a bias. That table, and the rules for turning a request into buckets, is everything the bidder needs. @tbl-c9-weights shows part of it for one request: the banner in Gem Garden that we followed through the logs in @sec-logging-at-bid-time, scored by the reference DSP's first model, `click-0001`, trained on six simulated days.
 
 | Token | Bucket | Weight |
-|---|---|---:|
-| (bias) | | −2.30 |
-| `placement_inter_video` | 4,211,907 | +0.42 |
-| `publisher_app_gemgarden` | 11,083,254 | +0.18 |
-| `country_BRA` | 9,550,061 | −0.07 |
-| `campaign_cozyfarm_bra` | 2,764,330 | +0.11 |
-| `creative_cf_video15_v2` | 15,902,118 | +0.09 |
-| `device_model_sm-a155` | 7,340,676 | −0.04 |
-| `connection_wifi` | 1,295,847 | +0.05 |
-| `hour_local_21` | 13,618,402 | +0.03 |
-| `imps_today_3-5` | 6,027,513 | −0.22 |
-| `placement_inter_video*campaign_cozyfarm_bra` | 8,471,229 | +0.31 |
-| `publisher_app_gemgarden*campaign_cozyfarm_bra` | 3,906,775 | +0.27 |
-| `country_BRA*campaign_cozyfarm_bra` | 12,445,980 | 0.00 |
-| `device_model_sm-a155*publisher_app_gemgarden` | 5,118,363 | 0.00 |
+|---|---:|---:|
+| (bias) | | −3.00 |
+| `placement_banner` | 3,143,049 | −0.20 |
+| `publisher_app_com.example.gemgarden` | 7,000,618 | −0.20 |
+| `apps_seen_com.example.gemgarden` | 8,858,060 | −0.44 |
+| `country_bra` | 2,913,600 | +0.20 |
+| `make_realme` | 3,442,833 | +0.25 |
+| `model_rmx3834` | 2,929,526 | +0.26 |
+| `hour_of_day_b0` | 507,560 | +0.20 |
+| `our_imps_today_b5` | 4,810,759 | +0.33 |
+| `seconds_since_our_last_imp_b1` | 6,637,563 | +0.14 |
+| `placement_banner*creative_format_static` | 7,960,659 | −0.20 |
+| `placement_banner*campaign_4` | 3,046,908 | −0.18 |
+| `publisher_app_com.example.gemgarden*campaign_4` | 6,819,808 | −0.21 |
+| `country_bra*campaign_4` | 12,342,626 | +0.19 |
+| `model_rmx3834*publisher_app_com.example.gemgarden` | 11,305,803 | +0.55 |
+| 17 other tokens | | +0.12 |
 
-: Learned weights for the tokens in one request, with $2^{24}$ buckets. Illustrative values. {#tbl-c9-weights tbl-colwidths="[66,18,16]"}
+: Learned weights for the tokens in one request, scored by the reference DSP's first click model, with $2^{24}$ buckets. {#tbl-c9-weights tbl-colwidths="[66,18,16]"}
 
-The weights are easy to read. Interstitial video has a higher click rate than the average placement, and the device has already seen three to five ads today, which lowers it. The two crosses carry as much weight as any single token: this campaign does especially well in interstitial video, and especially well in Gem Garden, beyond what its overall rate and the placement's rate would predict. Two crosses have a weight of exactly zero. L1 removed them because they never gathered enough evidence, so they cost nothing to store or serve.
+Most of the weights are easy to read. Banners get fewer clicks than the average placement, and this campaign does especially poorly in banners and in Gem Garden, beyond what its overall rate and the placement's rate would predict. Brazil is a good country for it. But the largest weights point somewhere else: a device that has already seen ten or more of our ads today, a Realme RMX3834, and above all the cross of that device model with this publisher app.
 
-Scoring the request means adding the weights: $-2.30 + 0.42 + 0.18 - 0.07 + 0.11 + 0.09 - 0.04 + 0.05 + 0.03 - 0.22 + 0.31 + 0.27 = -1.17$. The sigmoid of $-1.17$ is 0.237. The model was trained with 10% of negatives, so the corrected click probability is $0.237 / (0.237 + 0.763 / 0.1) \approx 3.0\%$, which is the number the pricing step in @sec-pricing-a-click uses.
+Scoring the request means adding the weights: the bias plus the 31 token weights is $-2.20$, and the sigmoid of $-2.20$ is 10.0%. This model was trained on every non-click, so no downsampling correction applies, and 10.0% is the number the pricing step in @sec-pricing-a-click would use. That's nine times the average banner click rate on the simulator, and it's what the model learned from its data. The simulator knows why. This device is a bot, one of the simulated devices that send requests at five times the normal rate and click a quarter of the ads they're shown, and every request we've seen from it came from Gem Garden. The request we followed in @sec-logging-at-bid-time was one of its clicks. The model has no feature that says "bot," so it found the next best thing: a device model in a publisher app, with an unusual number of impressions.
+
+It's not just this device. On the evaluation day, about 83% of the impressions in the model's top decile of predictions came from bots, against 9% of impressions overall, and bots produced 58% of the day's clicks. As we warned in @sec-parsing-bid-requests-and-eligibility, a click model trained on invalid clicks learns to find more of them, and by every metric in the next section, it looks like a good model while doing it.
 
 The **model artifact** is what the training job publishes and the bidder loads. For this model, it has two parts. A small metadata file describes how to build the tokens and how to read the weights:
 
 ```json
 {
   "model": "click-ftrl",
-  "version": "2026-11-18.1",
-  "feature_spec": "fv-v3",
-  "hash": {"fn": "murmur3_32", "seed": 0},
-  "num_buckets": 16777216,
-  "crosses": [["placement", "campaign"],
-              ["publisher_app", "campaign"],
-              ["country", "campaign"],
-              ["device_model", "publisher_app"]],
-  "numeric_buckets": {"imps_today": [0, 1, 3, 6, 10]},
-  "bias": -2.30,
-  "downsample_rate": 0.1,
-  "nonzero_weights": 1843211
+  "version": "click-0001",
+  "feature_schema_version": 1,
+  "spec": {
+    "strings": ["exchange", "publisher_app", "placement", "...",
+                "creative_orientation", "creative_style"],
+    "numeric_buckets": {"bidfloor": [0.25, 0.5, 1, 2, 4, 8],
+                        "our_imps_today": [1, 2, 3, 5, 10],
+                        "...": []},
+    "sets": {"apps_seen": 30},
+    "crosses": [["placement", "campaign"],
+                ["publisher_app", "campaign"],
+                ["country", "campaign"],
+                ["placement", "creative_format"],
+                ["model", "publisher_app"]],
+    "num_buckets": 16777216,
+    "hash": {"fn": "murmur3_32", "seed": 0}
+  },
+  "bias": -3.0008,
+  "downsample_rate": 1.0,
+  "ftrl": {"alpha": 0.1, "beta": 1.0, "l1": 1.0, "l2": 1.0},
+  "trained_at": "2026-11-22T01:52:16+00:00",
+  "nonzero_weights": 517
 }
 ```
 
-A binary file holds the nonzero weights as sorted pairs of a 4-byte bucket and a 4-byte weight. With about 1.8 million nonzero weights, it's around 15 MB, which the bidder holds in memory. Serving is the same steps we just did by hand:
+A binary file holds the nonzero weights as sorted pairs of a 4-byte bucket and a 4-byte weight. Trained on six small simulated days, the first model has only 517 nonzero weights, so the file is 4 KB. A production model trained on billions of rows might have a few million, which is still only tens of megabytes for the bidder to hold in memory. Serving is the same steps we just did by hand, in the reference bidder's Go:
 
 ```go
-func (m *ClickModel) Predict(fv *FeatureVector) float64 {
+func (m *Model) Predict(fv *features.FeatureVector,
+    ad map[string]string) float64 {
     z := m.Bias
-    for _, tok := range m.Spec.Tokens(fv) {
-        z += m.Weights[m.Spec.Bucket(tok)]
+    for _, b := range m.Spec.Buckets(m.Spec.Tokens(fv, ad)) {
+        z += float64(m.Weights[b])
     }
     p := 1 / (1 + math.Exp(-z))
-    w := m.DownsampleRate
-    return p / (p + (1-p)/w)
+    if w := m.DownsampleRate; w > 0 && w < 1 {
+        p = p / (p + (1-p)/w)
+    }
+    return p
 }
 ```
 
 Everything that changes the prediction is in the artifact: the hash function and seed, the number of buckets, the list of crosses, the numeric bucket boundaries, and the downsampling rate. If the bidder computed any of them from its own configuration, a change on one side would silently break the model on the other, as in the incidents in @sec-logging-at-bid-time. The same rule holds for every model in this book, and the artifacts get richer as the models do.
 
-The weights are also the model's first readout. Sorting the tokens by weight, for each campaign, shows which publishers, placements, and countries the model likes and dislikes, and these readouts are the first thing to surface in the DSP's admin tool next to the model's metrics. When an account manager asks why a campaign stopped buying a publisher, the answer is usually in this table.
-
-<!-- CODE: export the readout of top and bottom weights per campaign from code/training/click, for the admin tool. -->
+The weights are also the model's first readout. Sorting the tokens by weight, for each campaign, shows which publishers, placements, and countries the model likes and dislikes, and these readouts are the first thing to surface in the DSP's admin tool next to the model's metrics. When an account manager asks why a campaign stopped buying a publisher, the answer is usually in this table. The reference DSP's console lists the largest positive and negative weights for each model, with each token's count in the training data. For `click-0001`, the top of that list was `our_imps_today >= 10`, followed by a handful of publisher apps and the Realme device model, which is the bot story from @tbl-c9-weights told a second way.
 
 ## Metrics
 
@@ -266,11 +322,22 @@ We evaluate the click model with three kinds of metric, because each answers a d
 - **AUC** measures ranking: the probability that a randomly chosen click gets a higher prediction than a randomly chosen non-click. It ignores calibration entirely. A model can have a good AUC and predict click rates that are all twice too high.
 - **Calibration** measures whether predicted rates match observed rates. The simplest check is the ratio of the sum of predictions to the number of clicks, overall and by segment. A calibration plot shows where the model is off. Sort the examples by their prediction, split them into ten equal groups, or deciles, and plot the mean predicted click rate and the observed click rate in each group, as in @fig-c9-calibration.
 
-![A calibration plot for the crawl click model on interstitial video. The model is close to calibrated in most deciles and predicts too high in the top decile, where the data is thinnest and where the bidder spends the most. Simulated data.](../images/ch09-calibration-click.png){#fig-c9-calibration width="100%" fig-alt="Calibration plot of actual and predicted click rate across ten deciles of the prediction. The two lines track closely from about 1% to 5%, and the model predicts somewhat too high in the top decile. AUC is 0.66."}
+![Calibration by decile for the reference DSP's first click model, evaluated on a simulated day it wasn't trained on, with the observed click rate, the mean prediction, and the simulator's true click rate in each decile. The model is close in most deciles, overpredicts in deciles 7 to 9, and finds a top decile of mostly invalid traffic.](../images/ch09-calibration-click.png){#fig-c9-calibration width="100%" fig-alt="Line chart on a log scale of click rate by decile of the prediction, from 1 to 10. Observed, predicted, and true rates all rise from under 0.5% in decile 1 to about 2% in decile 6. In deciles 7 to 9, the predicted rate is higher than both the observed and true rates, reaching 5% in decile 9 where observed and true are about 2.9%. In decile 10, all three are close to 19 to 21%. The model's AUC is 0.79."}
 
-The two lines should overlap. When the predicted line is above the actual line, the model overpredicts and the DSP overbids in those impressions. The top decile matters most, because that's where the bidder bids highest and wins most often, and it's also where a click model is most often too high.
+
+The lines should overlap. When the predicted line is above the actual line, the model overpredicts and the DSP overbids in those impressions. The top deciles matter most, because that's where the bidder bids highest and wins most often. On the simulator, the first model is too high in deciles 7 to 9, by as much as 75% in decile 9, and well calibrated in decile 10, which, as we saw above, is mostly bots. The simulator also gives a third line that production can't: the true click rate, which we come back to below.
 
 For bidding, calibration matters more than ranking. The price of an impression is proportional to the predicted click rate, as we'll see in @sec-pricing-a-click, so a model that overpredicts by 20% overbids by 20% on every impression, even if it ranks impressions perfectly. AUC still matters, because a model that can't tell good impressions from bad ones pays the same for both, but a well-calibrated model with a modest AUC makes money, and a poorly calibrated model with a great AUC loses it.
+
+The reference DSP's console shows these metrics for every model it trains, next to the same metrics for the predictions the bidder logged when it bought the evaluation day's impressions, as in @fig-c9-curves. Before the first model, those logged predictions come from the per-placement priors of @sec-pricing-a-click, so the comparison answers the first question anyone asks about a model: is it better than what we're doing now?
+
+::: {.content-visible when-format="html"}
+![The first click model on the reference DSP's console, against the logged predictions from the priors it would replace: headline metrics, ROC and precision-recall curves, and calibration by decile against observed clicks and the simulator's true rates.](../images/ch09-console-model-curves.png){#fig-c9-curves width="100%" fig-alt="Screenshot of the console's model report. Five tiles: AUC 0.795 against 0.592 for the logged priors; PR AUC 0.161 against 0.040, with a base rate of 3.30%; log loss 0.1203 against 0.1458, normalized entropy 0.830; calibration 1.09, and 1.06 of true rates; stability not applicable, because no model is deployed. Below, an ROC curve for the model well above the logged curve and the diagonal, a precision-recall curve far above the base rate at low recall, and a calibration plot on log scales where the model's points lie near the diagonal and the logged priors' points lie above it."}
+:::
+
+::: {.content-visible unless-format="html"}
+![The first click model on the reference DSP's console, against the logged predictions from the priors it would replace: headline metrics, ROC and precision-recall curves, and calibration by decile against observed clicks and the simulator's true rates.](../images/ch09-console-model-curves-print.png){#fig-c9-curves width="100%" fig-alt="Screenshot of the console's model report. Five tiles: AUC 0.795 against 0.592 for the logged priors; PR AUC 0.161 against 0.040, with a base rate of 3.30%; log loss 0.1203 against 0.1458, normalized entropy 0.830; calibration 1.09, and 1.06 of true rates; stability not applicable, because no model is deployed. Below, an ROC curve for the model well above the logged curve and the diagonal, a precision-recall curve far above the base rate at low recall, and a calibration plot on log scales where the model's points lie near the diagonal and the logged priors' points lie above it."}
+:::
 
 ## Out-of-Time Evaluation
 
@@ -280,12 +347,26 @@ Then break the results down. An overall log loss can hide a model that's well ca
 
 The simulator adds one more comparison that production can't. Because it knows the true click probability of every impression, we can compare predicted rates with true rates, not just with the noisy observed clicks. That separates model error from sampling noise in small segments.
 
-<!-- RESULT: table of log loss, AUC, and calibration by exchange and placement for the crawl click model on the simulator, with true-rate calibration, from a fixed-seed run. -->
+@tbl-c9-segments shows the breakdown for the first model, trained on days 0 to 5 of a fixed-seed simulator run and evaluated on day 6, with 10,851 impressions and 358 clicks.
+
+| Segment | Imps | CTR | Model | Logged | Log loss | AUC | Calib. |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| alpha_exchange | 6,960 | 3.23% | 3.60% | 2.14% | 0.118 | 0.80 | 1.11 |
+| beta_exchange | 3,891 | 3.42% | 3.57% | 2.14% | 0.125 | 0.79 | 1.05 |
+| interstitial | 3,766 | 4.30% | 4.26% | 2.50% | 0.157 | 0.72 | 0.99 |
+| banner | 3,195 | 1.13% | 1.32% | 0.60% | 0.044 | 0.88 | 1.17 |
+| rewarded_video | 3,140 | 3.98% | 5.00% | 3.50% | 0.150 | 0.73 | 1.26 |
+| native | 750 | 4.67% | 3.98% | 1.20% | 0.139 | 0.84 | 0.85 |
+| All | 10,851 | 3.30% | 3.59% | 2.14% | 0.120 | 0.80 | 1.09 |
+
+: Out-of-time results for the first click model by exchange and placement, on day 6 of a simulator run. Model and Logged are the mean predictions of the new model and of the priors the bidder used, and Calib. is the model's predicted over observed clicks. {#tbl-c9-segments tbl-colwidths="[24,10,10,10,10,12,10,14]"}
+
+Overall, the model beats the priors on every metric: an AUC of 0.80 against 0.59, a log loss of 0.120 against 0.146, and a calibration of 1.09 where the priors predicted only 65% of the clicks. The breakdown shows where to look next. The model is 26% too high on rewarded video and 17% too high on banners, and 15% too low on native, which has the fewest impressions and the widest uncertainty. Against the simulator's true click rates, which separate model error from the luck of which impressions happened to be clicked, overall calibration is 1.06, so a little of the 9% overprediction is noise and most of it is the model. And the AUC of 0.88 on banners, the highest of any segment, is a reminder of the decile plot: on banners, where real click rates are low, the bots stand out most.
 
 ::: {.callout-tip title="Try it on the simulator"}
 Build click examples from a simulated week, train the logistic regression model with FTRL on days 1 to 6, and evaluate it on day 7. Compare its calibration with the observed clicks and with the true click rates, by exchange and placement. Then remove the crosses and train again, and see which segments get worse.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: runs with the companion bidder (dsp 0.5) and training code (adtrain 0.4). Play a week with `ADSIM_DAYS=7 docker compose up --build`, then click Train on the console's Models tab: it trains on every day but the last and evaluates on the last, with ROC and PR curves, calibration by decile against observed clicks and the true click rates, and tables by placement, exchange, and campaign. For the ablation, run `python -m adtrain train --no-crosses`; see `code/training/README.md`.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

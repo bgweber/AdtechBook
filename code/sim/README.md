@@ -34,6 +34,72 @@ res.logs["bid_log"].head()
 res.truth["impressions"].head()  # true p_click, lift, value, ...
 ```
 
+
+## Live mode: bidding against a real bidder
+
+By default, the simulator runs a built-in Python policy. In live mode, the
+simulated exchanges send every bid request to a bidder over HTTP instead,
+the way real exchanges do:
+
+```bash
+python -m adsim --preset crawl --scale tiny --days 1 --bidder http://localhost:8080
+```
+
+- Each request is rendered as OpenRTB 2.6 JSON in its exchange's dialect and
+  sent to `POST /openrtb/{exchange}`.
+- The simulated time goes in the `X-Adsim-Time` header, in milliseconds, so
+  the bidder's budgets and day boundaries follow the simulated clock.
+- A response slower than the request's `tmax` counts as a no-bid
+  (`reason = timeout`), so a slow bidder loses auctions.
+- When the run starts, the simulator pushes the campaign book to the
+  bidder's admin API (`PUT /api/campaigns`, on port 8081 unless you pass
+  `--bidder-admin`), without the creatives' true quality.
+- After each auction, it calls the notice URLs in the bid: `nurl` on a win,
+  `lurl` on a loss (on exchanges that send them), and `burl` when the ad is
+  shown and billed, with `${AUCTION_PRICE}`, `${AUCTION_LOSS}`, and
+  `${AUCTION_MIN_TO_WIN}` filled in. About 0.5% of notices are retried, so
+  the bidder has to deduplicate them.
+- When the run ends and installs are resolved, the simulated MMP sends its
+  postbacks to the bidder's `GET /postback`, with a shared token in
+  `X-MMP-Token` (`adsim-mmp`, the bidder's default) and the MMP's own
+  field names, each at the simulated time the MMP would have sent it.
+- When a shown ad is clicked, it calls the click trackers in the bid's ad
+  markup (`adm`, a native-style JSON object:
+  `{"native": {"link": {"url": ..., "clicktrackers": [...]}}}`), at the
+  simulated time of the click, as the ad SDK on the device would. Clicks
+  are retried at the same rate as notices.
+- `bid_log` records the exchange's view: each request's answer, the
+  bidder's `latency_ms`, and the reason for every no-bid. The bidder keeps
+  its own, fuller ledger; a ghost bid looks like any other no-bid to the
+  exchange.
+
+A simulated day at the `tiny` scale takes about 20 to 40 seconds in live
+mode, and at the `laptop` scale a few minutes, depending on your machine.
+
+To keep a market going, for example after deploying a model, continue it
+at a later day with `--start-day`. The world (devices, apps, campaigns)
+is the same, since it comes from the seed, and the traffic is new:
+
+```bash
+python -m adsim --preset crawl --scale tiny --days 1 --start-day 2 --bidder http://localhost:8080
+```
+
+Failure scenarios for the operations chapter (Chapter 12) start on the
+first simulated day of a live run:
+
+- `--scenario wrong-target`: at 06:00, the campaign system pushes the
+  first CPC campaign with its target 100 times too high.
+- `--scenario lost-billing`: from 12:00, beta_exchange stops sending
+  billing notices for rewarded video, while still billing for it.
+
+At the end of every live run, each simulated exchange also sends its
+invoice (`PUT /api/invoices`): what it billed, by day, exchange, and
+placement, also written to `logs/invoices`.
+
+With `--start-day auto`, as Docker Compose runs it, the simulator asks the
+bidder (`GET /api/ledger` on the admin port) for the day after the latest
+one in its ledger, so each run continues the market.
+
 ## What it writes
 
 `logs/` is what a DSP would have. Column names follow OpenRTB and the

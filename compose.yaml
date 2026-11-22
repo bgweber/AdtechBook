@@ -1,0 +1,63 @@
+# One command to run the DSP against the simulated market:
+#
+#   docker compose up --build
+#
+# Then open the console at http://localhost:8081. The simulator plays two
+# simulated days against the bidder and exits; the bidder and the training
+# service keep running, so you can explore the console, and train and
+# deploy a click model from its Models tab. Logs and models land in ./out.
+#
+# Each run continues the market where the ledger in ./out left off, so
+# running the simulator again plays the next days, with whatever model is
+# deployed (delete ./out to start over):
+#   docker compose run --rm sim
+#
+# Change the run with environment variables, for example:
+#   ADSIM_SCALE=laptop ADSIM_DAYS=3 docker compose up --build
+#   BIDDER_MODE=listen docker compose up --build       (Chapter 7)
+#   BIDDER_BID_SHARE=0.01 docker compose up --build    (bid on 1%)
+#   BIDDER_SKEW=bundle docker compose up --build       (Chapter 8)
+#   ADSIM_SCENARIO=wrong-target,lost-billing docker compose run --rm sim
+#                                                      (Chapter 12)
+# In PowerShell, set them first: $env:ADSIM_DAYS=3; docker compose up --build
+
+services:
+  bidder:
+    build: code/dsp
+    command:
+      - -mode=${BIDDER_MODE:-bid}
+      - -bid-share=${BIDDER_BID_SHARE:-1}
+      - -stage=crawl
+      - -ledger=/out/ledger
+      - -notice-url=http://bidder:8080
+      - -models=/out/models
+      - -trainer-url=http://trainer:8090
+      - -skew=${BIDDER_SKEW:-}
+    ports:
+      - "8080:8080"   # bid port: OpenRTB requests from exchanges
+      - "8081:8081"   # admin port: the console
+    volumes:
+      - ./out:/out
+
+  # Training runs in its own container, as it would in production. The
+  # console's Train button calls it; it reads the ledger and publishes
+  # models that the bidder checks and deploys.
+  trainer:
+    build: code/training
+    volumes:
+      - ./out:/out
+
+  sim:
+    build: code/sim
+    depends_on: [bidder]
+    command:
+      - --preset=${ADSIM_PRESET:-crawl}
+      - --scale=${ADSIM_SCALE:-tiny}
+      - --days=${ADSIM_DAYS:-2}
+      - --start-day=${ADSIM_START_DAY:-auto}
+      - --scenario=${ADSIM_SCENARIO:-}
+      - --seed=${ADSIM_SEED:-7}
+      - --bidder=http://bidder:8080
+      - --out=/out/sim
+    volumes:
+      - ./out:/out

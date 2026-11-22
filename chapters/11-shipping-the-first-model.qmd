@@ -17,6 +17,8 @@ The first training pipeline is one script that runs once a day, on a schedule, w
 
 A single machine is enough at crawl volumes. FTRL reads examples as a stream and keeps two numbers per bucket, so even billions of rows fit comfortably. When the data outgrows one machine, the example-building step moves to Spark first, since that's where most of the time goes, and training follows later if it needs to.
 
+The reference DSP's version is `python -m adtrain train`, which the console's Train button also runs. It trains on every complete day in the ledger but the last, evaluates on the last, and publishes a bundle. On six simulated days, it takes well under a minute. One step from the list above is missing: the reference trainer doesn't remove invalid traffic yet, which is why the bots in @sec-a-click-model are still in its training data. Adding it is an exercise in @sec-operating-the-first-dsp.
+
 Run the script with the same code, container, and dependency versions every day, and record them with each artifact. In crawl, a scheduler such as cron or a managed equivalent is enough. We move to a proper orchestrator in @sec-pipelines-validation-and-publishing, when there are several models and their jobs depend on each other.
 
 ## Packaging the Model Artifact
@@ -30,15 +32,41 @@ Each training run writes a **bundle**: everything the bidder needs to use the mo
 - **Metadata:** the training window, the code commit and container version that built it, the evaluation metrics, and a version ID.
 - **Golden vectors:** a small set of FeatureVectors with the exact hashed indexes and predictions the model should produce, for the parity test later in this chapter.
 
-Start simple with versioning. Write each bundle to its own path in object storage, named by version, such as `models/click/2026-11-19-0600/`, and never overwrite a bundle once it's written. A separate small file, the **champion pointer**, names the version the bidder should use. Deploying a model means changing the pointer, and rolling back means changing it back. The old bundles are still there, so a rollback is as fast as a deploy. In @sec-pipelines-validation-and-publishing, we replace the pointer file with a model registry, where the champion is an alias on a registered version, but the idea is the same.
+The reference DSP's bundles are directories, such as `out/models/click/click-0001/`, with six files: `model.json` and `weights.bin` from @sec-a-click-model, `golden.jsonl` with the golden vectors, `report.json` with the evaluation and the checks, and two tables of segment rates, `install_rates.json` for CPI pricing and `click_rates.json` for the fallback in @sec-operating-the-first-dsp. The training window and metrics are in the report.
+
+Start simple with versioning. Write each bundle to its own path in object storage, named by version, such as `models/click/2026-11-19-0600/`, and never overwrite a bundle once it's written. A separate small file, the **champion pointer**, names the version the bidder should use. Deploying a model means changing the pointer, and rolling back means changing it back. The old bundles are still there, so a rollback is as fast as a deploy. In the reference DSP, the pointer is a file named `DEPLOYED` next to the bundles, and every deploy is also appended to a log, so the history of what served when is never lost. In @sec-pipelines-validation-and-publishing, we replace the pointer file with a model registry, where the champion is an alias on a registered version, but the idea is the same.
 
 The training job checks each new model before it writes a bundle, and refuses to publish one that fails. Simple checks catch a lot:
 
 - **Metrics above a floor,** such as AUC above 0.55 and log loss below the base-rate model's.
 - **A sane prediction distribution,** with the mean prediction close to the observed click rate and the spread of predictions not collapsed.
 - **A comparison with the champion** on the same evaluation day, with a limit on how much worse the new model can be.
+- **Stability against the previous model,** measured on the models themselves rather than on their metrics.
 
-These checks matter more than they look. In one system I worked on, a daily retrain produced a model that predicted a 25% click rate for every request, with an AUC of 0.5, and it was deployed automatically. That kind of bad training run happened around 2% of the time, and the fix was a validation step with metric thresholds and a comparison against the prior model on the same data.[^c11-incidents] We build fuller validation gates in @sec-pipelines-validation-and-publishing.
+The reference trainer runs five checks, shown for the first model in @fig-c11-checks: at least 50 clicks in the evaluation day, so the metrics mean something; an AUC of at least 0.55; a calibration between 0.8 and 1.25; a lower log loss than the predictions the bidder logged when it bought the evaluation day's impressions, which is the comparison with the champion; and a stability check against the deployed model, which we come to next. A model that fails is still published, so it can be inspected, but the bidder won't deploy it unless a person forces the deploy.
+
+::: {.content-visible when-format="html"}
+![The checks for the reference DSP's first click model, with its calibration by placement against the logged predictions of the priors it would replace.](../images/ch11-console-checks.png){#fig-c11-checks width="100%" fig-alt="Screenshot of two console panels. Checks: enough eval clicks, pass, 358 clicks in evaluation, need 50; auc, pass, AUC 0.795, need 0.55; calibration, pass, predicted over actual clicks 1.09, need 0.8 to 1.25; beats logged, pass, log loss 0.1203 versus 0.1458 for what the bidder predicted when it bid; stability, pass, no deployed model to compare against. Trained on days 0 to 5 and evaluated on day 6, with 66,654 training and 10,851 evaluation impressions. Calibration by placement: interstitial, banner, rewarded video, and native, with the model's mean prediction much closer to the observed click rate than the logged priors' in every placement."}
+:::
+
+::: {.content-visible unless-format="html"}
+![The checks for the reference DSP's first click model, with its calibration by placement against the logged predictions of the priors it would replace.](../images/ch11-console-checks-print.png){#fig-c11-checks width="100%" fig-alt="Screenshot of two console panels. Checks: enough eval clicks, pass, 358 clicks in evaluation, need 50; auc, pass, AUC 0.795, need 0.55; calibration, pass, predicted over actual clicks 1.09, need 0.8 to 1.25; beats logged, pass, log loss 0.1203 versus 0.1458 for what the bidder predicted when it bid; stability, pass, no deployed model to compare against. Trained on days 0 to 5 and evaluated on day 6, with 66,654 training and 10,851 evaluation impressions. Calibration by placement: interstitial, banner, rewarded video, and native, with the model's mean prediction much closer to the observed click rate than the logged priors' in every placement."}
+:::
+
+These checks matter more than they look. In one system I worked on, a daily retrain produced a model that predicted a 25% click rate for every request, with an AUC of 0.5, and it was deployed automatically. That kind of bad training run happened around 2% of the time, and the fix was a validation step with metric thresholds and a comparison against the prior model on the same data.[^c11-incidents]
+
+The stability check catches failures that metrics miss. At Chartboost, we trained a large logistic regression click model every day, and compared each new model with the previous day's using the cosine similarity of their weight vectors. Consecutive days of training data overlap heavily, so two consecutive models should be nearly the same, with a similarity close to 1. When the similarity drifted below a threshold, the model refresh failed and the new model needed a person to review and deploy it by hand. A sudden drop usually means something changed in the pipeline rather than in the market: a feature that stopped arriving, a changed hash setting, a broken label join, or a day of bad traffic. Metrics can miss these, because a model trained by a broken pipeline is often evaluated on data built by the same broken pipeline.
+
+A few details make the check work:
+
+- **Compare over the union of nonzero weights.** FTRL produces sparse models, so treat a weight that's missing from one model as zero. Otherwise, a feature that disappears entirely doesn't lower the similarity.
+- **Set the threshold from history.** Record the similarity for every run and fail when a new value falls well outside the usual range, such as below the lowest value of the past month. A fixed number like 0.95 is either too loose or too strict, depending on the model.
+- **Break it down when it fails.** Similarity per feature group, such as the publisher, the campaign, and each cross, usually points straight at the feature that changed.
+- **Skip it for intended changes.** A new feature specification or hash setting makes the weights incomparable. Those changes go through a manual deploy anyway.
+
+The reference trainer compares each new model with the deployed one, over the union of nonzero weights, and fails below a cosine of 0.8, a placeholder until there's a month of history to set it from. With no deployed model, the check passes with nothing to compare. It also reports the median change in predictions on the evaluation day, which is easier to explain to an account manager than a cosine. The second model, trained one day after the first and on one more day of data, had a cosine of 0.967 with it, and a median prediction change of 10%.
+
+We build fuller validation gates in @sec-pipelines-validation-and-publishing, including stability checks for tree and deep models, whose parameters can't be compared this way.
 
 ## Loading, Warming Up, and Hot-Swapping Models in Go
 
@@ -51,28 +79,56 @@ In-process serving has a property that matters a lot for a model retrained every
 3. **Warm up.** Score a set of sample requests with the new model before it takes traffic, so memory is allocated and caches are warm. A freshly loaded model is often slow for its first requests, and slow requests are lost bids.
 4. **Swap.** Replace the model with a single atomic pointer swap. Requests that started with the old model finish with it, and new requests use the new one.
 
-<!-- CODE: replace with an include from code/dsp/model once it exists. -->
+The reference bidder runs a single process, so it skips the polling. A deploy, from the console or its API, runs the other three steps directly and then moves the pointer. Here's the core of it, from the bidder's model registry, with error handling trimmed:
 
 ```go
-type Server struct {
-    model atomic.Pointer[ClickModel]
+type Registry struct {
+    Dir string
+    cur atomic.Pointer[Model]
+    mu  sync.Mutex // serializes deploys
 }
 
-func (s *Server) Swap(m *ClickModel) {
-    s.model.Store(m) // in-flight requests keep their old pointer
-}
+// One atomic load, so the bid path never waits on a deploy.
+func (r *Registry) Current() *Model { return r.cur.Load() }
 
-func (s *Server) PredictClick(fv *FeatureVector) (float64, string) {
-    m := s.model.Load()
-    return m.Predict(fv), m.Version
+func (r *Registry) Deploy(version string, force bool) DeployResult {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    dir := filepath.Join(r.root(), version)
+    m, err := Load(dir)
+    // ...
+    n, worst, err := m.CheckGolden(dir)
+    if err != nil || worst > ParityTolerance {
+        // refused: parity can't be forced
+    }
+    if !report.Passed && !force {
+        // refused: failed checks need a person to force the deploy
+    }
+    if us := m.warmup(dir); us > MaxPredictUS {
+        // refused: too slow to serve
+    }
+    r.cur.Store(m) // in-flight requests keep their old pointer
+    r.record(version, force)
+    // ...
 }
 ```
+
+The parity check scores every golden vector in the bundle and requires the Go predictions to match the Python ones to within $10^{-9}$. It's the one check a person can't override: a model the bidder can't reproduce is never served. Warmup scores the golden vectors a few times and then times them, and refuses the model if one prediction takes more than 2 ms. The first model took 7 µs per prediction after warmup.
 
 ## Logging Model Versions
 
 Every bid logs the version of the model that priced it, next to the configuration version from @sec-parsing-bid-requests-and-eligibility. It sounds like bookkeeping, and it's the first parity check a DSP has.
 
-During a rollout, a fleet of bidders polls the pointer at slightly different times, so for a few minutes, some bidders serve the new model and some the old one. If one bidder fails to load the new model, it can keep serving the old one for hours. Without the version in the bid log, all of this is invisible. With it, a dashboard of bids by model version shows the rollout as it happens, and a version that should be gone and isn't is an alert.
+During a rollout, a fleet of bidders polls the pointer at slightly different times, so for a few minutes, some bidders serve the new model and some the old one. If one bidder fails to load the new model, it can keep serving the old one for hours. Without the version in the bid log, all of this is invisible. With it, a dashboard of bids by model version shows the rollout as it happens, and a version that should be gone and isn't is an alert. @fig-c11-versions shows the first deploy on the reference DSP, at 06:00 on the seventh simulated day. In that hour, 41% of bids were priced by the priors and 59% by the model, and from then on, all of them by the model.
+
+::: {.content-visible when-format="html"}
+![Bids by model version and simulated hour on the reference DSP's console, around the deploy of its first click model.](../images/ch11-console-versions.png){#fig-c11-versions width="100%" fig-alt="Screenshot of a console table with one row per simulated hour of day 7, from 03:00 to 09:00, and columns for click-0001 and the priors. From 03:00 to 05:00, all bids were priced by the priors, about 1,900 an hour. At 06:00, 1,022 bids, 59.3%, were priced by click-0001 and 702, 40.7%, by the priors. From 07:00, click-0001 priced all bids. A note reads: click-0001 was deployed at 06:00 on day 7."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Bids by model version and simulated hour on the reference DSP's console, around the deploy of its first click model.](../images/ch11-console-versions-print.png){#fig-c11-versions width="100%" fig-alt="Screenshot of a console table with one row per simulated hour of day 7, from 03:00 to 09:00, and columns for click-0001 and the priors. From 03:00 to 05:00, all bids were priced by the priors, about 1,900 an hour. At 06:00, 1,022 bids, 59.3%, were priced by click-0001 and 702, 40.7%, by the priors. From 07:00, click-0001 priced all bids. A note reads: click-0001 was deployed at 06:00 on day 7."}
+:::
+
 
 The version also connects the training side to the serving side. When the training job evaluates a model offline, it records the version. When monitoring looks at the model's live predictions and outcomes, it filters by the same version. Comparing the two is how we find out whether a model behaves in production the way it did offline, which is the question behind every parity check in @sec-operating-a-competitive-dsp.
 
@@ -87,6 +143,8 @@ In crawl, a person decides when a new model goes live. The daily job publishes a
 - **The rollback is known:** the previous version is named, and moving the pointer back has been tested.
 
 Model deploys should happen when the people who can respond are awake. Deploy during the working hours of the on-call engineer and the team, which can include weekends if the rotation covers them, and never late at night or just before the on-call engineer goes offline. Automated rollback reduces the risk of a bad deploy, but it doesn't remove the need for someone to follow up, and many problems only appear hours later as traffic patterns change.
+
+The checklist also catches what the automated checks can't judge. On one simulator run, the second model failed its calibration check: it predicted 37% more clicks than it got on its evaluation day. Nothing was broken. The evaluation day had been bought by the first model, which bid most on the impressions it rated highest, including the ones it overrated, so the impressions it won were biased toward its own mistakes. This is the winner's curse, and any model evaluated on traffic that a model bought will see some of it. The check was right to stop the deploy, and the person reviewing it has to decide whether the new model is worse or just evaluated on biased data. We come back to the winner's curse in @sec-win-rate-curves-and-the-winners-curse.
 
 A manual deploy every day gets tedious, and that's the point at which to automate it. In @sec-shadow-mode-canaries-and-ab-tests, deploys become canaries with automated checks and rollback. Until then, a manual step with a checklist is a reasonable price for knowing what changed and when.
 
@@ -105,7 +163,55 @@ We now have all the pieces of the crawl bidder. Here's the path a request takes,
 9. **Respond** with a bid or a no-bid, unless the device is in the holdout, in which case the bid is logged as a ghost bid and a no-bid is sent.
 10. **Log** the bid ledger record, with every input and output above, to the log stream.
 
-<!-- CODE: replace with an include of the crawl bid handler from code/dsp once it exists, about 60 lines, with each step as a call. -->
+The reference bidder's handler follows the same steps, in a slightly different order. Its profiles are in memory, so there's no timeout to manage, and the holdout is decided after pricing, so ghost bids are priced like real ones. Trimmed to the calls, it reads like the list:
+
+```go
+var req openrtb.BidRequest
+body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+if err == nil {
+    err = json.Unmarshal(body, &req)
+}
+var n normalize.Request
+if err == nil {
+    n, err = normalize.Normalize(exchange, &req)
+}
+d := policy.Decision{Action: "nobid", CampaignID: -1, CreativeID: -1}
+switch {
+case err != nil:
+    d.Reason = "bad_request"
+case !n.ValidIFA:
+    d.Reason = "no_device_id"
+default:
+    snap = b.Profiles.Observe(n.IFA, n.Bundle, ts, day)
+    v := features.Build(&n, snap, ts)
+    fv = &v
+    elig, why := b.Book.EligibleWhy(n.Country, n.Placement, int(day))
+    // kill switches and throttling
+    cands, reason := b.filter(elig, why, sw, rng)
+    if reason != "" {
+        d.Reason, d.Filtered = reason, why
+        break
+    }
+    predict := func(c *campaigns.Campaign,
+        cr campaigns.Creative) (policy.Prediction, bool) {
+        ad = features.Ad(c, cr)
+        return b.predict(fv, ad, exchange, sw)
+    }
+    // select, predict, price, and decide the holdout
+    d = b.Policy.Decide(cands, n.Placement, n.IFA, n.Floor,
+        rng, predict)
+    d.Filtered = why
+}
+if d.Action == "bid" {
+    b.respond(w, &req, &d, ad)
+} else {
+    w.WriteHeader(http.StatusNoContent) // a no-bid, or a ghost bid
+}
+b.Bids.Log(day, BidRecord{RequestID: n.ID, LatencyUS: lat,
+    Decision: d, Request: n, Features: fv, Ad: ad /* ... */})
+```
+
+The listen-only mode, kill switches, and sampling from earlier chapters are a few more cases in the same `switch`.
 
 Each step records its own latency, so a trace shows where the time goes. In crawl, almost all of it is in parsing and the profile read. The model and pricing together take a tiny share, which won't be true once there are several models per request, as we'll see in @sec-serving-models-in-the-bid-path.
 
@@ -130,7 +236,7 @@ Most ML bugs in a DSP don't crash anything. They produce a slightly different fe
 ::: {.callout-tip title="Try it on the simulator"}
 Train a new click model and publish it as a bundle. Move the champion pointer, and watch the bidders pick it up, warm it up, and swap, with bids by model version on the dashboard. Run the golden-file test after changing the hash seed in only the Python code, and watch it fail. Then publish a model that predicts a constant, and roll it back by moving the pointer.
 
-*Status: planned. This exercise needs the companion model bundles, registry pointer, and Go bidder, which isn't built yet.*
+*Status: runs with the companion bidder (dsp 0.5). Train and deploy from the console's Models tab. Each model is published with golden examples; the bidder refuses to deploy one whose predictions it can't reproduce, or one that failed its checks (including the cosine stability check) unless the deploy is forced, and rolls back by deploying an earlier version or going back to the priors. The bidder warms each model up before the swap, and the Models tab shows bids by model version for each simulated hour. The golden-file test runs in `go test` and `pytest`; for the constant model, use the Chapter 12 button on the Models tab.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

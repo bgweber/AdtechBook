@@ -4,7 +4,8 @@
 day in chunks of `cfg.chunk_minutes`. In each chunk, the policy decides
 on the chunk's requests, the market runs the auctions, decides which wins
 are shown, and records what the DSP would see. When all days have run,
-clicks, installs, attribution, postbacks, and purchases are resolved.
+installs, attribution, postbacks, and purchases are resolved. Clicks are
+resolved chunk by chunk, since they follow impressions within seconds.
 
 The result is two sets of tables:
 
@@ -24,7 +25,7 @@ import pandas as pd
 from . import auction, mmp, outcomes, truth
 from .config import SimConfig
 from .history import DAY_MS, make_history
-from .policy import CrawlPolicy
+from .policy import CrawlPolicy, standardize
 from .requests import make_requests
 from .world import make_world
 
@@ -55,11 +56,21 @@ def simulate(cfg: SimConfig, policy=None, keep_requests: bool = True,
         policy = CrawlPolicy(world.campaigns, world.creatives,
                              holdout_share=cfg.holdout_share,
                              holdout_salt=cfg.holdout_salt, seed=cfg.seed)
-    rng = np.random.default_rng([cfg.seed, 4])
+    # A run that continues at a later day gets fresh random streams.
+    tail = [cfg.start_day] if cfg.start_day else []
+    rng = np.random.default_rng([cfg.seed, 4, *tail])
+    # Clicks get their own stream, so resolving them as the run goes
+    # doesn't change the auctions.
+    rng_click = np.random.default_rng([cfg.seed, 5, *tail])
     camps = world.campaigns.set_index("campaign_id")
     adv_app = camps.app_id
     all_req, all_dec, all_auc, all_imp = [], [], [], []
-    for day in range(cfg.days):
+    # A live bidder gets the campaign book before the first request, as a
+    # DSP's campaign management system would push it.
+    if hasattr(policy, "setup"):
+        policy.setup(world.campaigns,
+                     world.creatives.drop(columns=["quality"], errors="ignore"))
+    for day in range(cfg.start_day, cfg.start_day + cfg.days):
         req = make_requests(world, installed, day)
         spend = defaultdict(float)
         seen = defaultdict(int)  # (device, campaign) impressions today
@@ -72,12 +83,13 @@ def simulate(cfg: SimConfig, policy=None, keep_requests: bool = True,
                 continue
             remaining = {c: camps.daily_budget[c] - spend[c]
                          for c in camps.index}
-            dec = policy.decide(chunk[PUBLIC_REQUEST_COLS],
-                                {"remaining": remaining, "now_ms": lo})
+            dec = standardize(policy.decide(
+                chunk[PUBLIC_REQUEST_COLS],
+                {"remaining": remaining, "now_ms": lo}))
             all_dec.append(dec)
+            # Chunks with no bids still run, on empty tables, so a run
+            # where the DSP never bids (listen-only) has well-formed logs.
             bids = dec[dec.action == "bid"]
-            if bids.empty:
-                continue
             res = auction.run_auctions(world, chunk, bids, rng)
             res = res.merge(bids[["request_id", "campaign_id",
                                   "creative_id"]], on="request_id")
@@ -87,8 +99,6 @@ def simulate(cfg: SimConfig, policy=None, keep_requests: bool = True,
             imp = won[won.shown].merge(
                 chunk[["request_id", "true_device_idx", "true_app_id",
                        "placement", "true_geo"]], on="request_id")
-            if imp.empty:
-                continue
             dev = imp.true_device_idx.to_numpy()
             cid = imp.campaign_id.to_numpy().astype(int)
             n_seen = np.array([seen[(d, c)] for d, c in zip(dev, cid)])
@@ -105,7 +115,18 @@ def simulate(cfg: SimConfig, policy=None, keep_requests: bool = True,
                 imp[k] = v
             for c, cost in zip(cid, imp.price.to_numpy() / 1000):
                 spend[c] += cost
+            # Clicks happen seconds after the impression, so they're
+            # resolved here, while the run goes, and a live bidder hears
+            # about them through its click trackers.
+            imp["impression_id"] = "i" + imp.request_id.astype(str)
+            imp["creative_id"] = imp.creative_id.astype(int)
+            imp["campaign_id"] = imp.campaign_id.astype(int)
+            imp = outcomes.engagement_and_clicks(world, imp, rng_click)
             all_imp.append(imp)
+            # A live bidder hears about its wins, losses, billed
+            # impressions, and clicks through the URLs in its bids.
+            if hasattr(policy, "notify"):
+                policy.notify(res, imp)
         if keep_requests:
             all_req.append(req)
         if progress:
@@ -113,21 +134,27 @@ def simulate(cfg: SimConfig, policy=None, keep_requests: bool = True,
     dec = pd.concat(all_dec, ignore_index=True)
     auc = pd.concat(all_auc, ignore_index=True)
     imps = pd.concat(all_imp, ignore_index=True)
-    imps["impression_id"] = "i" + imps.request_id
-    imps["creative_id"] = imps.creative_id.astype(int)
-    imps["campaign_id"] = imps.campaign_id.astype(int)
-    imps = outcomes.engagement_and_clicks(world, imps, rng)
     clicks = imps[imps.clicked].copy()
     clicks["click_id"] = "c" + clicks.request_id
-    horizon = cfg.days + cfg.click_window_s / 86400 + 1
+    horizon = cfg.start_day + cfg.days + cfg.click_window_s / 86400 + 1
     organic = mmp.organic_installs(world, installed, horizon)
     installs = mmp.resolve_installs(world, installed, organic, imps,
                                     clicks)
     events = mmp.purchases(world, installs)
     pbs = mmp.postbacks(world, installs, events)
+    # A live bidder gets the MMP's postbacks at its postback endpoint. The
+    # installs are resolved once the run ends, so they're sent then, each
+    # with the simulated time the MMP would have sent it.
+    if hasattr(policy, "postbacks"):
+        policy.postbacks(pbs)
     na, sharing = mmp.nonattributed(world, installs, events, history)
     notes = _notifications(auc, imps, rng)
     req_all = pd.concat(all_req, ignore_index=True) if all_req else None
+    # Each exchange invoices what it billed, by day, exchange, and ad
+    # format (Chapter 12 reconciles this with the DSP's own count).
+    invoices = _invoices(imps, req_all) if req_all is not None else None
+    if invoices is not None and hasattr(policy, "invoices"):
+        policy.invoices(invoices)
     res = SimResult()
     if req_all is not None:
         res.logs["bid_requests"] = req_all[PUBLIC_REQUEST_COLS]
@@ -140,6 +167,8 @@ def simulate(cfg: SimConfig, policy=None, keep_requests: bool = True,
                                  "click_ts_ms"]].assign(
         click_ts_ms=lambda d: d.click_ts_ms.astype(np.int64))
     res.logs["postbacks"] = pbs
+    if invoices is not None:
+        res.logs["invoices"] = invoices
     res.logs["nonattributed"] = na
     res.logs["campaigns"] = world.campaigns
     res.logs["creatives"] = world.creatives
@@ -180,9 +209,21 @@ def _notifications(auc: pd.DataFrame, imps: pd.DataFrame, rng):
                       "mbtw": np.nan}),
     ]
     n = pd.concat(rows, ignore_index=True)
-    n["event_id"] = n.type.str[0] + n.request_id
+    n["event_id"] = n.type.astype(str).str[0] + n.request_id.astype(str)
     dup = n[rng.random(len(n)) < 0.005]
     return pd.concat([n, dup], ignore_index=True)
+
+
+def _invoices(imps: pd.DataFrame, req: pd.DataFrame) -> pd.DataFrame:
+    """What each exchange bills: shown impressions at their clearing
+    price, by the day of the auction, exchange, and placement."""
+    x = imps[["request_id", "placement", "price"]].merge(
+        req[["request_id", "ts_ms", "exchange"]], on="request_id")
+    x["day"] = x.ts_ms // DAY_MS
+    g = x.groupby(["day", "exchange", "placement"], as_index=False).agg(
+        impressions=("price", "size"), spend=("price", "sum"))
+    g["spend"] = g.spend / 1000
+    return g
 
 
 def _truth_impressions(world, imps, organic, cfg):

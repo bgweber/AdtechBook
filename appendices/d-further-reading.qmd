@@ -114,9 +114,9 @@ These are the posts I've written on ML in mobile ad tech, which several chapters
 
 ## Podcasts and Newsletters
 
-- **MobileGroove**, hosted by Peggy Anne Salz. Interviews across mobile marketing and app growth. I talked about the AI and infrastructure behind mobile advertising, and why "set it and forget it" AI is dangerous, in the episode "Set It and Forget It AI? Here's Why That's Dangerous," recorded after my time as VP of ML at RZR.
+- **MobileGroove**, hosted by Peggy Anne Salz. Interviews across mobile marketing and app growth. I talked about the AI and infrastructure behind mobile advertising, and why "set it and forget it" AI is dangerous, in the June 18, 2026 episode "Set It and Forget It AI? Here's Why That's Dangerous," recorded after my time as VP of ML at RZR. It's available wherever you get podcasts, including [Apple Podcasts](https://podcasts.apple.com/us/podcast/mobilegroove/id1585861460).
 - **Mobile Dev Memo**, by Eric Seufert. A newsletter and podcast on mobile advertising strategy, measurement, and platform policy, and one of the best sources on how privacy changes affect ad platforms.
 - **AdExchanger** and **PPC Land**. News sites that cover ad tech deals, exchange changes, and privacy policy. Several chapters cite them for events and dates.
 - Company engineering blogs, such as Engineering at Meta, Moloco's blog, and Digital Turbine's blog. Rare public descriptions of how production ad systems are built.
 
-<!-- TODO: add the MobileGroove episode date and link, and Ben's other public talks or podcast appearances. -->
+<!-- TODO: add any other public talks or podcast appearances. -->

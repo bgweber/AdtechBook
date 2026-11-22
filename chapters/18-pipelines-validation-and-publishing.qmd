@@ -103,8 +103,31 @@ Before a model is registered as a challenger, it passes a set of checks. In craw
 - **A comparison with the champion** on the same evaluation data, with a limit on how much worse any metric or important segment can be.
 - **Prediction distributions:** the mean and spread of predictions in line with the champion's, with no collapse to a constant.
 - **Feature coverage:** the features the model depends on most were present in the training data at their usual rates.
+- **Stability against the champion:** the new model behaves like the last one wherever the data hasn't changed.
 
 The constant prediction incident from @sec-operating-the-first-dsp is the reason for the comparison with the champion. A retrain produced a click model that predicted 25% for every request, with an AUC of 0.5. It happened in about 2% of training runs, and the guardrail was exactly this: thresholds on validation metrics, plus a comparison of the new and prior models' outputs on the same data.[^c18-incidents]
+
+### Stability Checks for Trees and Deep Models
+
+In @sec-shipping-the-first-model, the logistic regression click model is checked against the previous day's model with the cosine similarity of their weight vectors. That works because each weight belongs to a fixed, hashed feature, so weight 4,512 means the same thing in both models. Tree ensembles and deep networks don't have that property. Two LightGBM models trained on nearly the same data can split on different features in a different order, and two networks can learn the same function with their hidden units in a different order. Their parameters can't be compared directly, so the check moves to what the models do:
+
+- **Prediction agreement on a reference set.** Score a fixed sample of recent FeatureVectors with both the champion and the challenger, and compare: the rank correlation of their predictions, the distribution of the ratio between them, and the same numbers within large campaigns. This works for any model type.
+- **Feature importance stability** for trees. Compare the rank of each feature's gain importance with the champion's. Small reshuffles are normal; a feature that drops out of the top features, or appears from nowhere, usually means its coverage changed upstream.
+- **Embedding stability** for deep models. For a set of anchor items, such as the most common apps and campaigns, compare each item's nearest neighbors in the old and new embedding spaces. Most neighbors should stay the same. Comparing the vectors themselves needs an alignment step first, because a retrained embedding can be rotated without changing what it means.
+- **Parameter drift for warm-started models.** When a deep model is fine-tuned from the previous checkpoint rather than trained from scratch, its parameters are comparable again, and the relative change in each layer's weights works like the cosine check for logistic regression.
+
+@tbl-c18-stability summarizes the checks by model type.
+
+| Model | Compare | A failure looks like |
+|---|---|---|
+| Logistic regression | Cosine similarity of weight vectors | Similarity well below past runs |
+| Gradient boosted trees | Predictions on a reference set; feature importance ranks | Low rank correlation; a top feature drops out |
+| Deep model, retrained | Predictions on a reference set; embedding neighbors | Neighbors of common apps change |
+| Deep model, warm-started | Relative change in each layer's weights | One layer changes far more than usual |
+
+: Stability checks against the champion, by model type. {#tbl-c18-stability tbl-colwidths="[24,40,36]"}
+
+As in crawl, set each threshold from the history of past runs, and make a failure stop the automatic path rather than the model. The challenger isn't necessarily wrong, since markets do shift, but a person should look before it reaches traffic. The faster the retraining cadence, the more these checks matter: in @sec-retraining-and-real-time-learning, models refresh every few hours, and a stability check is one of the few guards that can keep up.
 
 ## Packaging and Publishing Artifacts
 

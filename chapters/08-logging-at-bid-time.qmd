@@ -113,6 +113,37 @@ message StringList {
 }
 ```
 
+The reference bidder logs the same structure as JSON, which is easier to read in a book and in a terminal. Here is the FeatureVector it logged for one banner request on the simulator, with the recent-apps list cut to three of its 20 entries:
+
+```json
+{
+  "schema_version": 1,
+  "numeric": {
+    "bidfloor": 0, "device_known": 1, "device_requests": 33,
+    "hour_of_day": 1, "interstitial": 0, "rewarded": 0,
+    "our_imps_today": 16, "seconds_since_first_seen": 6236,
+    "seconds_since_last_seen": 227, "seconds_since_our_last_imp": 357
+  },
+  "strings": {
+    "connection_type": "cellular", "country": "bra",
+    "exchange": "alpha_exchange",
+    "make": "realme", "model": "rmx3834",
+    "os": "android", "os_major": "13", "placement": "banner",
+    "publisher_app": "com.example.gemgarden"
+  },
+  "sets": {"apps_seen": ["com.example.gemgarden"]},
+  "lists": {
+    "recent_apps": {
+      "values": ["com.example.gemgarden", "com.example.gemgarden",
+                 "com.example.gemgarden"],
+      "age_seconds": [227, 413, 468]
+    }
+  }
+}
+```
+
+Every time is relative to the request, every string is normalized, and nothing in it is specific to the click model that reads it in @sec-a-click-model.
+
 The schema only grows. New fields are added, and old fields are never repurposed, so a model built for schema version 5 can run on any bidder producing version 5 or later.
 
 One design choice is worth calling out: data from the advertiser's MMP and from SDKs should keep its own vocabulary rather than being merged into bid request fields. The two sources describe the same devices differently. For example, MMP data might use two-letter country codes where bid requests use three-letter codes, or list device models by marketing name where bid requests use hardware identifiers. If you merge them before logging, every one of these mismatches becomes a feature parity issue.[^c8-intent] Canonicalize each source on its own terms, and let the models decide how to combine them.
@@ -172,7 +203,7 @@ The keys that join the logs are worth writing down early, because everything lat
 
 The crawl DSP optimizes for clicks, but its first CPI campaign, in @sec-pricing-a-click, needs install rates for each segment. That needs a way to receive install postbacks from the advertiser's MMP. The minimal version is an HTTPS endpoint that accepts the MMP's install postback, validates that it came from the MMP, and logs it with the click ID or impression ID it carries, the install time, and the postback's own ID. It's joined to the click log later, in batch.
 
-That's all crawl needs. Attribution windows, view-through installs, non-attributed postbacks, purchase events, and the many ways postbacks are duplicated, delayed, or lost are covered in full in @sec-from-clicks-to-installs-and-purchases. One thing is worth doing now, though: log the postback exactly as the MMP sent it, in the MMP's own field names and formats, and translate it in the batch join. As with MMP data in the FeatureVector, keeping the source's vocabulary avoids mismatches that are hard to find later.
+The reference bidder's version is a `/postback` handler on the bid port that checks a shared token in a request header and appends the postback, unchanged, to its own ledger stream. That's all crawl needs. Attribution windows, view-through installs, non-attributed postbacks, purchase events, and the many ways postbacks are duplicated, delayed, or lost are covered in full in @sec-from-clicks-to-installs-and-purchases. One thing is worth doing now, though: log the postback exactly as the MMP sent it, in the MMP's own field names and formats, and translate it in the batch join. As with MMP data in the FeatureVector, keeping the source's vocabulary avoids mismatches that are hard to find later.
 
 ## Labels from Impressions, Not Wins
 
@@ -216,6 +247,37 @@ For storage, logs land in a columnar format, such as Parquet, partitioned by dat
 
 Retention is a decision to make now, not later. Bid logs are large, and they include device-level data that exchange terms and privacy regulations limit. Decide how long full records are kept, how long sampled and aggregated data is kept, and how deletion requests reach every copy. Retention also bounds what the team can do later: the replay backfills in @sec-building-training-datasets only reach back as far as the logs do.
 
+## Following One Request on the Reference DSP
+
+The reference DSP makes these logs easy to inspect. `python -m adtrain trace` takes a request ID and follows it through every ledger stream. Here is a banner request from the seventh simulated day, before any model was deployed:
+
+```text
+Request al007000001284 on alpha_exchange, day 7, policy crawl-prior-v1
+  decision: bid, campaign 4, creative 12, p_click 0.0060 from prior,
+            bid $0.2789 CPM
+  FeatureVector: 9 strings, 10 numerics, 1 sets
+  notice: win at 611202437, price 0.2789
+  notice: billing at 611300123, price 0.2789
+  click: cal007000001284 at 611311196
+  training row: an impression with label 1 (clicked within an hour),
+                features as logged above
+  raw context logged: yes
+```
+
+The billing notice makes it an impression, the click makes it a positive label, and the features in the training row are the ones the bidder logged, not recomputed. This request was also one of the 5% of bids whose raw context the bidder keeps, so its FeatureVector can be rebuilt from scratch.
+
+That's what the parity check does. It reads the raw context for every sampled bid, rebuilds the FeatureVector with a second implementation in Python, and compares it field by field with what the bidder logged. To see it catch a skew, we restarted the bidder for one simulated day with `-skew conn`, which makes it log the exchange's detailed connection type, such as `cellular_4g`, instead of the coarser value the normalization rules call for. Nothing broke, and bidding went on as usual. The parity check, in @fig-c8-parity, flagged it at once: 648 of the day's 1,466 sampled bids had a mismatch, all on one feature, and every day before it was clean.
+
+::: {.content-visible when-format="html"}
+![The parity check on the reference DSP's console after one simulated day with an injected skew. The bidder logged a connection type that the second implementation normalizes differently, on 44% of that day's sampled bids and on none of the days before it.](../images/ch08-console-parity.png){#fig-c8-parity width="100%" fig-alt="Screenshot of the feature parity panel. A fail badge reads 23,688 bids compared, 648 with a mismatch. One row: connection_type, 23,688 compared, 648 mismatched (2.7%), example logged cellular_4g, recomputed cellular, from beta_exchange. By day: day 7 0 of 1,752, day 8 0 of 1,483, day 9 648 of 1,466."}
+:::
+
+::: {.content-visible unless-format="html"}
+![The parity check on the reference DSP's console after one simulated day with an injected skew. The bidder logged a connection type that the second implementation normalizes differently, on 44% of that day's sampled bids and on none of the days before it.](../images/ch08-console-parity-print.png){#fig-c8-parity width="100%" fig-alt="Screenshot of the feature parity panel. A fail badge reads 23,688 bids compared, 648 with a mismatch. One row: connection_type, 23,688 compared, 648 mismatched (2.7%), example logged cellular_4g, recomputed cellular, from beta_exchange. By day: day 7 0 of 1,752, day 8 0 of 1,483, day 9 648 of 1,466."}
+:::
+
+A model-side version of the same idea runs before every deployment in @sec-shipping-the-first-model: the bidder scores a set of golden examples shipped with the model and refuses the model if its predictions differ from the trainer's.
+
 ## First-Time Pitfalls
 
 - **Notifications arrive more than once.** Exchanges retry win and billing notices when the first attempt times out, and trackers can fire twice. Deduplicate on the event ID, or spend and win counts are inflated, and so is every model trained on them.
@@ -225,7 +287,7 @@ Retention is a decision to make now, not later. Bid logs are large, and they inc
 ::: {.callout-tip title="Try it on the simulator"}
 Follow one request from its FeatureVector in the bid ledger, through its win and billing notices, its impression, and its click, to the training row that joins them. Then change how the bidder normalizes one feature, without changing the training code, and watch the parity check flag the mismatch between logged and recomputed values.
 
-*Status: planned. This exercise needs the companion Go bidder's FeatureVector logging and the parity job, which isn't built yet.*
+*Status: runs with the companion bidder (dsp 0.5) and training code. `python -m adtrain trace <request_id>` follows one request from its FeatureVector through its notices and click to its training row. The bidder logs raw context for 5% of bids, and the parity check on the console's Models tab recomputes their FeatureVectors with a second implementation. Start the bidder with `-skew bundle` or `-skew conn` (`BIDDER_SKEW` in Docker Compose) to change how it normalizes one feature.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

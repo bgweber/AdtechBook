@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adtrain"
+version = "0.4.0"
+description = "Training, validation, and publishing for the reference DSP's click model (Machine Learning in Mobile AdTech, Part II)"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = ["numpy>=1.24", "mmh3>=4.0"]
+
+[project.optional-dependencies]
+# compare predictions with the simulator's true click rates
+truth = ["pandas>=2.0", "pyarrow>=12"]
+test = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+include = ["adtrain*"]
