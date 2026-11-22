@@ -95,6 +95,42 @@ The Preface lists the books and surveys that cover the field as a whole. This ap
 - Xiao Ma et al., "Entire Space Multi-Task Model," SIGIR, 2018, and Jiaqi Ma et al., "Multi-gate Mixture-of-Experts," KDD, 2018. Multi-task models for the click-to-install-to-purchase funnel.
 - Recent work on generative recommendation for advertising, such as "Generative Recommendation for Large-Scale Advertising" (2026) and "One Model, Two Markets: Bid-Aware Generative Recommendation" (2026), cited in @sec-conclusion.
 
+## Open-Source Code and Datasets
+
+These projects are good next steps after the companion code. Most are research code rather than production systems, so read them for ideas and test anything you adopt. Check each license before reusing code or data in a commercial product.
+
+**Bidding and auction simulators**
+
+- AuctionGym, from Amazon Science: <https://github.com/amazon-science/auction-gym>. First- and second-price auction simulations for learning to bid, with notebooks on competition and bid shading. Described in "Off-Policy Learning-to-Bid with AuctionGym," KDD, 2023.
+- AuctionNet, from Alibaba: <https://github.com/alimama-tech/AuctionNet>. An auction environment, a dataset of 500 million auction records, and baselines for learned bidding under budget and ROI constraints, from the NeurIPS 2024 auto-bidding competition.
+- RTBGym, part of SCOPE-RL: <https://github.com/hakuhodo-technologies/scope-rl>. A configurable bidding environment with its own click and conversion rates, built for offline reinforcement learning and off-policy evaluation.
+- rlbidder: <https://github.com/zuoxingdong/rlbidder>. Offline RL agents for bidding, including IQL, CQL, and Decision Transformers, with PID and budget-pacing baselines and multi-seed evaluation.
+- RLB: <https://github.com/han-cai/rlb-dp>. Code for "Real-Time Bidding by Reinforcement Learning in Display Advertising," WSDM, 2017, the classic dynamic-programming approach to budget-constrained bidding on iPinYou data.
+
+**Bidders**
+
+- bidflock: <https://github.com/AndrewAct/bidflock>. An OpenRTB 2.6 auction system in Go, with logistic-regression scoring, budget pacing in Redis, and Kafka events. A useful comparison with the reference DSP's single-process design.
+- RTB4Free: <https://github.com/rtb4free/bidder>. A Java OpenRTB bidder from an open-source DSP, with Docker images.
+- Eyevinn's demand-side platform: <https://github.com/Eyevinn/demand-side-platform>. A small Node.js DSP with pluggable bidding agents, built for testing and teaching.
+
+**Click and conversion models**
+
+- FuxiCTR: <https://github.com/reczoo/FuxiCTR>. Config-driven PyTorch implementations of more than 50 CTR models, from logistic regression and DeepFM to DIN, DCN-V2, and multi-task models such as MMoE and PLE.
+- BARS: <https://github.com/reczoo/BARS>. Open benchmarks for CTR prediction, with fixed data splits, settings, and logs for every result. A model for how to compare models fairly.
+- DeepCTR: <https://github.com/shenweichen/DeepCTR>. A widely used TensorFlow library of deep CTR models, with a PyTorch version, DeepCTR-Torch.
+- DLF: <https://github.com/rk2900/DLF>. Code for "Deep Landscape Forecasting for Real-time Bidding Advertising," KDD, 2019, which models win prices with survival analysis to handle censored losses, with Kaplan-Meier and other baselines.
+
+**Off-policy evaluation**
+
+- Open Bandit Pipeline: <https://github.com/st-tech/zr-obp>. Off-policy estimators, including inverse propensity weighting, self-normalized, and doubly robust estimators, with a public dataset logged by randomized policies.
+
+**Datasets**
+
+- iPinYou: the first large public RTB dataset, with bids, impressions, clicks, and conversions from a 2013 competition. Scripts to process it: <https://github.com/wnzhang/make-ipinyou-data>.
+- Criteo: the Criteo AI Lab publishes several advertising datasets, including the Kaggle click logs, an attribution modeling dataset, and an uplift dataset of 25 million users from incrementality tests: <https://ailab.criteo.com>.
+- Avazu: 40 million mobile ad impressions with clicks, from a 2014 Kaggle competition: <https://www.kaggle.com/c/avazu-ctr-prediction>.
+- Open Bandit Dataset: logged recommendations under random and Thompson sampling policies, with propensities, released with the Open Bandit Pipeline.
+
 ## My Posts
 
 These are the posts I've written on ML in mobile ad tech, which several chapters build on. They're shorter and more informal than the chapters, and some include code.

@@ -371,8 +371,6 @@ Build click examples from a simulated week, train the logistic regression model 
 <!-- Tracker: private/implementation-tracker.md -->
 :::
 
-<!-- TODO: optional reality check on a public mobile click dataset, such as Avazu, after checking its license for use in a sold print edition. -->
-
 ## What This Model Can't Do
 
 The click model is a good start, and it has clear limits:

@@ -36,5 +36,6 @@ whether it runs on the simulator today or what it still needs.
 ## Requirements
 
 The simulator and the training examples use Python, and the reference bidder
-uses Go. Chapters that train neural networks run faster on an NVIDIA GPU; the
+uses Go. The quickest way to run them is Docker: `docker compose up --build`
+starts the simulator, the bidder, and its console, which opens in a browser. Chapters that train neural networks run faster on an NVIDIA GPU; the
 training code fits in 4 GB of GPU memory and falls back to CPU.

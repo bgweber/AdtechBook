@@ -65,6 +65,23 @@ Requests where the new policy would have done what the old one did count for mor
 
 This works well when the logging policy explored, as the crawl DSP's weighted random selection did, so every action had a reasonable probability. It works poorly when the new policy takes actions the old one almost never took, because the weights become huge and the estimate is dominated by a few rows. Clipping the weights and self-normalizing them, by dividing by the sum of the weights instead of $N$, trade a little bias for much less variance. When the estimate's confidence interval is too wide to decide anything, that's the signal to run an online test instead. We use this method for campaign selection in @sec-learned-campaign-selection.
 
+## Seeds and Run-to-Run Variance
+
+Every number in an offline comparison comes from one run, and a different run would give a different number. Three things vary from run to run: the data, because a different week or a different simulator seed gives different impressions; the training, because the order of the examples, the initial weights, and dropout all depend on a random seed; and the evaluation sample, because a day of impressions is a sample, too. A model change is only real if its effect is larger than that variation.
+
+The reference DSP's first click model shows how large each source can be. We trained it ten times on the same six simulated days, changing only the seed that shuffles the training examples, and evaluated each on the same seventh day. The AUC ranged from 0.788 to 0.796, and calibration from 1.07 to 1.09. The evaluation sample matters more: resampling the evaluation day's 11,146 impressions with replacement gives a 95% interval for one model's AUC of 0.772 to 0.822, six times wider than the range across training seeds, because 377 clicks isn't many.
+
+Those intervals are wide enough to hide a real improvement. Removing the five crosses from the model lowered its AUC by 0.008 on average, which is well inside the evaluation interval, so a single run of each would leave the question open. But the drop was there for every one of the ten seeds, between 0.007 and 0.010, and log loss was worse for every seed, too. Comparing the two versions seed by seed, on the same evaluation data, removes most of the noise that the two runs share, and what's left is a consistent effect. That says the crosses help on this day. Whether they help on other days, and on real traffic, still takes more evaluation days and an online test.
+
+The variation is much larger for deep models. Random initialization, dropout, the order of minibatches, and GPU kernels that aren't deterministic all change the result, and the gap between two architectures is often smaller than the gap between two seeds of the same one. A few habits keep comparisons honest:
+
+- **Report a spread, not a number.** Train each candidate with at least five seeds and report the mean and the range, or a confidence interval.
+- **Compare in pairs.** Use the same seeds, training data, and evaluation data for both versions, and look at the distribution of the per-seed differences.
+- **Fix seeds for reproducibility, not for tuning.** A fixed seed makes a run repeatable, which is what a pipeline needs. Tuning hyperparameters on one seed finds the settings that suit that seed.
+- **Vary the data, too.** For the simulator, rerun with other seeds, such as `ADSIM_SEED=11 docker compose up`. On real traffic, evaluate on several days.
+
+In production, seed variance doesn't go away. It shows up as churn between model versions, which is the subject of the next section.
+
 ## Model Stability Across Training Runs
 
 Two models trained on almost the same data should make almost the same predictions. Often they don't. Retrain a LightGBM model on yesterday's window and today's, and individual predictions can move by a surprising amount, even when the overall metrics are unchanged. In a DSP, that **prediction churn** matters, because every change in a prediction is a change in a bid, and large daily swings make pacing harder, confuse advertisers watching their campaigns, and make it difficult to tell a real change from noise.
