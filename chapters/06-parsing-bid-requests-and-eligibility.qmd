@@ -17,39 +17,35 @@ In @sec-the-auction-lifecycle, we walked through a bid request for a rewarded vi
 - **The user and regulation:** consent strings in `user` and the flags in `regs`, which decide whether we can use device-level data at all.
 - **Blocks:** the blocked categories, advertisers, and apps (`bcat`, `badv`, `bapp`) that the publisher doesn't want to see ads for.
 
-The bidder parses the request into a Go struct with just these fields, and ignores the rest. A sketch of the struct looks like this:
-
-<!-- CODE: replace with an include from code/dsp/openrtb once it exists. -->
+The bidder parses the request into a Go struct with just these fields, and ignores the rest. The reference DSP's struct is narrower still, because the simulated exchanges don't send consent strings or block lists yet:
 
 ```go
 type BidRequest struct {
-    ID     string   `json:"id"`
-    TMax   int      `json:"tmax"`
-    AT     int      `json:"at"`
-    Imp    []Imp    `json:"imp"`
-    App    *App     `json:"app"`
-    Device *Device  `json:"device"`
-    Regs   *Regs    `json:"regs"`
-    BCat   []string `json:"bcat"`
-    BAdv   []string `json:"badv"`
-    BApp   []string `json:"bapp"`
+    ID     string  `json:"id"`
+    Imp    []Imp   `json:"imp"`
+    App    *App    `json:"app,omitempty"`
+    Device *Device `json:"device,omitempty"`
+    TMax   int     `json:"tmax,omitempty"` // time limit, in ms
+    AT     int     `json:"at,omitempty"`   // auction type
 }
 
 type Device struct {
-    IFA      string `json:"ifa"`
-    OS       string `json:"os"`
-    OSV      string `json:"osv"`
-    Make     string `json:"make"`
-    Model    string `json:"model"`
-    ConnType int    `json:"connectiontype"`
-    Geo      *Geo   `json:"geo"`
-    LMT      int    `json:"lmt"`
+    IFA            string `json:"ifa,omitempty"`
+    LMT            int    `json:"lmt,omitempty"`
+    OS             string `json:"os,omitempty"`
+    OSV            string `json:"osv,omitempty"`
+    Make           string `json:"make,omitempty"`
+    Model          string `json:"model,omitempty"`
+    ConnectionType int    `json:"connectiontype,omitempty"`
+    Geo            *Geo   `json:"geo,omitempty"`
 }
 ```
 
+The full types are in `code/dsp/internal/openrtb`.
+
 A few practices keep parsing fast and safe:
 
-- **Parse only what you use.** Decoding into a narrow struct skips everything else in the payload. Go's standard `encoding/json` package is slow at bid-path rates because it relies on reflection, so most bidders use a code-generated decoder or a faster third-party parser. Whichever you choose, benchmark it on real requests from each exchange, since request sizes vary a lot between exchanges.
+- **Parse only what you use.** Decoding into a narrow struct skips everything else in the payload. Go's standard `encoding/json` package is slow at bid-path rates because it relies on reflection, so most bidders use a code-generated decoder or a faster third-party parser. The reference bidder uses the standard package for readability, and its whole bid path still takes a fraction of a millisecond at the median, which is plenty for the simulator. Whichever you choose, benchmark it on real requests from each exchange, since request sizes vary a lot between exchanges.
 - **Keep unknown fields and extensions out of the hot path.** Exchanges put useful signals in `ext` objects, such as rewarded flags on older versions of OpenRTB or their own placement types. Map the few you need into the struct explicitly, per exchange, and ignore the rest.
 - **Reject malformed requests cheaply.** A request with no `imp`, no `app`, or a `tmax` too short to respond in gets a no-bid response before any profile read or model call. Count rejections by reason and exchange, because a sudden rise usually means the exchange changed something.
 - **Respond to everything.** A request the bidder can't handle still gets an answer: a no-bid with a reason code. Exchanges watch timeout rates, and a bidder that drops requests silently gets throttled.
@@ -67,6 +63,30 @@ The fix is to normalize every field into one canonical form as soon as it's pars
 - **Format and placement:** derive one placement type (rewarded video, interstitial, banner, native) from the combination of fields and extensions each exchange uses.
 - **Exchange quirks:** keep a small adapter per exchange that maps its extensions and conventions into the common schema, so the rest of the bidder sees only one format.
 
+In the reference bidder, two of these rules look like this. The placement type comes from which objects the impression carries, with the rewarded flag read from either the standard field or one exchange's extension, and bundles lose the junk one simulated exchange appends:
+
+```go
+func placement(imp openrtb.Imp) string {
+    switch {
+    case imp.Native != nil:
+        return Native
+    case imp.Video != nil && (imp.Rwdd == 1 || extRewarded(imp.Ext)):
+        return RewardedVideo
+    case imp.Video != nil:
+        return Interstitial
+    default:
+        return Banner
+    }
+}
+
+func cleanBundle(b string) string {
+    if i := strings.IndexByte(b, '$'); i >= 0 {
+        b = b[:i]
+    }
+    return strings.ToLower(strings.TrimSpace(b))
+}
+```
+
 Normalization belongs at ingest, in the bidder, and not in training code. If the bidder logs raw values and the training pipeline cleans them, there are two implementations of the cleaning logic, and they'll drift. We'll see in @sec-logging-at-bid-time that the bidder logs the features it used, after normalization, so that training sees exactly what the model saw. That only works if normalization happens before the features are computed.
 
 Count what normalization does. The share of each field that's missing, unmapped, or rewritten, by exchange, is one of the first dashboards a DSP needs, and one of the best early warnings that an exchange has changed its format.
@@ -75,23 +95,22 @@ Count what normalization does. The share of each field that's missing, unmapped,
 
 After parsing, the bidder reads the device's profile, using the advertising ID as the key. As we saw in @sec-inside-a-demand-side-platform, the profile is where most strong features come from: the apps the device has been seen in, the ads it has been shown recently, and, later, installs and purchases from MMP postbacks and precomputed model outputs.
 
-We define the profile schema in protocol buffers, so that the bidder, the streaming jobs that update profiles, and the training pipelines all read the same definition. A first version is small:
+In production, define the profile schema in protocol buffers, so that the bidder, the streaming jobs that update profiles, and the training pipelines all read the same definition. A first version is small. The reference bidder keeps its profiles in memory, built only from its own traffic, and this is the snapshot of one profile that it builds features from:
 
-<!-- CODE: replace with an include from code/schemas once it exists. -->
-
-```protobuf
-message DeviceProfile {
-  string device_id = 1;
-  int64 first_seen_ms = 2;
-  int64 last_seen_ms = 3;
-  // Publisher apps the device was seen in, with counts.
-  repeated AppSeen apps_seen = 4;
-  // Our recent impressions and clicks, for caps and features.
-  repeated AdEvent ad_events = 5;
-  // Set by batch jobs; versioned so features can be traced.
-  string precomputed_version = 6;
+```go
+type Snapshot struct {
+    Known       bool     `json:"known"`
+    FirstSeenMS int64    `json:"first_seen_ms"`
+    LastSeenMS  int64    `json:"last_seen_ms"`
+    Requests    int64    `json:"requests"`
+    LastImpMS   int64    `json:"last_imp_ms"`
+    ImpsToday   int64    `json:"imps_today"`
+    Apps        []string `json:"apps"`   // sorted, deduplicated
+    Recent      []Visit  `json:"recent"` // most recent first
 }
 ```
+
+The snapshot is taken before the request is recorded, so a feature never includes the request it describes.
 
 The profile store needs to answer in a few milliseconds at the bidder's full request rate, which usually means a key-value or wide-column NoSQL store such as Aerospike, Bigtable, or Redis, with the device ID as the key. In my experience, the right pattern is to keep values that are expensive to compute next to the profile, computed ahead of time by streaming or batch jobs, so the bidder only does one read and a few cheap calculations.[^c6-realtime] We'll come back to the choice of store in @sec-serving-models-in-the-bid-path.
 
@@ -132,6 +151,17 @@ The filters run in order from cheapest to most expensive. Checks on fields in th
 
 Log why each campaign was filtered, at least for a sample of requests. When an advertiser asks why their campaign isn't spending, the answer is usually in the filter counts: targeting that matches almost no traffic, a creative that fits no placements, or a floor the campaign can never clear.
 
+The reference bidder implements the filters the simulator exercises: country targeting, start dates, creative compatibility, and daily budgets, plus the campaign kill switches and throttling of @sec-operating-the-first-dsp. Blocks, frequency caps, and installed-app checks wait until the simulated exchanges send block lists and the simulated campaigns ask for caps. Every bid record lists the campaigns that were filtered and the filter that removed each one, and the console counts them, as in @fig-c6-filters. Campaign 3 targets only Indonesia, so the geo filter removes it from most requests, and campaigns 0 and 5 have no static creative, so they can't fill banners. Campaigns that the geo filter has already removed aren't counted again, so the later columns are smaller than they would be on their own.
+
+::: {.content-visible when-format="html"}
+![Eligibility filters by campaign, and the reasons for every decision, on the reference DSP's console for one simulated day. Geo targeting and throttling, from Chapter 12, remove the most campaigns; the decisions table shows what happened to each request.](../images/ch06-console-filters.png){#fig-c6-filters width="100%" fig-alt="Screenshot of two console panels. The first is a table of eight campaigns with the number of requests where each filter removed them: geo, no fitting creative, budget spent, not started, paused, and throttled. For example, campaign 3 was removed by the geo filter on 52,240 requests. Below it, a bar chart of requests by simulated hour, peaking in the afternoon, and a decisions table: 49.5% of requests got a bid, 27.1% were throttled, 15.9% were below the floor, 5.3% had no device ID, and 2.1% were holdout ghost bids."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Eligibility filters by campaign, and the reasons for every decision, on the reference DSP's console for one simulated day. Geo targeting and throttling, from Chapter 12, remove the most campaigns; the decisions table shows what happened to each request.](../images/ch06-console-filters-print.png){#fig-c6-filters width="100%" fig-alt="Screenshot of two console panels. The first is a table of eight campaigns with the number of requests where each filter removed them: geo, no fitting creative, budget spent, not started, paused, and throttled. For example, campaign 3 was removed by the geo filter on 52,240 requests. Below it, a bar chart of requests by simulated hour, peaking in the afternoon, and a decisions table: 49.5% of requests got a bid, 27.1% were throttled, 15.9% were below the floor, 5.3% had no device ID, and 2.1% were holdout ghost bids."}
+:::
+
+
 ## Supply Quality and Fraud Filters
 
 As we saw in @sec-the-auction-lifecycle, not all supply is what it claims to be. Some requests come from fake apps, emulators, or devices in click farms. Some come from real apps that place ads where users tap them by accident. The crawl DSP is especially exposed, for two reasons. First, cheap inventory has more invalid traffic, because fraud is easier to hide where prices are low and volumes are high. Second, a CPC goal pays for clicks, which is exactly what most mobile fraud produces. A click model trained on fraudulent clicks learns to find more of them, and it will look like an excellent model while doing it.
@@ -152,7 +182,7 @@ After filtering, a few campaigns are usually still eligible, and the bidder has 
 
 $$P(c) = \frac{w_c}{\sum_{c' \in E} w_{c'}}$$
 
-Here, $E$ is the set of eligible campaigns and $w_c$ is a weight for campaign $c$, based on its priority and how much budget it has left to spend today relative to the others. A campaign that's behind on spending gets a larger weight. Once a campaign is chosen, the bidder picks one of its eligible creatives, uniformly at random in crawl, so the probability of the full choice is the product of the two:
+Here, $E$ is the set of eligible campaigns and $w_c$ is a weight for campaign $c$, based on its priority and how much budget it has left to spend today relative to the others. A campaign that's behind on spending gets a larger weight. The reference bidder uses the share of today's budget that's left, plus 0.1, so a campaign with little budget left still gets some traffic. Once a campaign is chosen, the bidder picks one of its eligible creatives, uniformly at random in crawl, so the probability of the full choice is the product of the two:
 
 $$P(c, k) = P(c) \times \frac{1}{|K_c|}$$
 
@@ -171,7 +201,7 @@ Propensities can't be reconstructed later. The weights depend on budgets and pac
 ::: {.callout-tip title="Try it on the simulator"}
 Trace a handful of requests through parsing and eligibility: one with a missing device model, one from an exchange that sends two-letter country codes, one with no device ID, and one from a publisher app the simulator generates as invalid traffic. For each, check the normalized fields, the profile lookup result, which campaigns were filtered and why, and the logged selection probability. Then compare the click rates of the invalid traffic with the rest.
 
-*Status: the simulator already produces these requests (adsim 0.1). The companion parser, profile lookup, and commands are in progress.*
+*Status: runs with the companion bidder (dsp 0.5) in bid mode. Its bid ledger records each normalized request, the device's profile features, the campaigns each filter removed and why, the reason for every no-bid, and the selection probability, and the console's Live tab counts the filters by campaign; see `code/dsp/README.md` for the commands. The simulator's truth tables mark invalid traffic for the comparison.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

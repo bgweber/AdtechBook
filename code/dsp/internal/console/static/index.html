@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSP console</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #ffffff; --ink: #1d232b; --muted: #6b7280;
+    --line: #e3e3df; --accent: #e8932d; --navy: #15202e; --bar: #3b4b60;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--ink); }
+  header { background: var(--navy); color: #fff; padding: 14px 24px;
+           display: flex; align-items: baseline; gap: 24px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header .tag { font-size: 12px; color: #c9d1db; }
+  header .tag b { color: var(--accent); font-weight: 600; }
+  nav { display: flex; gap: 4px; padding: 0 24px; background: var(--navy); }
+  nav a { color: #c9d1db; padding: 8px 14px; text-decoration: none; font-size: 13px;
+          border-bottom: 2px solid transparent; }
+  nav a.on { color: #fff; border-bottom-color: var(--accent); }
+  nav a.soon { opacity: .45; pointer-events: none; }
+  main { padding: 20px 24px; max-width: 1200px; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; margin-top: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+             color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  .big { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sub { color: var(--muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .bars { display: flex; align-items: flex-end; gap: 3px; height: 130px; }
+  .bars div { flex: 1; background: var(--bar); border-radius: 2px 2px 0 0; min-height: 1px; }
+  .axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .mini { display: flex; align-items: flex-end; gap: 2px; height: 34px; width: 140px; }
+  .mini div { flex: 1; background: var(--bar); min-height: 1px; }
+  .note { margin-top: 16px; color: var(--muted); font-size: 12px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px;
+          background: #fdf1e2; color: #9a5a12; }
+  .warn { color: #b42318; }
+  .budget { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; min-width: 70px; }
+  .budget div { height: 100%; background: var(--accent); }
+  .wide { margin-top: 12px; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin-top: 12px; }
+  section[hidden] { display: none; }
+  button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--line); background: #fff; color: var(--ink); }
+  button.primary { background: var(--navy); color: #fff; border-color: var(--navy); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.link { border: 0; background: none; padding: 0 4px; color: #1c5cab; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; white-space: nowrap; }
+  .ok { background: #e3f4e3; color: #0a6b0a; }
+  .bad { background: #fbe4e4; color: #a12b2b; }
+  .live { background: #fdf1e2; color: #9a5a12; }
+  tr.sel td { background: #f3f6fb; }
+  pre.log { background: #f3f3f0; border-radius: 6px; padding: 8px 10px; font-size: 12px;
+            max-height: 220px; overflow: auto; white-space: pre-wrap; margin: 8px 0 0; }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .chart .axis-label { font-size: 11px; fill: var(--muted); }
+  .chart .tick { font-size: 10px; fill: var(--muted); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 5px; }
+  .legend i.dash { border-top-style: dashed; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  td.tok { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; text-align: left;
+           max-width: 330px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pos { color: #0a6b0a; } .neg { color: #a12b2b; }
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .switch:last-child { border-bottom: 0; }
+  button.danger { background: #a12b2b; color: #fff; border-color: #a12b2b; }
+  button.on { background: #fbe4e4; color: #a12b2b; border-color: #e7b4b4; }
+  #alertcount .badge { margin-left: 4px; }
+  tr.sub td { color: var(--muted); font-size: 12px; }
+  tr.sub td:first-child { padding-left: 22px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DSP console</h1>
+  <span class="tag">bidder <b id="version">–</b></span>
+  <span class="tag">mode <b id="mode">–</b></span>
+  <span class="tag">stage <b id="stage">–</b></span>
+  <span class="tag">click model <b id="modelv">–</b></span>
+  <span class="tag">simulated time <b id="simtime">–</b></span>
+</header>
+<nav>
+  <a href="#live" id="nav-live" class="on">Live</a>
+  <a href="#models" id="nav-models">Models</a>
+  <a href="#controls" id="nav-controls">Controls <span id="alertcount"></span></a>
+</nav>
+<main>
+<section id="tab-live">
+  <div class="row">
+    <div class="card"><h2>Requests</h2><div class="big" id="total">–</div>
+      <div class="sub"><span id="rps">–</span> per second</div></div>
+    <div class="card"><h2>Bids</h2><div class="big" id="bids">–</div>
+      <div class="sub" id="bidshare">–</div></div>
+    <div class="card"><h2>Wins</h2><div class="big" id="wins">–</div>
+      <div class="sub" id="winrate">–</div></div>
+    <div class="card"><h2>Impressions</h2><div class="big" id="imps">–</div>
+      <div class="sub" id="spend">–</div></div>
+    <div class="card"><h2>Clicks</h2><div class="big" id="clicks">–</div>
+      <div class="sub" id="ctr">–</div></div>
+    <div class="card"><h2>Latency p50 / p99</h2><div class="big" id="lat">–</div>
+      <div class="sub">bid path, inside the bidder</div></div>
+    <div class="card"><h2>Ledger</h2><div class="big" id="ledger">–</div>
+      <div class="sub" id="dropped">–</div></div>
+  </div>
+
+  <div class="card wide">
+    <h2>Campaigns, simulated day <span id="cday">–</span></h2>
+    <table id="campaigns"><thead><tr><th>Campaign</th><th>Goal</th><th>Target</th><th>Countries</th>
+      <th>Budget</th><th>Spent today</th><th></th><th>Bids</th><th>Wins</th><th>Win rate</th>
+      <th>Imps</th><th>eCPM</th><th>Clicks</th><th>CTR</th><th>Predicted</th><th>Pred / actual</th><th>Installs</th><th>Cost / install</th></tr></thead><tbody></tbody></table>
+    <p class="sub" id="nocamps"></p>
+    <p class="sub">Predicted is the mean predicted click rate of the shown impressions: the placement
+      prior, or the click model once one is deployed. Pred / actual far from 1.00 means the bids for that
+      campaign are off by the same factor (Chapter 10). Installs are click-through installs the MMP credited
+      to us; the simulated MMP sends its postbacks when a run ends. Cost / install is media spend per install,
+      to compare with a CPI campaign's target.</p>
+  </div>
+
+  <div class="card wide">
+    <h2>Eligibility filters by campaign</h2>
+    <table id="filters"><thead><tr><th>Campaign</th><th>Geo</th><th>No fitting creative</th><th>Budget spent</th>
+      <th>Not started</th><th>Paused</th><th>Throttled</th></tr></thead><tbody></tbody></table>
+    <p class="sub">Requests where each filter removed the campaign before selection, in the order the filters run
+      (Chapters 6 and 12). Every bid record lists the campaigns filtered and why, under <code>decision.filtered</code>.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Requests by simulated hour, day <span id="day">–</span></h2>
+      <div class="bars" id="hourly"></div>
+      <div class="axis"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+    </div>
+    <div class="card">
+      <h2>Decisions</h2>
+      <table id="reasons"><thead><tr><th>Reason</th><th>Requests</th><th>Share</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Exchanges</h2>
+      <table id="exchanges"><thead><tr><th>Exchange</th><th>Requests</th><th>Share</th>
+        <th>Mean floor</th><th>Device ID</th><th>Floors</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="card">
+      <h2>Placements</h2>
+      <table id="placements"><thead><tr><th>Placement</th><th>Requests</th><th>Share</th>
+        <th>Mean floor</th><th>Floors</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Countries</h2>
+      <table id="countries"><thead><tr><th>Country</th><th>Requests</th><th>Share</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="card">
+      <h2>Floor buckets</h2>
+      <div class="sub" id="edges">–</div>
+      <p class="sub">The small histograms show the share of requests in each floor
+        bucket, in CPM, from no floor on the left to the highest floors on the right.</p>
+    </div>
+  </div>
+  <p class="note" id="modenote"></p>
+</section>
+
+<section id="tab-models" hidden>
+  <div class="grid2" style="margin-top:0">
+    <div class="card">
+      <h2>Train a click model</h2>
+      <p class="sub" style="margin-top:0">Builds click examples from the ledger, trains logistic regression with
+        FTRL on every day but the last, evaluates on the last day, and publishes the model with its
+        golden examples and validation report (Chapters 9 and 11). Takes a few seconds at tiny scale. You can
+        train while the simulator runs: a day still in progress is left out.</p>
+      <label class="sub"><input type="checkbox" id="autodeploy" checked> deploy it if all checks pass</label>
+      <div style="margin-top:8px; display:flex; gap:8px; align-items:center">
+        <button class="primary" id="trainbtn">Train</button>
+        <span class="sub" id="trainstate">–</span>
+      </div>
+      <p class="sub" style="margin:8px 0 0">For the Chapter 12 exercise: <button class="link" id="constbtn">publish a broken
+        model that predicts 25% for everything</button>. It fails its checks; force-deploy it to see the alerts.</p>
+      <pre class="log" id="trainlog" hidden></pre>
+    </div>
+    <div class="card">
+      <h2>Serving now</h2>
+      <div class="big" id="servingnow">–</div>
+      <p class="sub" id="servingnote">–</p>
+      <div style="display:flex; gap:8px"><button id="undeploy">Go back to priors</button></div>
+      <p class="sub" id="deploymsg"></p>
+    </div>
+  </div>
+
+  <div class="card wide">
+    <h2>Published models</h2>
+    <table id="models"><thead><tr><th>Version</th><th>Trained</th><th>Eval rows</th><th>AUC</th><th>PR AUC</th>
+      <th>Log loss</th><th>Logged</th><th>Calibration</th><th>Cosine</th><th>Checks</th><th></th></tr></thead><tbody></tbody></table>
+    <p class="sub" id="nomodels"></p>
+  </div>
+
+  <div class="card wide">
+    <h2>Bids by model version, last 12 simulated hours</h2>
+    <table id="versions"><thead></thead><tbody></tbody></table>
+    <p class="sub">Which model priced each bid (Chapter 11): a model version, the fallback with the bundle it came
+      from, or the placement priors. A swap shows as one version giving way to the next within an hour.</p>
+  </div>
+
+  <div class="card wide">
+    <h2>Feature parity</h2>
+    <div style="display:flex; gap:8px; align-items:center">
+      <button id="paritybtn">Run the parity check</button>
+      <span class="sub" id="paritystate">Recomputes the FeatureVector of every bid whose raw context the bidder
+        logged (5% of bids) with a second implementation in the training code, and compares it with the one the
+        bidder logged (Chapter 8).</span>
+    </div>
+    <table id="parity" style="margin-top:8px"><thead><tr><th>Feature</th><th>Compared</th><th>Mismatched</th>
+      <th style="text-align:left">Example: logged → recomputed</th></tr></thead><tbody></tbody></table>
+    <p class="sub" id="paritydays"></p>
+  </div>
+
+  <div id="detail" hidden>
+    <div class="row" style="margin-top:12px">
+      <div class="card"><h2>AUC</h2><div class="big" id="m-auc">–</div><div class="sub" id="m-auc2">–</div></div>
+      <div class="card"><h2>PR AUC</h2><div class="big" id="m-pr">–</div><div class="sub" id="m-pr2">–</div></div>
+      <div class="card"><h2>Log loss</h2><div class="big" id="m-ll">–</div><div class="sub" id="m-ll2">–</div></div>
+      <div class="card"><h2>Calibration</h2><div class="big" id="m-cal">–</div><div class="sub" id="m-cal2">–</div></div>
+      <div class="card"><h2>Stability</h2><div class="big" id="m-cos">–</div><div class="sub" id="m-cos2">–</div></div>
+    </div>
+    <div class="grid3">
+      <div class="card chart"><h2>ROC curve</h2><div id="roc"></div><div class="legend" id="roc-legend"></div></div>
+      <div class="card chart"><h2>Precision-recall curve</h2><div id="pr"></div><div class="legend" id="pr-legend"></div></div>
+      <div class="card chart"><h2>Calibration by decile</h2><div id="cal"></div><div class="legend" id="cal-legend"></div></div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Checks</h2>
+        <table id="checks"><thead><tr><th>Check</th><th>Result</th><th style="text-align:left">Detail</th></tr></thead><tbody></tbody></table>
+        <p class="sub" id="m-split"></p>
+      </div>
+      <div class="card">
+        <h2>Calibration by placement</h2>
+        <table id="segs"><thead><tr><th>Placement</th><th>Imps</th><th>CTR</th><th>Model</th><th>Logged</th><th>AUC</th></tr></thead><tbody></tbody></table>
+        <p class="sub">Model and Logged are mean predicted click rates on the evaluation day: this model, and what
+          the bidder predicted when it bid.</p>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Top crosses by weight</h2>
+        <table id="crosses"><thead><tr><th>Cross</th><th>Weight</th><th>Count</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="card">
+        <h2>Top tokens by weight</h2>
+        <table id="tokens"><thead><tr><th>Token</th><th>Weight</th><th>Count</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="card wide">
+      <h2>Install rates after a click, in this bundle</h2>
+      <table id="irates"><thead><tr><th>Campaign</th><th>Goal</th><th>Clicks</th><th>Installs</th>
+        <th>Observed</th><th>Smoothed</th><th>True (simulator)</th></tr></thead><tbody></tbody></table>
+      <p class="sub" id="irnote"></p>
+    </div>
+    <p class="note">Weights are in log-odds: +0.30 raises the odds of a click by about 35%. Count is the number of
+      training impressions with the token. Weights of exactly zero were removed by L1 regularization.</p>
+  </div>
+</section>
+
+<section id="tab-controls" hidden>
+  <div class="card">
+    <h2>Alerts</h2>
+    <table id="alerts"><thead><tr><th>State</th><th style="text-align:left">Alert</th><th style="text-align:left">Since</th>
+      <th style="text-align:left">Detail</th><th style="text-align:left">Owner</th></tr></thead><tbody></tbody></table>
+    <p class="sub" id="noalerts"></p>
+    <p class="sub">The few alerts that matter (Chapter 12): spend far above plan, no bids while requests arrive, the
+      fallback pricing many bids, the click predictions collapsing or jumping, latency, and a reconciliation gap.
+      Each is checked every simulated 15 minutes, on the last simulated hour.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Kill switches</h2>
+      <div class="switch"><div><b>All bidding</b><div class="sub">Stop every bid while the cause is unknown.</div></div>
+        <button id="sw-global"></button></div>
+      <div class="switch"><div><b>Click model</b><div class="sub">Price with the bundle's segment click rates instead.</div></div>
+        <button id="sw-model"></button></div>
+      <div id="sw-exchanges"></div>
+      <div class="switch"><div><b>Feature</b><div class="sub">Treat one model feature as missing everywhere.</div></div>
+        <span><select id="featsel"></select> <button id="featbtn">Treat as missing</button></span></div>
+      <div id="sw-features"></div>
+      <p class="sub" id="swversion"></p>
+    </div>
+    <div class="card">
+      <h2>Audit log</h2>
+      <table id="audit"><thead><tr><th>Simulated time</th><th style="text-align:left">Change</th><th>Version</th>
+        <th style="text-align:left">By</th></tr></thead><tbody></tbody></table>
+      <p class="sub">Every switch, campaign change, and invoice. Every bid logs the versions it was priced with.</p>
+    </div>
+  </div>
+
+  <div class="card wide">
+    <h2>Campaigns: spend against plan, simulated day <span id="pday">–</span></h2>
+    <table id="pacing"><thead><tr><th>Campaign</th><th>Goal</th><th>Target</th><th>Budget</th><th>Plan so far</th>
+      <th>Spent today</th><th>vs plan</th><th>Over budget</th><th>Throttle</th><th></th></tr></thead><tbody></tbody></table>
+    <p class="sub" id="pacenote"></p>
+  </div>
+
+  <div class="card wide">
+    <h2>Spend reconciliation</h2>
+    <table id="recon"><thead><tr><th>Day</th><th>Exchange</th><th>Our impressions</th><th>Invoiced</th>
+      <th>Our spend</th><th>Invoiced</th><th>Gap</th></tr></thead><tbody></tbody></table>
+    <p class="sub" id="noinvoices"></p>
+    <p class="sub">Our spend counts billing notices; the exchanges' invoices count what they billed. Gaps over 2% alert.
+      Rows under each exchange are its ad formats. The last three days with invoices.</p>
+  </div>
+</section>
+</main>
+<script>
+const fmt = n => n.toLocaleString("en-US");
+const pct = x => (100 * x).toFixed(1) + "%";
+const pct2 = x => (100 * x).toFixed(2) + "%";
+const esc = t => String(t).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+let currentModel = "", versionsData = [];
+const $ = id => document.getElementById(id);
+
+function mini(hist) {
+  const max = Math.max(1, ...hist);
+  return '<div class="mini">' + hist.map(v =>
+    `<div style="height:${Math.max(2, 100 * v / max)}%"></div>`).join("") + "</div>";
+}
+function simTime(ms) {
+  const day = Math.floor(ms / 86400000), m = Math.floor((ms % 86400000) / 60000);
+  return `day ${day}, ${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+function rows(id, html) { document.querySelector(`#${id} tbody`).innerHTML = html; }
+
+async function refresh() {
+  let d;
+  try { d = await (await fetch("api/stats", {cache: "no-store"})).json(); }
+  catch (e) { $("simtime").textContent = "bidder not reachable"; return; }
+  const s = d.stats, total = s.total || 0, bids = (s.actions.bid || 0);
+  $("version").textContent = d.info.version; $("mode").textContent = d.info.mode;
+  $("modelv").textContent = d.model || "priors"; currentModel = d.model || "";
+  $("stage").textContent = d.info.stage;
+  $("simtime").textContent = total ? simTime(s.sim_time_ms) : "waiting for traffic";
+  $("total").textContent = fmt(total); $("rps").textContent = fmt(Math.round(s.wall_rps));
+  const ghosts = s.actions.ghost || 0, n = s.notices || {};
+  const wins = n.win || 0, losses = n.loss || 0, imps = n.billing || 0;
+  let spend = 0; Object.values(s.campaigns || {}).forEach(c => spend += c.spend);
+  $("bids").textContent = fmt(bids);
+  $("bidshare").textContent = total ? `${pct(bids / total)} of requests, ${fmt(ghosts)} ghost` : "–";
+  $("wins").textContent = fmt(wins);
+  $("winrate").textContent = bids ? `${pct(wins / bids)} win rate, ${fmt(losses)} losses` : "–";
+  $("imps").textContent = fmt(imps);
+  $("spend").textContent = `$${spend.toFixed(2)} spent` + (s.duplicate_notices ? `, ${fmt(s.duplicate_notices)} duplicate notices` : "");
+  // one unit for both, so the card stays short: µs, or ms once p99 is over 1 ms
+  const p50 = s.latency_p50_us, p99 = s.latency_p99_us;
+  const inMs = us => (us / 1000).toFixed(us < 10000 ? 1 : 0);
+  $("lat").textContent = !total ? "–" : p99 < 1000 ? `${p50} / ${p99} µs` : `${inMs(p50)} / ${inMs(p99)} ms`;
+  let pred = 0; Object.values(s.campaigns || {}).forEach(c => pred += c.pred_clicks || 0);
+  const clicks = n.click || 0;
+  $("clicks").textContent = fmt(clicks);
+  $("ctr").textContent = imps ? `CTR ${pct(clicks / imps)}, predicted ${pct(pred / imps)}` : "–";
+  const dropped = d.ledger.bids_dropped + d.ledger.notices_dropped + (d.ledger.clicks_dropped || 0);
+  $("ledger").textContent = fmt(d.ledger.bids_written);
+  $("dropped").innerHTML = (dropped ? `<span class="warn">${fmt(dropped)} dropped</span>` : "bid records, none dropped")
+    + ` · ${fmt(d.devices)} devices profiled`;
+  $("cday").textContent = s.sim_day >= 0 ? s.sim_day : "–";
+  const cs = s.campaigns || {};
+  rows("campaigns", (d.campaigns || []).map(c => {
+    const st = cs[c.campaign_id] || {}, used = Math.min(1, c.spend_today / c.daily_budget);
+    const t = c.goal === "ROAS" ? pct(c.target) : `$${c.target.toFixed(2)}`;
+    return `<tr><td>${c.campaign_id}</td><td>${c.goal}</td><td>${t}</td><td>${c.geos}</td>
+      <td>$${c.daily_budget.toFixed(2)}</td><td>$${c.spend_today.toFixed(2)}</td>
+      <td><div class="budget" title="${pct(used)} of today's budget"><div style="width:${100 * used}%"></div></div></td>
+      <td>${fmt(st.bids || 0)}</td><td>${fmt(st.wins || 0)}</td>
+      <td>${st.bids ? pct(st.wins / st.bids) : "–"}</td><td>${fmt(st.imps || 0)}</td>
+      <td>${st.imps ? "$" + (1000 * st.spend / st.imps).toFixed(2) : "–"}</td>
+      <td>${fmt(st.clicks || 0)}</td><td>${st.imps ? pct2(st.clicks / st.imps) : "–"}</td>
+      <td>${st.imps ? pct2(st.pred_clicks / st.imps) : "–"}</td>
+      <td>${st.clicks ? (st.pred_clicks / st.clicks).toFixed(2) : "–"}</td>
+      <td title="${fmt(st.view_installs || 0)} more after a view">${fmt(st.installs || 0)}</td>
+      <td>${st.installs ? "$" + (st.spend / st.installs).toFixed(2) : "–"}</td></tr>`;
+  }).join(""));
+  const fk = ["geo", "no_fitting_creative", "budget_spent", "not_started", "paused", "throttled"];
+  rows("filters", (d.campaigns || []).map(c => {
+    const f = (cs[c.campaign_id] || {}).filtered || {};
+    return `<tr><td>${c.campaign_id}</td>` + fk.map(k => `<td>${f[k] ? fmt(f[k]) : "–"}</td>`).join("") + "</tr>";
+  }).join(""));
+  versionsData = s.bids_by_version || [];
+  if (location.hash === "#models") showVersions();
+  $("nocamps").textContent = (d.campaigns || []).length ? "" :
+    "No campaigns loaded yet. adsim pushes the campaign book when a live run starts.";
+  $("day").textContent = s.sim_day >= 0 ? s.sim_day : "–";
+  const hmax = Math.max(1, ...s.hourly);
+  $("hourly").innerHTML = s.hourly.map((v, h) =>
+    `<div title="${String(h).padStart(2, "0")}:00  ${fmt(v)} requests" style="height:${100 * v / hmax}%"></div>`).join("");
+  const reasons = Object.entries(s.reasons).sort((a, b) => b[1] - a[1]);
+  if (bids) reasons.unshift(["bid", bids]);
+  reasons.forEach(r => { if (r[0] === "holdout") r[0] = "holdout (ghost bid)"; });
+  rows("reasons", reasons.map(([k, v]) => `<tr><td><span class="pill">${k}</span></td><td>${fmt(v)}</td><td>${pct(v / total)}</td></tr>`).join(""));
+  rows("exchanges", s.exchanges.map(e => `<tr><td>${e.name}</td><td>${fmt(e.requests)}</td><td>${pct(e.share)}</td>
+    <td>$${e.mean_floor.toFixed(2)}</td><td>${pct(e.valid_ifa_share)}</td><td>${mini(e.floor_hist)}</td></tr>`).join(""));
+  rows("placements", s.placements.map(e => `<tr><td>${e.name}</td><td>${fmt(e.requests)}</td><td>${pct(e.share)}</td>
+    <td>$${e.mean_floor.toFixed(2)}</td><td>${mini(e.floor_hist)}</td></tr>`).join(""));
+  rows("countries", Object.entries(s.countries).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
+    `<tr><td>${k}</td><td>${fmt(v)}</td><td>${pct(v / total)}</td></tr>`).join(""));
+  const e = s.floor_edges;
+  $("edges").textContent = "Buckets: no floor, " + e.slice(1).map((x, i) => `$${e[i]}–$${x}`).join(", ") + `, over $${e[e.length - 1]}`;
+}
+const notes = {
+  listen: "Listen mode: the bidder runs the whole bid path and logs every request, but never bids (Chapter 7).",
+  bid: "Bid mode, crawl stage: campaigns chosen at random, weighted by remaining budget, priced from the deployed click model's prediction, or a prior click rate per placement before there is one, and for CPI campaigns the bundle's install rate after a click, with 5% of devices held out as ghost bids (Chapters 6, 8, 9, and 10)."
+};
+async function boot() { await refresh();
+  const i = await (await fetch("api/stats")).json();
+  $("modenote").textContent = (notes[i.info.mode] || "") + " The numbers refresh every second."; }
+boot(); setInterval(refresh, 1000);
+
+// ---------------------------------------------------------------- tabs
+function route() {
+  const tab = {"#models": "models", "#controls": "controls"}[location.hash] || "live";
+  for (const t of ["live", "models", "controls"]) {
+    $("tab-" + t).hidden = tab !== t; $("nav-" + t).className = tab === t ? "on" : "";
+  }
+  if (tab === "models") loadModels();
+  if (tab === "controls") loadOps();
+}
+window.addEventListener("hashchange", route);
+route();
+
+// -------------------------------------------------------------- models
+const C = {model: "#2a78d6", logged: "#eb6834", truth: "#1baf7a"};
+let selected = null, trainWasRunning = false, pendingSelect = null, lastServing = null;
+const f3 = x => x == null ? "–" : x.toFixed(3);
+const f4 = x => x == null ? "–" : x.toFixed(4);
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method: "POST", body: JSON.stringify(body)} : {cache: "no-store"});
+  const t = await r.text();
+  try { return JSON.parse(t); } catch (e) { throw new Error(t.trim() || r.statusText); }
+}
+
+function showVersions() {
+  const hours = versionsData.slice(-12);
+  const names = [...new Set(hours.flatMap(h => Object.keys(h.bids)))].sort();
+  document.querySelector("#versions thead").innerHTML = "<tr><th>Simulated hour</th>" +
+    names.map(n => `<th>${esc(n)}</th>`).join("") + "</tr>";
+  rows("versions", hours.length ? hours.slice().reverse().map(h => {
+    const tot = Object.values(h.bids).reduce((a, b) => a + b, 0);
+    return `<tr><td>${simTime(h.hour * 3600000)}</td>` + names.map(n => `<td>${h.bids[n]
+      ? fmt(h.bids[n]) + ` <span class="sub">${pct(h.bids[n] / tot)}</span>` : "–"}</td>`).join("") + "</tr>";
+  }).join("") : `<tr><td class="sub">No bids yet.</td></tr>`);
+}
+
+async function loadModels() {
+  showVersions();
+  let list = [], tr = {job: {state: "idle"}, available: false};
+  try { [list, tr] = await Promise.all([api("api/models"), api("api/train")]); } catch (e) { return; }
+  showTrain(tr);
+  const dep = list.find(m => m.deployed);
+  const serving = dep ? dep.version : "priors";
+  if (lastServing !== null && serving !== lastServing) $("deploymsg").textContent = "";
+  lastServing = serving;
+  $("servingnow").textContent = serving;
+  $("servingnote").textContent = dep
+    ? "Bids are priced with this model's click predictions."
+    : "No model deployed: bids use a prior click rate per placement (Chapter 10).";
+  $("undeploy").disabled = !dep;
+  $("nomodels").textContent = list.length ? "" : "No models yet. Run the simulator against the bidder, then train.";
+  rows("models", list.map(m => {
+    const mt = m.metrics || {}, st = m.stability || {}, d = m.data || {};
+    const act = m.deployed ? '<span class="badge live">serving</span>'
+      : `<button class="link" onclick="deploy('${m.version}', ${!m.passed})">${m.passed ? "Deploy" : "Force deploy"}</button>`;
+    return `<tr class="${m.version === selected ? "sel" : ""}" style="cursor:pointer" onclick="selectModel('${m.version}')">
+      <td>${m.version}</td><td>${(m.created_at || "").replace("T", " ").slice(0, 16)}</td>
+      <td>${fmt(d.eval_examples || 0)}</td><td>${f3(mt.auc)}</td><td>${f3(mt.pr_auc)}</td>
+      <td>${f4(mt.log_loss)}</td><td>${f4((m.logged || {}).log_loss)}</td>
+      <td>${mt.calibration_ratio == null ? "–" : mt.calibration_ratio.toFixed(2)}</td>
+      <td>${st.cosine == null ? "–" : st.cosine.toFixed(3)}</td>
+      <td><span class="badge ${m.passed ? "ok" : "bad"}">${m.passed ? "passed" : "failed"}</span></td>
+      <td onclick="event.stopPropagation()">${act}</td></tr>`;
+  }).join(""));
+  if (pendingSelect) { selectModel(pendingSelect); pendingSelect = null; }
+  else if (!selected && list.length) selectModel((dep || list[0]).version);
+}
+
+function showTrain(tr) {
+  const j = tr.job || {}, running = j.state === "running";
+  $("trainbtn").disabled = running || !tr.available;
+  let msg = !tr.available ? "No training service: start the bidder with -trainer-url (docker compose starts one)."
+    : running ? "Training…"
+    : j.state === "failed" ? "Failed: " + j.message
+    : j.state === "done" ? `${j.version} ${j.passed ? "passed" : "failed"} its checks in ${j.seconds.toFixed(0)}s.`
+      + (j.deploy ? " " + j.deploy.message : "")
+    : "Ready.";
+  $("trainstate").textContent = msg;
+  if (j.log && j.log.length) { $("trainlog").hidden = false; $("trainlog").textContent = j.log.join("\n"); }
+  if (trainWasRunning && !running && j.version) { pendingSelect = j.version; $("deploymsg").textContent = ""; }
+  trainWasRunning = running;
+}
+
+$("trainbtn").onclick = async () => {
+  try { await api("api/train", {deploy: $("autodeploy").checked}); }
+  catch (e) { $("trainstate").textContent = e.message; return; }
+  trainWasRunning = true; loadModels();
+};
+$("undeploy").onclick = () => deploy("", false);
+function showParity(r) {
+  if (!r) return;
+  const bad = r.features.filter(f => f.mismatched);
+  $("paritystate").innerHTML = r.rows
+    ? `<span class="badge ${r.passed ? "ok" : "bad"}">${r.passed ? "pass" : "fail"}</span> ${fmt(r.rows)} bids compared,
+       ${fmt(r.mismatched_rows)} with a mismatch, at ${r.checked_at.replace("T", " ").slice(0, 16)} UTC.`
+    : esc(r.note);
+  const show = v => esc(typeof v === "object" ? JSON.stringify(v) : String(v));
+  rows("parity", (bad.length ? bad : r.features.slice(0, 0)).map(f => `<tr><td>${f.feature}</td><td>${fmt(f.compared)}</td>
+    <td class="neg">${fmt(f.mismatched)} (${pct(f.rate)})</td><td style="text-align:left" class="tok">${show(f.examples[0].logged)}
+    → ${show(f.examples[0].recomputed)} <span class="sub">(${esc(f.examples[0].exchange)}, ${esc(f.examples[0].request_id)})</span></td></tr>`).join(""));
+  $("paritydays").textContent = r.rows ? (bad.length ? "" : `All ${r.features.length} features match. `) +
+    "By day: " + r.days.map(d => `day ${d.day} ${fmt(d.mismatched)} of ${fmt(d.rows)}`).join(", ") + "." : "";
+}
+$("paritybtn").onclick = async () => {
+  $("paritybtn").disabled = true; $("paritystate").textContent = "Checking…";
+  try { showParity(await api("api/parity", {})); } catch (e) { $("paritystate").textContent = e.message; }
+  $("paritybtn").disabled = false;
+};
+api("api/parity").then(showParity).catch(() => {});
+$("constbtn").onclick = async () => {
+  try { await api("api/train", {deploy: false, constant: 0.25}); }
+  catch (e) { $("trainstate").textContent = e.message; return; }
+  trainWasRunning = true; loadModels();
+};
+
+async function deploy(version, force) {
+  if (force && !confirm(`${version} failed some of its checks. Deploy it anyway?`)) return;
+  const r = await api("api/models/deploy", {version, force});
+  await loadModels();
+  $("deploymsg").innerHTML = `<span class="${r.ok ? "" : "warn"}">${esc(r.message)}</span>`;
+}
+
+async function selectModel(v) {
+  selected = v;
+  document.querySelectorAll("#models tbody tr").forEach(tr =>
+    tr.classList.toggle("sel", tr.firstElementChild.textContent === v));
+  let r;
+  try { r = await api("api/models/report?version=" + encodeURIComponent(v)); } catch (e) { return; }
+  $("detail").hidden = false;
+  const m = r.metrics, lg = r.logged, st = r.stability || {};
+  const src = Object.keys(r.logged_sources || {}).join(", ") || "logged";
+  $("m-auc").textContent = f3(m.auc); $("m-auc2").textContent = `logged (${src}): ${f3(lg.auc)}`;
+  $("m-pr").textContent = f3(m.pr_auc); $("m-pr2").textContent = `logged: ${f3(lg.pr_auc)}, base rate ${pct2(m.ctr)}`;
+  $("m-ll").textContent = f4(m.log_loss); $("m-ll2").textContent = `logged: ${f4(lg.log_loss)}, NE ${f3(m.ne)}`;
+  $("m-cal").textContent = m.calibration_ratio == null ? "–" : m.calibration_ratio.toFixed(2);
+  $("m-cal2").textContent = `predicted / actual clicks` + (r.truth ? `; ${r.truth.pred_over_true.toFixed(2)} of true rates` : "");
+  $("m-cos").textContent = st.cosine == null ? "–" : st.cosine.toFixed(3);
+  $("m-cos2").textContent = st.previous
+    ? `cosine with ${st.previous}; median prediction change ${pct(st.median_rel_change)}`
+    : "no deployed model to compare against";
+  $("m-split").textContent = `${r.data.split.replace(/\.\s*$/, "")}. ${fmt(r.data.train_examples)} training and ${fmt(r.data.eval_examples)} evaluation impressions; ${fmt(m.clicks)} evaluation clicks.`
+    + (r.data.warnings || []).map(w => " Warning: " + w).join("");
+
+  const cv = r.curves || {};
+  $("roc").innerHTML = chart({x: "False positive rate", y: "True positive rate", diag: true,
+    series: [{name: "logged", color: C.logged, dash: true, pts: cv.roc_logged || []},
+             {name: v, color: C.model, pts: cv.roc || []}]});
+  legend("roc-legend", [[v + ` (AUC ${f3(m.auc)})`, C.model], [`logged (AUC ${f3(lg.auc)})`, C.logged, true], ["chance", "#9a9a96", true]]);
+  $("pr").innerHTML = chart({x: "Recall", y: "Precision", hline: m.ctr,
+    series: [{name: v, color: C.model, pts: cv.pr || []}]});
+  legend("pr-legend", [[v + ` (PR AUC ${f3(m.pr_auc)})`, C.model], [`base rate ${pct2(m.ctr)}`, "#9a9a96", true]]);
+  const cal = r.calibration || [], cl = r.calibration_logged || [];
+  const vals = [...cal, ...cl].flatMap(b => [b.pred, b.actual, b.true]).filter(x => x > 0);
+  const lim = [Math.max(0.0005, Math.min(...vals) * 0.8), Math.max(...vals) * 1.25];
+  const series = [
+    {name: "logged", color: C.logged, dash: true, dots: true, pts: cl.map(b => [b.pred, b.actual, b.n])},
+    {name: v, color: C.model, dots: true, pts: cal.map(b => [b.pred, b.actual, b.n])}];
+  const items = [[v + " (observed)", C.model], ["logged (observed)", C.logged, true]];
+  if (cal.length && cal[0].true != null) {
+    series.push({name: "true rate", color: C.truth, dots: true, hollow: true, noline: true, pts: cal.map(b => [b.pred, b.true, b.n])});
+    items.push([v + " vs true rate (simulator)", C.truth, "ring"]);
+  }
+  items.push(["goal: predicted = actual", "#9a9a96", true]);
+  $("cal").innerHTML = chart({x: "Predicted click rate (log scale)", y: "Actual click rate (log scale)", diag: true,
+    log: lim, series});
+  legend("cal-legend", items);
+
+  rows("checks", (r.checks || []).map(c => `<tr><td>${c.name.replace(/_/g, " ")}</td>
+    <td><span class="badge ${c.pass ? "ok" : "bad"}">${c.pass ? "pass" : "fail"}</span></td>
+    <td style="text-align:left" class="sub">${esc(c.detail)}</td></tr>`).join(""));
+  rows("segs", ((r.segments || {}).placement || []).map(g => `<tr><td>${g.segment}</td><td>${fmt(g.n)}</td>
+    <td>${pct2(g.ctr)}</td><td>${pct2(g.mean_pred)}</td><td>${pct2(g.mean_logged)}</td><td>${f3(g.auc)}</td></tr>`).join(""));
+  const ro = r.readout || {};
+  const tok = (list, n) => list.slice(0, n).map(t => `<tr><td class="tok" title="${esc(t.token)}">${esc(t.label)}</td>
+    <td class="${t.weight > 0 ? "pos" : "neg"}">${(t.weight > 0 ? "+" : "") + t.weight.toFixed(3)}</td><td>${fmt(t.count)}</td></tr>`).join("");
+  rows("crosses", tok(ro.top_crosses || [], 8) + tok(ro.bottom_crosses || [], 4));
+  const ir = r.install_rates;
+  rows("irates", ir ? ir.campaigns.map(c => `<tr><td>${c.campaign}</td><td>${c.goal.toUpperCase()}</td>
+    <td>${fmt(c.clicks)}</td><td>${fmt(c.installs)}</td><td>${c.raw == null ? "–" : pct2(c.raw)}</td>
+    <td>${pct2(c.smoothed)}</td><td>${c.true == null ? "–" : pct2(c.true)}</td></tr>`).join("") : "");
+  $("irnote").textContent = ir
+    ? `Each rate is shrunk toward its parent: (installs + ${ir.k} × parent) / (clicks + ${ir.k}), for each country and placement within a campaign, each campaign, and all campaigns, which start from a ${pct(ir.prior)} prior (Chapter 10). All campaigns: ${fmt(ir.overall.installs)} installs from ${fmt(ir.overall.clicks)} clicks, ${pct2(ir.overall.smoothed)} smoothed. CPI campaigns use these rates once the bundle is deployed. True rates come from the latest simulator run only, so they cover fewer days than the observed ones.`
+    : "This bundle has no install rates.";
+  rows("tokens", tok(ro.top_tokens || [], 8) + tok(ro.bottom_tokens || [], 4));
+}
+
+function legend(id, items) {
+  $(id).innerHTML = items.map(([t, c, dash]) => dash === "ring"
+    ? `<span><i style="width:9px;height:9px;border:2px solid ${c};border-radius:50%;background:#fff"></i>${esc(t)}</span>`
+    : `<span><i class="${dash ? "dash" : ""}" style="border-color:${c}"></i>${esc(t)}</span>`).join("");
+}
+
+// A small SVG line chart, on [0, 1] x [0, 1], or on a log scale over
+// [lo, hi] on both axes, with a native tooltip on every point.
+function chart(o) {
+  const W = 340, H = 280, L = 46, R = 12, T = 10, B = 38;
+  const [lo, hi] = o.log || [0, 1];
+  const t = o.log ? (v => (Math.log(Math.max(v, lo)) - Math.log(lo)) / (Math.log(hi) - Math.log(lo)))
+                  : (v => Math.min(Math.max(v, 0), 1));
+  const X = v => L + (W - L - R) * t(v), Y = v => H - B - (H - T - B) * t(v);
+  const ticks = o.log ? [0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1].filter(v => v >= lo && v <= hi)
+                      : [0, 0.2, 0.4, 0.6, 0.8, 1];
+  const fx = o.log ? (v => (100 * v).toFixed(v < 0.01 ? 1 : 0) + "%") : (v => v.toFixed(1));
+  let g = "";
+  for (const v of ticks) {
+    g += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#ececE8"/>`
+      + `<text class="tick" x="${L - 6}" y="${Y(v) + 3}" text-anchor="end">${fx(v)}</text>`
+      + `<text class="tick" x="${X(v)}" y="${H - B + 14}" text-anchor="middle">${fx(v)}</text>`;
+  }
+  g += `<line x1="${L}" x2="${L}" y1="${T}" y2="${H - B}" stroke="#c9c9c4"/><line x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}" stroke="#c9c9c4"/>`;
+  if (o.diag) g += `<line x1="${X(lo)}" y1="${Y(lo)}" x2="${X(hi)}" y2="${Y(hi)}" stroke="#9a9a96" stroke-width="1.5" stroke-dasharray="4 4"/>`;
+  if (o.hline != null) g += `<line x1="${X(lo)}" x2="${X(hi)}" y1="${Y(o.hline)}" y2="${Y(o.hline)}" stroke="#9a9a96" stroke-width="1.5" stroke-dasharray="4 4"/>`;
+  for (const s of o.series) {
+    if (!s.pts.length) continue;
+    if (!s.noline) g += `<polyline fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"
+      ${s.dash ? 'stroke-dasharray="5 4"' : ""} points="${s.pts.map(p => X(p[0]) + "," + Y(p[1])).join(" ")}"/>`;
+    if (s.dots) for (const p of s.pts) {
+      const tip = `${s.name}: predicted ${pct2(p[0])}, ${s.name === "true rate" ? "true" : "actual"} ${pct2(p[1])}` + (p[2] ? `, ${fmt(p[2])} imps` : "");
+      g += `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="4.5" fill="${s.hollow ? "#fff" : s.color}" stroke="${s.hollow ? s.color : "#fff"}"
+        stroke-width="2"><title>${esc(tip)}</title></circle>`;
+    }
+  }
+  g += `<text class="axis-label" x="${(L + W - R) / 2}" y="${H - 6}" text-anchor="middle">${o.x}</text>`
+    + `<text class="axis-label" transform="translate(12 ${(T + H - B) / 2}) rotate(-90)" text-anchor="middle">${o.y}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.y)} by ${esc(o.x)}">${g}</svg>`;
+}
+setInterval(() => { if (location.hash === "#models") loadModels(); }, 3000);
+
+// ------------------------------------------------------------ controls
+let opsData = null;
+async function sw(kind, key, on) {
+  try { await api("api/ops/switch", {kind, key: String(key), on}); } catch (e) { alert(e.message); }
+  loadOps();
+}
+function toggle(id, on, label, kind, key) {
+  const b = $(id);
+  b.textContent = on ? label[1] : label[0];
+  b.className = on ? "on" : "";
+  b.onclick = () => sw(kind, key, !on);
+}
+function swRow(title, sub, on, labels, kind, key) {
+  return `<div class="switch"><div><b>${esc(title)}</b><div class="sub">${esc(sub)}</div></div>
+    <button class="${on ? "on" : ""}" onclick="sw('${kind}', '${esc(key)}', ${!on})">${on ? labels[1] : labels[0]}</button></div>`;
+}
+async function loadOps() {
+  let o, st;
+  try { [o, st] = await Promise.all([api("api/ops"), api("api/stats")]); } catch (e) { return; }
+  opsData = o;
+  const firing = o.alerts.filter(a => a.state === "firing");
+  $("alertcount").innerHTML = firing.length ? `<span class="badge bad">${firing.length}</span>` : "";
+  if (location.hash !== "#controls") return;
+  rows("alerts", o.alerts.slice(0, 20).map(a => `<tr><td><span class="badge ${a.state === "firing" ? "bad" : "ok"}">${a.state}</span></td>
+    <td style="text-align:left"><b>${a.name.replace(/_/g, " ")}</b><div class="sub">${esc(a.scope)}</div></td>
+    <td style="text-align:left">${simTime(a.since_ms)}${a.resolved_ms ? "<div class='sub'>to " + simTime(a.resolved_ms) + "</div>" : ""}</td>
+    <td style="text-align:left">${esc(a.detail)}<div class="sub">Check first: ${esc(a.check)}</div></td>
+    <td style="text-align:left" class="sub">${esc(a.owner)}</td></tr>`).join(""));
+  $("noalerts").textContent = o.alerts.length ? "" : "No alerts so far.";
+  const s = o.switches;
+  toggle("sw-global", s.global, ["Stop all bidding", "Resume bidding"], "global", "");
+  $("sw-global").className = s.global ? "on" : "danger";
+  toggle("sw-model", s.model, ["Switch off", "Switch back on"], "model", "");
+  const exch = (st.stats.exchanges || []).map(e => e.name).sort();
+  $("sw-exchanges").innerHTML = exch.map(e => swRow("Exchange " + e, "Stop bidding on this exchange.",
+    !!s.exchanges[e], ["Stop", "Resume"], "exchange", e)).join("");
+  const feats = (o.features || []).slice().sort();
+  const cur = $("featsel").value;
+  $("featsel").innerHTML = feats.length ? feats.map(f => `<option${f === cur ? " selected" : ""}>${esc(f)}</option>`).join("")
+    : "<option value=''>no model deployed</option>";
+  $("featbtn").disabled = !feats.length;
+  $("featbtn").onclick = () => $("featsel").value && sw("feature", $("featsel").value, true);
+  $("sw-features").innerHTML = Object.keys(s.features || {}).map(f => swRow("Feature " + f, "Treated as missing.",
+    true, ["", "Back in use"], "feature", f)).join("");
+  $("swversion").textContent = `Switches version ${s.version}. Switches take effect on the next request.`;
+  rows("audit", o.audit.slice(0, 15).map(e => `<tr><td>${e.sim_ms ? simTime(e.sim_ms) : "–"}</td>
+    <td style="text-align:left">${esc(e.what)}</td><td>${e.version}</td><td style="text-align:left" class="sub">${esc(e.who)}</td></tr>`).join(""));
+  const share = o.throttle.planned_share, rates = o.throttle.rates || {}, cs = st.stats.campaigns || {};
+  $("pday").textContent = st.stats.sim_day >= 0 ? st.stats.sim_day : "–";
+  rows("pacing", (st.campaigns || []).map(c => {
+    const plan = c.daily_budget * share, vs = plan > 0 ? c.spend_today / plan - 1 : null;
+    const over = Math.max(0, c.spend_today - c.daily_budget), paused = !!s.campaigns[c.campaign_id];
+    const t = c.goal === "ROAS" ? pct(c.target) : `$${c.target.toFixed(2)}`;
+    return `<tr><td>${c.campaign_id}</td><td>${c.goal}</td><td>${t}</td><td>$${c.daily_budget.toFixed(2)}</td>
+      <td>$${plan.toFixed(2)}</td><td>$${c.spend_today.toFixed(2)}</td>
+      <td class="${vs != null && vs > 0.1 ? "neg" : ""}">${vs == null ? "–" : (vs >= 0 ? "+" : "") + pct(vs)}</td>
+      <td class="${over > 0 ? "neg" : ""}">${over > 0 ? "$" + over.toFixed(2) : "–"}</td>
+      <td>${o.throttle.on ? pct(rates[c.campaign_id] ?? 1) : "off"}</td>
+      <td><button class="${paused ? "on" : ""}" onclick="sw('campaign', '${c.campaign_id}', ${!paused})">${paused ? "Resume" : "Pause"}</button></td></tr>`;
+  }).join(""));
+  $("pacenote").textContent = `Plan so far: ${pct(share)} of each daily budget, an even share of the day shaped like yesterday's traffic. ` +
+    (o.throttle.on ? "Throttle is the chance of bidding on a request the campaign is eligible for, lowered when a campaign is ahead of plan and raised when behind, every simulated 15 minutes."
+                   : "Throttling is off (-throttle=false).");
+  const days = [...new Set((o.reconciliation || []).map(r => r.day))].slice(0, 3);
+  rows("recon", (o.reconciliation || []).filter(r => days.includes(r.day)).map(r => {
+    const g = v => Math.abs(v) < 0.0005 ? "0.0%"
+      : `<span class="${Math.abs(v) > 0.02 ? "neg" : ""}">${(v >= 0 ? "+" : "") + pct(v)}</span>`;
+    return `<tr><td>${r.day}</td><td>${r.exchange}</td><td>${fmt(r.ours.impressions)}</td><td>${fmt(r.invoice.impressions)}</td>
+      <td>$${r.ours.spend.toFixed(2)}</td><td>$${r.invoice.spend.toFixed(2)}</td><td>${g(r.gap)}</td></tr>` +
+      r.placements.map(p => `<tr class="sub"><td></td><td>${p.placement}</td><td>${fmt(p.ours.impressions)}</td>
+        <td>${fmt(p.invoice.impressions)}</td><td>$${p.ours.spend.toFixed(2)}</td><td>$${p.invoice.spend.toFixed(2)}</td>
+        <td>${g(p.gap)}</td></tr>`).join("");
+  }).join(""));
+  $("noinvoices").textContent = (o.reconciliation || []).length ? "" : "No invoices yet: the simulated exchanges send theirs when a run ends.";
+}
+setInterval(loadOps, 2000);
+loadOps();
+
+</script>
+</body>
+</html>

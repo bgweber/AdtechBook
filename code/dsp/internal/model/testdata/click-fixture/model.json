@@ -1,0 +1,123 @@
+{
+  "model": "click-ftrl",
+  "feature_schema_version": 1,
+  "bias": -1.8719601747001533,
+  "downsample_rate": 0.5,
+  "spec": {
+    "strings": [
+      "exchange",
+      "publisher_app",
+      "placement",
+      "country",
+      "os",
+      "os_major",
+      "make",
+      "model",
+      "connection_type",
+      "campaign",
+      "adv_app",
+      "goal",
+      "creative",
+      "creative_format",
+      "creative_length",
+      "creative_orientation",
+      "creative_style"
+    ],
+    "numeric_buckets": {
+      "bidfloor": [
+        0.25,
+        0.5,
+        1,
+        2,
+        4,
+        8
+      ],
+      "hour_of_day": [
+        3,
+        6,
+        9,
+        12,
+        15,
+        18,
+        21
+      ],
+      "device_known": [
+        1
+      ],
+      "device_requests": [
+        2,
+        5,
+        10,
+        20,
+        50,
+        100
+      ],
+      "seconds_since_first_seen": [
+        3600,
+        21600,
+        86400,
+        259200,
+        604800
+      ],
+      "seconds_since_last_seen": [
+        60,
+        600,
+        3600,
+        21600,
+        86400
+      ],
+      "our_imps_today": [
+        1,
+        2,
+        3,
+        5,
+        10
+      ],
+      "seconds_since_our_last_imp": [
+        60,
+        600,
+        3600,
+        21600
+      ]
+    },
+    "sets": {
+      "apps_seen": 30
+    },
+    "crosses": [
+      [
+        "placement",
+        "campaign"
+      ],
+      [
+        "publisher_app",
+        "campaign"
+      ],
+      [
+        "country",
+        "campaign"
+      ],
+      [
+        "placement",
+        "creative_format"
+      ],
+      [
+        "model",
+        "publisher_app"
+      ]
+    ],
+    "num_buckets": 16777216,
+    "hash": {
+      "fn": "murmur3_32",
+      "seed": 0
+    }
+  },
+  "trained_at": "2026-11-21T23:56:34+00:00",
+  "ftrl": {
+    "alpha": 0.1,
+    "beta": 1.0,
+    "l1": 1.0,
+    "l2": 1.0
+  },
+  "version": "click-0001",
+  "nonzero_weights": 103
+}

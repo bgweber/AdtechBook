@@ -49,6 +49,33 @@ def normalize(req: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# Every policy's decisions are logged with these columns. A policy may
+# return fewer; `standardize` fills in the rest as missing.
+DECISION_COLUMNS = [
+    "request_id", "ts_ms", "action", "reason", "campaign_id", "creative_id",
+    "n_eligible", "selection_prob", "p_click_pred", "advertiser_value",
+    "media_value", "explore_mult", "bid", "holdout", "explored",
+    "policy_version"]
+
+
+def standardize(dec: pd.DataFrame) -> pd.DataFrame:
+    """Decisions with every column in DECISION_COLUMNS, in order."""
+    out = dec.copy()
+    for c in DECISION_COLUMNS:
+        if c not in out:
+            out[c] = np.nan
+    for c in ("action", "reason", "policy_version"):
+        out[c] = out[c].astype(object).where(out[c].notna(), "")
+    for c in ("holdout", "explored"):
+        out[c] = out[c].fillna(False).astype(bool)
+    for c in ("campaign_id", "creative_id", "n_eligible"):
+        out[c] = out[c].astype("Int64")
+    for c in ("selection_prob", "p_click_pred", "advertiser_value",
+              "media_value", "explore_mult", "bid"):
+        out[c] = out[c].astype(float)
+    return out[DECISION_COLUMNS + [c for c in out if c not in DECISION_COLUMNS]]
+
+
 class CrawlPolicy:
     version = "crawl-prior-v1"
 

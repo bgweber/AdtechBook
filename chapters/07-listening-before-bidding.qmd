@@ -40,6 +40,16 @@ While listening, the bidder logs every request, which gives us a picture of the 
 - **Supply concentration.** A small share of publisher apps usually sends a large share of requests. Knowing the top apps by volume, and how they differ from the long tail, helps with blocklists, features, and expectations.
 - **Eligible requests per campaign.** Running each campaign's targeting and filters over the logged requests estimates how many requests it could bid on in a day. A campaign whose targeting reaches almost nothing is better fixed now than after an advertiser asks why it isn't spending.
 
+The reference DSP's console builds the first of these views from the bid ledger, as in @fig-c7-traffic. On the simulator, rewarded video and interstitials make up almost 80% of requests and carry most of the value: their mean floors are around ten times those of banners. The two exchanges look alike on floors and device IDs, which is itself worth confirming before treating them the same.
+
+::: {.content-visible when-format="html"}
+![Requests by exchange and by placement over the simulated run so far on the reference DSP's console, with the share of requests, the mean floor, the share with a device ID, and a histogram of floors for each row.](../images/ch07-console-traffic.png){#fig-c7-traffic width="100%" fig-alt="Screenshot of two console tables. Exchanges: alpha_exchange sent 280,527 requests, 60% of the total, and beta_exchange 186,999, 40%. Both have a mean floor of $0.71 and a device ID on about 95% of requests, with similar floor histograms. Placements: rewarded_video 184,741 requests with a mean floor of $1.04, interstitial 183,707 at $0.69, banner 75,282 at $0.09, and native 23,796 at $0.23. Banner and native floors sit in the lowest histogram bins."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Requests by exchange and by placement over the simulated run so far on the reference DSP's console, with the share of requests, the mean floor, the share with a device ID, and a histogram of floors for each row.](../images/ch07-console-traffic-print.png){#fig-c7-traffic width="100%" fig-alt="Screenshot of two console tables. Exchanges: alpha_exchange sent 280,527 requests, 60% of the total, and beta_exchange 186,999, 40%. Both have a mean floor of $0.71 and a device ID on about 95% of requests, with similar floor histograms. Placements: rewarded_video 184,741 requests with a mean floor of $1.04, interstitial 183,707 at $0.69, banner 75,282 at $0.09, and native 23,796 at $0.23. Banner and native floors sit in the lowest histogram bins."}
+:::
+
 These views also produce the first numbers for planning. If a campaign is eligible for a few million requests a day, has floors around a certain price, and we expect to win a small share of the requests we bid on, we can estimate how much it could spend, before spending anything. The estimate will be rough, because we don't know win rates yet, but it's much better than no estimate at all.
 
 ## Building Device Profiles from the Bid Stream
@@ -84,7 +94,7 @@ The same idea also gives us ghost bids. For a random holdout group of devices, t
 ::: {.callout-tip title="Try it on the simulator"}
 Run the crawl bidder in listen-only mode for a simulated week. Build the volume and floor views by geo and exchange, and estimate the eligible requests for each campaign. Then turn on bidding for 1% of requests, and check the first win notices, impressions, and clicks against the bid log.
 
-*Status: planned. This exercise needs listen-only and bid-share options in the crawl policy, which adsim 0.1 doesn't support yet.*
+*Status: runs with the companion bidder (dsp 0.5): start it with `-mode listen`, then with `-mode bid -bid-share 0.01`. The console shows volume and floors by exchange, placement, and country, and wins, impressions, and spend by campaign. The bidder receives clicks through the click tracker in each bid's ad markup and logs them next to its notices.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::
