@@ -4,6 +4,7 @@
     python -m adtrain serve --ledger out/ledger --models out/models --port 8090
     python -m adtrain parity --ledger out/ledger
     python -m adtrain trace <request_id> --ledger out/ledger
+    python -m adtrain find --clicked --ledger out/ledger
 """
 from __future__ import annotations
 
@@ -39,7 +40,23 @@ def main() -> None:
     tc = sub.add_parser("trace", help="follow one request through the logs")
     tc.add_argument("request_id")
     tc.add_argument("--ledger", default="out/ledger")
+    fc = sub.add_parser("find", help="list a few request IDs to trace")
+    fc.add_argument("--ledger", default="out/ledger")
+    fc.add_argument("--day", type=int, default=None)
+    fc.add_argument("--goal", choices=["cpc", "cpi"], default=None)
+    fc.add_argument("--reason", default=None,
+                    help="a no-bid reason, such as below_floor or holdout")
+    fc.add_argument("--explored", action="store_true",
+                    help="bids with an exploration multiplier")
+    fc.add_argument("--clicked", action="store_true",
+                    help="bids that led to a click")
+    fc.add_argument("--limit", type=int, default=5)
     a = ap.parse_args()
+    if a.cmd == "find":
+        from . import parity
+        parity.print_found(parity.find(a.ledger, a.day, a.goal, a.reason,
+                                       a.explored, a.clicked, a.limit))
+        return
     if a.cmd == "parity":
         from . import parity
         r = parity.check(a.ledger)

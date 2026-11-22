@@ -4,7 +4,7 @@ A device's history is the richest data a DSP has about it, and so far, every mod
 
 Sequence models read the history directly, and transformers make two more things natural: a token format that can represent events from several sources, and pretraining on data that needs no attribution. That second point is what changes the economics of a DSP's models. Attributed impressions are scarce, but advertisers' non-attributed installs and purchases, shared through their MMPs, are orders of magnitude larger, and full of intent.
 
-In this chapter, we will trace four stages of how DSP models represent a device, move from pooled sets to event sequences, look at when a single attention layer is enough, compare self-attention with target attention, and tokenize events from MMPs, the bid stream, and SDKs. We pretrain a transformer on non-attributed data and co-train click and install heads on top of it. We pretrain on non-attributed data, cover two-tower models and the affinity signals they produce, and look at the large-upstream, small-online design, scaling laws, and foundation models distilled into production models. We then build both designs from @sec-where-trees-stop, deep signals into trees and an online ranker with a calibration layer, and close with leakage, versioning, and data rights.
+In this chapter, we will trace four stages of how DSP models represent a device, move from pooled sets to event sequences, look at when a single attention layer is enough, give a short primer on transformers, compare self-attention with target attention, and tokenize events from MMPs, the bid stream, and SDKs. We pretrain a transformer on non-attributed data and co-train click and install heads on top of it. We pretrain on non-attributed data, cover two-tower models and the affinity signals they produce, and look at the large-upstream, small-online design, scaling laws, and foundation models distilled into production models. We then build both designs from @sec-where-trees-stop, deep signals into trees and an online ranker with a calibration layer, and close with leakage, versioning, and data rights.
 
 ## Four Stages of Representing a Device
 
@@ -47,6 +47,22 @@ A single attention layer is enough when:
 - **You need a baseline.** Even if a transformer is the goal, the single layer tells you how much of the gain comes from having a sequence at all, and how much from depth and pretraining.
 
 It has two limits, and they point to the same solution. First, the encoder is only as good as its labels. Trained on attributed impressions, it gets one weak label for each won impression, and most devices never have a won impression that converted. Second, pooling removes order. The age bands keep recency, but patterns that depend on the order of several events, such as trying three games in a genre before settling on one, are hard to represent after mean and max pooling. Both limits are addressed by training the sequence model on its own task, with data that needs no attribution. That's what the transformer in the rest of this chapter does.
+
+## A Short Primer on Transformers
+
+The rest of this chapter builds on the transformer, so it's worth a short look at how one works. A transformer reads a sequence of tokens. Each token starts as an embedding, here the sum of the app, category, event type, spend band, and age band embeddings, and the model refines those vectors through a stack of identical blocks.
+
+The core of each block is **attention**. Each token is projected into three vectors: a query, which describes what it's looking for; a key, which describes what it offers; and a value, which is what it passes on. A token's new vector is a weighted average of every token's value, weighted by how well its query matches each key:
+
+$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^\top}{\sqrt{d}}\right) V$$
+
+Here, $Q$, $K$, and $V$ hold the queries, keys, and values for the whole sequence, and $d$ is their width. Dividing by $\sqrt{d}$ keeps the scores in a range where the softmax still has useful gradients. **Multi-head attention** runs several of these in parallel, each with its own projections, so one head can learn to follow recent purchases while another follows installs in the same genre.
+
+A **transformer block** is attention followed by a small feed-forward network applied to each token on its own, with a residual connection and layer normalization around each, so blocks can be stacked without training becoming unstable. Attention on its own has no sense of order, so models add position information to the tokens. In this chapter, the age bands do that job.
+
+Transformers come in two main shapes. An **encoder**, such as BERT, lets every token attend to every other token, and is used to represent a whole sequence. A **decoder**, such as GPT, uses a **causal mask**, so each token sees only the tokens before it, and is trained to predict what comes next. The pretraining task later in this chapter is the decoder's: predict the next install or purchase from everything before it. The cost of attention grows with the square of the sequence length, which is one reason device histories are cut to the most recent few hundred events.
+
+The original architecture is in "Attention Is All You Need."[^c27-vaswani] For readers who want to go further, Chip Huyen's *AI Engineering* is a good reference.[^c27-aieng] It covers how transformers and the foundation models built on them work, how they're trained, evaluated, and adapted, and what it takes to build products on them. The models in this chapter are far smaller than a language model, but they use the same building blocks.
 
 ## Self-Attention vs. Target Attention
 
@@ -323,3 +339,8 @@ Both designs depend on getting the expensive parts out of the bid path and the c
 [^c27-pyspark]: Ben Weber, "Using DNN Embedding Models in PySpark at AdTech Scale," *Data Science Collective*, May 2026, <https://medium.com/data-science-collective/using-dnn-embedding-models-in-pyspark-at-adtech-scale-8f8fdd00fc17>
 
 [^c27-sasrec]: Wang-Cheng Kang and Julian McAuley, "Self-Attentive Sequential Recommendation," ICDM, 2018, <https://arxiv.org/abs/1808.09781>
+
+[^c27-vaswani]: Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, and Illia Polosukhin, "Attention Is All You Need," NeurIPS, 2017, <https://arxiv.org/abs/1706.03762>.
+
+[^c27-aieng]: Chip Huyen, *AI Engineering: Building Applications with Foundation Models*, O'Reilly Media, 2025.
+

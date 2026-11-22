@@ -15,6 +15,14 @@ Source for the book *Machine Learning in Mobile AdTech*. One set of
 
 Read online: <https://bgweber.github.io/AdtechBook/>
 
+> **Run the simulator:** start a simulated ad market, a Go bidder, and its console with one command,
+> then follow the book chapter by chapter. The **[walkthrough](WALKTHROUGH.md)** has the commands for
+> every Part II exercise and screenshots of what you'll see.
+>
+> ```bash
+> docker compose up --build    # then open http://localhost:8081
+> ```
+
 ## The companion code
 
 The book comes with a simulated mobile ad market, **adsim**, and the code

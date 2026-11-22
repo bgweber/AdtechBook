@@ -17,6 +17,7 @@ Two more commands for Chapter 8:
 ```bash
 python -m adtrain parity --ledger out/ledger           # feature parity check
 python -m adtrain trace <request_id> --ledger out/ledger  # one request, bid to label
+python -m adtrain find --clicked --ledger out/ledger      # request IDs to trace
 ```
 
 The parity check recomputes the FeatureVector of every bid whose raw
