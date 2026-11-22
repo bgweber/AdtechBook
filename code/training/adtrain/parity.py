@@ -113,6 +113,14 @@ def print_trace(t: dict) -> None:
           f"campaign {d['campaign_id']}, creative {d['creative_id']}, "
           f"p_click {d.get('p_click', 0):.4f} from {d.get('p_click_from', '?')}, "
           f"bid ${d.get('bid', 0):.4f} CPM")
+    if d.get("action") == "bid" or d.get("advertiser_value"):
+        line = (f"  pricing: advertiser value ${d.get('advertiser_value', 0):.4f}, "
+                f"media value ${d.get('media_value', 0):.4f}, "
+                f"explore x{d.get('explore_mult', 1):.3f}")
+        if d.get("p_install_click") is not None:
+            line += (f", install rate {d['p_install_click']:.4f} "
+                     f"from {d.get('install_rate_from', '?')}")
+        print(line)
     if b.get("features"):
         fv = b["features"]
         print(f"  FeatureVector: {len(fv.get('strings', {}))} strings, "
@@ -147,3 +155,38 @@ def write(report: dict, path) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(report, indent=1) + "\n")
+
+
+def find(ledger_dir, day=None, goal=None, reason=None, explored=False,
+         clicked=False, limit=5) -> list[dict]:
+    """A few bids that match, to pick a request ID for `trace`."""
+    clicks = None
+    if clicked:
+        clicks = {c.get("request_id") for c in ledger.read(ledger_dir, "clicks")}
+    days = [day] if day is not None else None
+    out = []
+    for b in ledger.read(ledger_dir, "bids", days):
+        d = b.get("decision") or {}
+        if goal and (b.get("ad") or {}).get("goal", "").lower() != goal.lower():
+            continue
+        if reason and d.get("reason") != reason:
+            continue
+        if explored and d.get("explore_mult", 1) == 1:
+            continue
+        if clicks is not None and b.get("request_id") not in clicks:
+            continue
+        out.append(b)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def print_found(bids: list[dict]) -> None:
+    if not bids:
+        print("no matching bids")
+    for b in bids:
+        d = b["decision"]
+        print(f"{b['request_id']}  day {b['day']}  {d['action']}"
+              f"{' (' + d['reason'] + ')' if d.get('reason') else ''}  "
+              f"campaign {d.get('campaign_id')}  bid ${d.get('bid', 0):.4f}")
+

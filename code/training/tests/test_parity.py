@@ -59,3 +59,27 @@ def test_check_flags_a_skew(tmp_path):
     top = r["features"][0]
     assert top["feature"] == "os_major" and top["mismatched"] == 1
     assert top["examples"][0]["logged"].endswith(".2")
+
+
+def test_find_filters_bids(tmp_path):
+    def bid(rid, goal, mult=1.0, reason=None):
+        d = {"action": "nobid" if reason else "bid", "campaign_id": 1,
+             "bid": 0.5, "explore_mult": mult}
+        if reason:
+            d["reason"] = reason
+        return {"request_id": rid, "day": 0, "decision": d, "ad": {"goal": goal}}
+    rows = [bid("a", "cpc"), bid("b", "cpi", mult=1.4), bid("c", "cpc", reason="below_floor")]
+    d = tmp_path / "bids" / "day=0000"
+    d.mkdir(parents=True)
+    with gzip.open(d / "part-0000.jsonl.gz", "wt") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+    c = tmp_path / "clicks" / "day=0000"
+    c.mkdir(parents=True)
+    with gzip.open(c / "part-0000.jsonl.gz", "wt") as f:
+        f.write(json.dumps({"request_id": "a", "event_id": "ca"}) + "\n")
+    ids = lambda bids: [b["request_id"] for b in bids]
+    assert ids(parity.find(tmp_path, goal="cpi")) == ["b"]
+    assert ids(parity.find(tmp_path, explored=True)) == ["b"]
+    assert ids(parity.find(tmp_path, reason="below_floor")) == ["c"]
+    assert ids(parity.find(tmp_path, clicked=True)) == ["a"]
