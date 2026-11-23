@@ -142,11 +142,18 @@ def simulate(cfg: SimConfig, policy=None, keep_requests: bool = True,
                                     clicks)
     events = mmp.purchases(world, installs)
     pbs = mmp.postbacks(world, installs, events)
+    if cfg.bad_labels:
+        bad = mmp.misattributed(world, imps, cfg.start_day)
+        print(f"scenario bad-labels: the MMP credits {len(bad):,} false installs on day "
+              f"{cfg.start_day}, {mmp.BAD_LABELS_FROM_H:02d}:00-{mmp.BAD_LABELS_TO_H:02d}:00 "
+              "(probabilistic matching)")
+        pbs = pd.concat([pbs, bad], ignore_index=True).sort_values(
+            "received_ts_ms", kind="stable").reset_index(drop=True)
     # A live bidder gets the MMP's postbacks at its postback endpoint. The
     # installs are resolved once the run ends, so they're sent then, each
     # with the simulated time the MMP would have sent it.
     if hasattr(policy, "postbacks"):
-        policy.postbacks(pbs)
+        policy.postbacks(pbs, until_ms=(cfg.start_day + cfg.days) * 86_400_000)
     na, sharing = mmp.nonattributed(world, installs, events, history)
     notes = _notifications(auc, imps, rng)
     req_all = pd.concat(all_req, ignore_index=True) if all_req else None

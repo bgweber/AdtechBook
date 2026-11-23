@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import http.client
 import json
+from pathlib import Path
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -61,7 +62,8 @@ class HttpPolicy:
     def __init__(self, url: str = "http://localhost:8080", workers: int = 32,
                  sim_epoch_ms: int = 0, admin_url: str | None = None,
                  notice_retry: float = 0.005, seed: int = 0,
-                 mmp_token: str = "adsim-mmp", scenarios: tuple = ()):
+                 mmp_token: str = "adsim-mmp", scenarios: tuple = (),
+                 pending_path: str | None = None):
         u = urlparse(url)
         self.host, self.port = u.hostname, u.port or 80
         self.admin = admin_url or f"http://{self.host}:8081"
@@ -73,6 +75,11 @@ class HttpPolicy:
         self.clicks_sent = 0
         self.postbacks_sent = 0
         self.mmp_token = mmp_token
+        # Postbacks the MMP will send after this run ends wait in a file
+        # and go out during the next run, when their time comes, so the
+        # bidder never hears about an install before it happens.
+        self.pending_path = pending_path
+        self.pending = _load_pending(pending_path)
         self.scenarios = set(scenarios)
         unknown = self.scenarios - set(SCENARIOS)
         if unknown:
@@ -161,6 +168,7 @@ class HttpPolicy:
                 and self._hours_in(t_ms) >= LOST_BILLING_HOUR)
 
     def decide(self, req: pd.DataFrame, state: dict) -> pd.DataFrame:
+        self._send_pending(int(req.ts_ms.min()))
         if self.scenarios:
             self._scenarios(int(state.get("now_ms", req.ts_ms.min())))
         else:
@@ -303,8 +311,38 @@ class HttpPolicy:
                    .replace("${AUCTION_MIN_TO_WIN}", mtw)
                    .replace("${AUCTION_LOSS}", loss))
 
-    def postbacks(self, pb: pd.DataFrame) -> None:
-        """Send the MMP's postbacks, in the order the MMP sends them."""
+    def postbacks(self, pb: pd.DataFrame, until_ms: int | None = None) -> None:
+        """Send the MMP's postbacks, in the order the MMP sends them.
+
+        With a `pending_path`, postbacks the MMP sends after `until_ms`, the
+        end of the run, are kept for the next run rather than sent now.
+        """
+        if self.pending is not None and not self.pending.empty:
+            pb = pd.concat([self.pending, pb], ignore_index=True)
+            self.pending = None
+        pb = pb.sort_values("received_ts_ms", kind="stable")
+        if until_ms is not None and self.pending_path:
+            later = pb[pb.received_ts_ms > until_ms]
+            pb = pb[pb.received_ts_ms <= until_ms]
+            self._save_pending(later)
+        self._send_postbacks(pb)
+
+    def _send_pending(self, now_ms: int) -> None:
+        if self.pending is None or self.pending.empty:
+            return
+        due = self.pending[self.pending.received_ts_ms <= now_ms]
+        if not due.empty:
+            self.pending = self.pending[self.pending.received_ts_ms > now_ms]
+            self._send_postbacks(due)
+
+    def _save_pending(self, later: pd.DataFrame) -> None:
+        self.pending = later.reset_index(drop=True)
+        if not self.pending_path:
+            return
+        Path(self.pending_path).parent.mkdir(parents=True, exist_ok=True)
+        later.reset_index(drop=True).to_parquet(self.pending_path, index=False)
+
+    def _send_postbacks(self, pb: pd.DataFrame) -> None:
         if pb.empty:
             return
         cols = [c for c in pb.columns if c != "received_ts_ms"]
@@ -355,3 +393,10 @@ def _clicktrackers(adm) -> list[str]:
 def _clock(ms: int) -> str:
     m = (ms % 86_400_000) // 60_000
     return f"day {ms // 86_400_000}, {m // 60:02d}:{m % 60:02d}"
+
+
+def _load_pending(path: str | None) -> pd.DataFrame | None:
+    if path and Path(path).exists():
+        return pd.read_parquet(path)
+    return None
+

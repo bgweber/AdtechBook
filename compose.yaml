@@ -17,9 +17,13 @@
 #   BIDDER_MODE=listen docker compose up --build       (Chapter 7)
 #   BIDDER_BID_SHARE=0.01 docker compose up --build    (bid on 1%)
 #   BIDDER_SKEW=bundle docker compose up --build       (Chapter 8)
+#   ADSIM_PRESET=walk BIDDER_STAGE=walk ADSIM_DAYS=7 docker compose up --build
+#                                                      (Part III, Chapter 13)
 #   ADSIM_SCENARIO=wrong-target,lost-billing docker compose run --rm sim
 #                                                      (Chapter 12)
-# In PowerShell, set them first: $env:ADSIM_DAYS=3; docker compose up --build
+#   LOADGEN_LABEL=before docker compose run --rm loadgen
+#                                                      (Chapter 17)
+# On Windows without WSL, see WALKTHROUGH-windows.md for PowerShell versions.
 
 services:
   bidder:
@@ -27,7 +31,7 @@ services:
     command:
       - -mode=${BIDDER_MODE:-bid}
       - -bid-share=${BIDDER_BID_SHARE:-1}
-      - -stage=crawl
+      - -stage=${BIDDER_STAGE:-crawl}
       - -ledger=/out/ledger
       - -notice-url=http://bidder:8080
       - -models=/out/models
@@ -59,5 +63,22 @@ services:
       - --seed=${ADSIM_SEED:-7}
       - --bidder=http://bidder:8080
       - --out=/out/sim
+    volumes:
+      - ./out:/out
+
+  # The load test (Chapter 17): replays the bidder's raw request log at
+  # rising rates, while the bidder is up. Not started by "up"; run it with
+  #   docker compose run --rm loadgen
+  loadgen:
+    build: code/dsp
+    profiles: [loadtest]
+    entrypoint: [loadgen]
+    command:
+      - -raw=/out/ledger/raw
+      - -bidder=http://bidder:8080
+      - -admin=http://bidder:8081
+      - -out=/out/ops/loadtest.json
+      - -rates=${LOADGEN_RATES:-100,200,400,800,1600}
+      - -label=${LOADGEN_LABEL:-}
     volumes:
       - ./out:/out

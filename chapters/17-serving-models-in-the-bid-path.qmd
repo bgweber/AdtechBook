@@ -24,7 +24,17 @@ Split the budget by stage, so each has a target and an owner:
 
 : Stages of the bid path, each with its own share of the latency budget. {#tbl-c17-stages}
 
-<!-- RESULT: per-stage p50 and p99 latency from benchmarks on the reference DSP, to fill in the table above. -->
+The reference DSP times every request by these stages, and its console shows each stage's 50th and 99th percentiles over the latest 8,192 requests, as in @fig-c17-latency. The stages are timed on the request's clock, so they add up to the total. Model time is measured inside the pricing code, around each model call, and taken out of pricing, so a slow model shows as a slow model.
+
+::: {.content-visible when-format="html"}
+![Where the time goes in the reference DSP's bid path: each stage's 50th and 99th percentiles and mean, for the simulator's own requests (live) and for a load test at 1,600 requests a second with the internal auction capped at three campaigns.](../images/ch17-console-latency.png){#fig-c17-latency width="100%" fig-alt="Screenshot of a table of stages: parse, profile, select, models, shade, price, respond, log, and total, with p50, p99, mean, and a bar for the share of the mean, for live and load test requests. Live: total p50 606 microseconds, p99 33 ms, mean 1.76 ms, with parse and profile p99 of 20 ms and 6.3 ms. Load test: total p50 683 microseconds, p99 2.86 ms, mean 796 microseconds; shade is the largest share, mean 445 microseconds, then models at 168 microseconds; log is zero, because load test requests write nothing."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Where the time goes in the reference DSP's bid path: each stage's 50th and 99th percentiles and mean, for the simulator's own requests (live) and for a load test at 1,600 requests a second with the internal auction capped at three campaigns.](../images/ch17-console-latency-print.png){#fig-c17-latency width="100%" fig-alt="Screenshot of a table of stages: parse, profile, select, models, shade, price, respond, log, and total, with p50, p99, mean, and a bar for the share of the mean, for live and load test requests. Live: total p50 606 microseconds, p99 33 ms, mean 1.76 ms, with parse and profile p99 of 20 ms and 6.3 ms. Load test: total p50 683 microseconds, p99 2.86 ms, mean 796 microseconds; shade is the largest share, mean 445 microseconds, then models at 168 microseconds; log is zero, because load test requests write nothing."}
+:::
+
+Two things in it are worth noticing. In the load test, the win model's search for the bid, shading, took more time than the three conversion models together, because it runs the win model at 18 candidate bids for every campaign priced. And the live requests, the simulator's own, have a far longer tail in parsing and profile lookups than the load test's. Nothing in those stages is slow. The simulator runs on the same two cores and sends its requests in bursts, so requests wait for a core, and the stage that's running when they wait looks slow. A stage's tail is often somebody else's work.
 
 Budget for the 99th percentile, not the median. At a high request rate, the slowest 1% of requests is a large number of lost bids, and tail latency usually comes from different causes than typical latency: garbage collection pauses, a slow profile read, or a request with many eligible campaigns.
 
@@ -41,7 +51,7 @@ With 50 eligible campaigns and five models, that's 250 tree ensembles per reques
 - **Compute request and device features once.** Most features are the same for every candidate. Build them once per request, and only add the campaign and creative features per candidate.
 - **Skip models that can't matter.** A campaign whose maximum possible value is below the floor doesn't need a value model call.
 
-<!-- RESULT: model calls per request before and after each step, on simulated traffic. -->
+For the reference DSP at the start of a simulated day, when every campaign still has budget, the internal auction of @sec-pricing-for-goals priced about seven campaigns per request. Each needed three conversion model calls and up to 18 win model calls for shading: around 150 tree ensembles of 200 trees each, for one bid. Capping the auction at three campaigns, by each campaign's recent mean score, cut that to about 60, and the median time in the bidder from 1.14 to 0.64 ms. A cap changes decisions, so the reference DSP measures what it costs. During a load test, 5% of capped auctions are priced again in full: with a cap of three, the capped auction found the full auction's best campaign in 97% of them and gave up 1.2% of the best expected surplus. A cap of two gave up 4.7%, and a cap of four 0.3%. Whether a point of surplus is worth half the CPU is a business decision, and the audit is what lets someone make it.
 
 ## Serving LightGBM
 
@@ -53,7 +63,18 @@ There are three common ways to serve LightGBM models from a Go bidder:
 
 The cost of evaluating a tree ensemble grows with the number of trees and their depth. A model trained with 2,000 trees and 255 leaves each might be slightly better offline than one with 300 trees and 63 leaves, and many times slower to serve. Train with serving in mind: limit the number of trees and leaves, and measure how much accuracy that gives up. Often it's very little.
 
-For the reference DSP, we choose ONNX. It's not always the fastest option for trees alone, but it means the serving path, the parity checks, and the artifact format are already in place when deep models arrive in Part IV, where ONNX is the natural choice.
+For the reference DSP, we measured before choosing. The bidder already had a native Go evaluator, a few hundred lines that read LightGBM's own JSON dump of the model and follow its decision rules, including where missing values and unseen categories go. We converted one 200-tree click model to ONNX and ran both on the same 200 golden examples, on two cores of a shared cloud machine:
+
+| Evaluator | One row | Batch of 8, per row | Larger batches, per row |
+|-----------|---------|---------------------|-------------------------|
+| Native Go, categories in maps | 17.1 µs | | |
+| Native Go, categories as bitsets | 10.2 µs | 8.6–10.1 µs | 7.1–8.6 µs (32 rows) |
+| ONNX Runtime from Go | 20.4 µs | 14.7 µs | 11.5 µs (64 rows) |
+| ONNX Runtime from Python, one thread | 25.7 µs | 16.6 µs | 10.6 µs (64 rows) |
+
+: The same LightGBM click model, 200 trees of 15 leaves, evaluated four ways. ONNX Runtime 1.29, called from Go through a binding that loads its C library without cgo. {#tbl-c17-onnx tbl-colwidths="[40,16,22,22]"}
+
+The first native version spent half its time in map lookups for categorical splits. Profiling found it, and storing each split's categories as a bitset, as LightGBM does, made it 1.7 times faster with the same predictions to $10^{-16}$. ONNX Runtime agreed with LightGBM to $1.6 \times 10^{-7}$, because it takes 32-bit floats. For trees, the native evaluator was faster at every batch size we use, and it has no runtime to install. So the reference DSP serves trees natively, checks every bundle against its golden examples before serving it, and keeps the ONNX comparison as a benchmark in its companion code. Deep models in Part IV go through ONNX Runtime, where writing our own evaluator isn't an option.
 
 ## ONNX Runtime Settings
 
@@ -61,7 +82,7 @@ ONNX Runtime works well in a bidder, but its defaults are tuned for running one 
 
 - **Threads.** By default, ONNX Runtime parallelizes each inference call across threads. In a Go bidder, concurrency already comes from goroutines, one per request, so per-call parallelism mostly adds contention. I had to reduce the default parallelism to get good latency when serving ONNX models from Go.[^c17-golang] Set intra-op and inter-op threads to one, and let Go handle concurrency.
 - **Graph optimization.** Enable the runtime's graph optimizations, and create sessions once, at model load time, never per request.
-- **Batch the candidates.** Score all candidates for a request in one call, with one row per candidate, rather than one call per candidate. Calling from Go into ONNX Runtime goes through cgo, which has a fixed overhead per call, so batching pays it once per request instead of once per candidate.
+- **Batch the candidates.** Score all candidates for a request in one call, with one row per candidate, rather than one call per candidate. Calling from Go into ONNX Runtime crosses into C, through cgo or a library such as purego, which has a fixed overhead per call, so batching pays it once per request instead of once per candidate. In @tbl-c17-onnx, batches of 64 cut the time per row nearly in half.
 - **Reuse buffers.** Allocate input and output tensors once and reuse them, rather than allocating per request.
 
 ## Keeping Go Fast in the Hot Path
@@ -99,25 +120,38 @@ Latency work without measurements is guesswork. Measure at three levels:
 
 The number that ties it together is **cost per million requests**: the compute cost of the bidder fleet divided by the requests it handles. It turns latency and efficiency into money, and makes it possible to ask whether a new model is worth what it costs to serve. All numbers in this chapter come from benchmarks on the reference DSP, and the book's numbers will differ from yours, so measure your own.
 
-<!-- RESULT: cost per million requests for the walk bidder on the reference DSP, by model configuration. -->
+The reference DSP's load generator replays the bidder's sample of raw requests, dated the day after the log's last so that every budget is fresh, at fixed rates. It's open loop: requests leave on schedule whether or not earlier ones have answered, as an exchange's do. A closed-loop test, which waits for each answer before sending the next, slows down with the bidder and never sees the queue. The requests carry a header that tells the bidder to run the whole bid path but write nothing: no ledger rows, no device profiles, no budgets, no alerts. @fig-c17-loadtest shows three runs on the same two shared cores, with the load generator running beside the bidder.
+
+::: {.content-visible when-format="html"}
+![Three load tests of the reference DSP at rising request rates: before any changes, after three changes that keep the bidder's decisions the same, and with the internal auction capped at three campaigns. The chart shows the 99th percentile the exchange sees, against the 100 ms deadline.](../images/ch17-console-loadtest-chart.png){#fig-c17-loadtest width="100%" fig-alt="Line chart with a log-scale y axis from 0.1 to 1,000 ms and a dashed line at 100 ms; the x axis is the rate, 100, 400, 800, and 1,600 requests a second. Before: p99 about 4 ms at 100 and 400 per second, 42 ms at 800, and 100 ms at 1,600, where 98% of requests were late or dropped. After the exact fixes: about 3 to 4 ms, then 9.7 ms at 800 and 99 ms at 1,600, 96% late. With a cap of three: 2.8 to 4.4 ms through 800 per second and 21.8 ms at 1,600, with none late."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Three load tests of the reference DSP at rising request rates: before any changes, after three changes that keep the bidder's decisions the same, and with the internal auction capped at three campaigns. The chart shows the 99th percentile the exchange sees, against the 100 ms deadline.](../images/ch17-console-loadtest-chart-print.png){#fig-c17-loadtest width="100%" fig-alt="Line chart with a log-scale y axis from 0.1 to 1,000 ms and a dashed line at 100 ms; the x axis is the rate, 100, 400, 800, and 1,600 requests a second. Before: p99 about 4 ms at 100 and 400 per second, 42 ms at 800, and 100 ms at 1,600, where 98% of requests were late or dropped. After the exact fixes: about 3 to 4 ms, then 9.7 ms at 800 and 99 ms at 1,600, 96% late. With a cap of three: 2.8 to 4.4 ms through 800 per second and 21.8 ms at 1,600, with none late."}
+:::
+
+The three changes that kept the decisions the same came from the profiler, not from guessing. The tree walk was two thirds of the CPU, and the map lookups inside it were fixed with bitsets. The second surprise was Thompson sampling over creatives, from @sec-pricing-for-goals, at a seventh of the CPU: to log the chance of each choice for offline evaluation, every request drew 200 more times from each campaign's posteriors. The posteriors change only as day-old installs arrive, so the bidder now caches them, with the chances from 4,000 draws, for 1,000 picks. And the win model's inputs don't depend on the campaign, so they're built once per request, and the 18 candidate bids go through the trees together. Together these took a fifth off the median, and pricing's own time from 224 to 44 µs.
+
+They didn't move the knee. At 1,600 requests a second, both versions fell behind: requests arrived faster than two cores could price them, they queued, and almost all of them missed the deadline. The bidder's own stage timings barely changed while that happened, because the time was spent waiting to start. Past the knee, the exchange's view and the bidder's disagree, and only the exchange's matters. Capping the auction moved the knee past 1,600. We didn't price the bidder in dollars, but the same runs give the number that cost per million requests is built from: requests per second per core at the p99 the exchanges need.
 
 ## First-Time Pitfalls
 
 - **Garbage collection pauses and cold starts show up first in p99 after a deploy.** Measure p99 during and right after rollouts, not only in steady state.
 - **Hot-reloading configuration while requests are in flight.** Swap whole snapshots atomically, never field by field, as in @sec-parsing-bid-requests-and-eligibility.
-- **Benchmarking the wrong thing.** A benchmark on one candidate per request says little about a request with 50. Benchmark with the real distribution of candidates.
+- **Benchmarking the wrong thing.** A benchmark on one candidate per request says little about a request with 50. Benchmark with the real distribution of candidates. The reference DSP's first load test played requests at the end of a simulated day, when most budgets were spent and the auction priced fewer than two campaigns; at the start of a day it priced seven.
+- **A load test that changes what it measures.** Replayed requests that update device profiles, budgets, and the clock change the bidder's state for the real traffic that follows. Mark load test requests, and have the bidder answer them without writing anything.
 
 ::: {.callout-tip title="Try it on the simulator"}
 Profile the walk bidder under load with replayed simulated traffic. Find the slowest stage at p99, then cap the candidates per request and batch the model calls, and measure the change. Compare LightGBM served through ONNX Runtime with a native Go implementation on the same model.
 
-*Status: planned. This exercise needs the companion Go bidder and a replay harness, which isn't built yet.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). The bidder times every stage of the bid path (the Serving tab), the load generator replays logged requests at rising rates (`docker compose run --rm loadgen`), Go's profiler is on the admin port, and the auction's candidate cap comes with an audit of what it gives up. `code/onnxbench` compares ONNX Runtime from Go, without cgo, with the native evaluator on the same model. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
 
-In this chapter, we made the walk bid path fast enough, measurably. We split the latency budget by stage and budgeted for p99, reduced model calls by filtering first, capping candidates, and computing shared features once, and served LightGBM through ONNX Runtime with settings tuned for many small calls from Go. We kept the hot path free of allocations and reflection, limited data access to one profile read with a strict timeout, degraded gracefully when requests ran long, and measured everything, down to cost per million requests.
+In this chapter, we made the walk bid path fast enough, measurably. We split the latency budget by stage and budgeted for p99, reduced model calls by filtering first, capping candidates, and computing shared features once, and measured LightGBM served natively in Go against ONNX Runtime before choosing the native evaluator, with ONNX Runtime settings tuned for many small calls for the deep models to come. We kept the hot path free of allocations and reflection, limited data access to one profile read with a strict timeout, degraded gracefully when requests ran long, and measured everything, down to cost per million requests.
 
 With several models in the bid path and more on the way, a daily training script is no longer enough. In the next chapter, we build pipelines that train, validate, and publish models safely.
 

@@ -14,6 +14,7 @@ package bidder
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/bgweber/adtechbook/code/dsp/internal/experiment"
 	"io"
 	"math/rand/v2"
 	"net/http"
@@ -21,11 +22,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bgweber/adtechbook/code/dsp/internal/campaigns"
 	"github.com/bgweber/adtechbook/code/dsp/internal/clock"
 	"github.com/bgweber/adtechbook/code/dsp/internal/features"
+	"github.com/bgweber/adtechbook/code/dsp/internal/gbm"
+	"github.com/bgweber/adtechbook/code/dsp/internal/latency"
 	"github.com/bgweber/adtechbook/code/dsp/internal/ledger"
 	"github.com/bgweber/adtechbook/code/dsp/internal/model"
 	"github.com/bgweber/adtechbook/code/dsp/internal/normalize"
@@ -58,6 +62,16 @@ type RawRecord struct {
 	Profile   profile.Snapshot `json:"profile"` // before this request
 }
 
+// LoadTestHeader marks a request from the load generator (Chapter 17):
+// the bidder runs the whole bid path and answers, but writes nothing, so
+// a load test leaves no trace in the ledger, the profiles, the budgets,
+// or the alerts. Its timings go to their own recorder.
+const LoadTestHeader = "X-Load-Test"
+
+// CapAuditSample is the share of capped load test auctions priced again
+// in full, to measure what the cap gives up (Chapter 17).
+const CapAuditSample = 0.05
+
 // NoBidSample is the share of no-bids whose FeatureVector is logged.
 // Every bid and ghost bid carries one; no-bids are sampled (Chapter 8).
 const NoBidSample = 0.05
@@ -79,11 +93,23 @@ type Bidder struct {
 	MMPToken  string         // the shared secret the MMP sends; empty = accept all
 	Stats     *stats.Stats
 	Models    *model.Registry // the deployed click model, if any
-	Ops       *ops.Ops        // kill switches, throttling, alerts (Chapter 12)
+	// Conversion is the deployed LightGBM bundle (Part III), if any: its
+	// click model replaces the FTRL one, and its install models replace
+	// the segment install rates.
+	Conversion *gbm.Registry
+	Exp        *experiment.Manager // shadow, canary, and A/B tests (Chapter 19)
+	Win        *gbm.Registry       // win rate models for shading (Chapter 20)
+
+	lastAdForTest map[string]string
+	Ops           *ops.Ops // kill switches, throttling, alerts (Chapter 12)
+
+	// Lat times live requests' stages; LoadLat the load test's (Chapter 17).
+	Lat, LoadLat *latency.Recorder
 
 	mu      sync.Mutex
 	pending map[string]pending // request ID -> our bid, until notices arrive
 	seen    map[string]bool    // notice event IDs, for deduplication
+	clockMS atomic.Int64       // the newest request time seen
 }
 
 type pending struct {
@@ -95,6 +121,8 @@ type pending struct {
 	PClick     float64
 	Exchange   string
 	Placement  string
+	Experiment string // the experiment and arm the bid was in (Chapter 19)
+	Arm        int
 }
 
 // BidRecord is one row of the bid ledger.
@@ -121,6 +149,10 @@ type PostbackRecord struct {
 	Day        int64             `json:"day"`
 	Fields     map[string]string `json:"fields"`
 	Duplicate  bool              `json:"duplicate,omitempty"`
+	// SeenMS is the bidder's own clock when the postback arrived: the
+	// newest request time it had seen. Device history built from
+	// postbacks is as of this time, since that's when bids could use it.
+	SeenMS int64 `json:"seen_ts_ms,omitempty"`
 }
 
 // ClickRecord is one row of the click log.
@@ -155,6 +187,9 @@ func (b *Bidder) init() {
 		b.pending = map[string]pending{}
 		b.seen = map[string]bool{}
 	}
+	if b.Lat == nil {
+		b.Lat, b.LoadLat = latency.NewRecorder(), latency.NewRecorder()
+	}
 	b.mu.Unlock()
 }
 
@@ -179,8 +214,14 @@ func (b *Bidder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Bidder) bid(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
+	tm := latency.Start()
+	loadTest := r.Header.Get(LoadTestHeader) == "1"
 	ts, _ := clock.Now(r)
+	for !loadTest { // a replayed request doesn't move the clock
+		if c := b.clockMS.Load(); ts <= c || b.clockMS.CompareAndSwap(c, ts) {
+			break
+		}
+	}
 	day := ts / clock.DayMS
 	exchange := strings.TrimPrefix(r.URL.Path, "/openrtb/")
 	w.Header().Set("X-Bidder-Version", b.Version)
@@ -195,21 +236,36 @@ func (b *Bidder) bid(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		n, err = normalize.Normalize(exchange, &req)
 	}
+	tm.Lap(latency.Parse)
 	d := policy.Decision{Action: "nobid", CampaignID: -1, CreativeID: -1}
+	live := b.Exp.Live()
+	if loadTest {
+		live = nil // no experiment counts from a load test
+	}
+	expArm := campaigns.ArmNone
 	var fv *features.FeatureVector
 	var ad map[string]string
 	var snap profile.Snapshot
 	sw := b.Ops.Switches()
-	b.Ops.Step(ts, b.Book) // throttle rates and alerts, once per simulated quarter hour
+	if !loadTest {
+		b.Ops.Step(ts, b.Book) // throttle rates and alerts, once per simulated quarter hour
+	}
+	var modelsD, shadeD time.Duration // inside the policy, then charged to their stages
+	var audit func()                  // the auction cap's audit, after the timings
 	switch {
 	case err != nil:
 		d.Reason = "bad_request"
 	case !n.ValidIFA:
 		d.Reason = "no_device_id"
 	default:
-		snap = b.Profiles.Observe(n.IFA, n.Bundle, ts, day)
+		if loadTest {
+			snap = b.Profiles.Peek(n.IFA, day)
+		} else {
+			snap = b.Profiles.Observe(n.IFA, n.Bundle, ts, day)
+		}
 		v := features.Build(&n, snap, ts)
 		fv = &v
+		tm.Lap(latency.Profile)
 		switch {
 		case b.Mode != ModeBid:
 			d.Reason = "listen"
@@ -217,39 +273,127 @@ func (b *Bidder) bid(w http.ResponseWriter, r *http.Request) {
 			d.Reason = "kill_global"
 		case sw.Exchanges[exchange]:
 			d.Reason = "kill_exchange"
-		case rng.Float64() >= b.BidShare:
+		case !loadTest && rng.Float64() >= b.BidShare:
 			d.Reason = "not_sampled"
 		default:
-			elig, why := b.Book.EligibleWhy(n.Country, n.Placement, int(day))
+			// the experiment's arm for this device: the challenger's bundle
+			// prices treatment devices, from the arm's part of each budget
+			// when the test splits budgets
+			arm := live.Arm(n.IFA)
+			elig, why := b.Book.EligibleArm(n.Country, n.Placement, int(day), arm)
 			cands, reason := b.filter(elig, why, sw, rng)
+			tm.Lap(latency.Select)
 			if reason != "" {
 				d.Reason, d.Filtered = reason, why
 				break
 			}
+			// the internal auction scores every campaign: keep each one's ad,
+			// so the ledger logs the ad that bid, not the last one scored
+			ads := map[[2]int]map[string]string{}
 			predict := func(c *campaigns.Campaign, cr campaigns.Creative) (policy.Prediction, bool) {
+				t0 := time.Now()
+				defer func() { modelsD += time.Since(t0) }()
+				tm.Candidates++
 				ad = features.Ad(c, cr)
+				ads[[2]int{c.ID, cr.ID}] = ad
+				if arm == campaigns.ArmTreatment && live.Bundle != nil {
+					return b.predictWith(fv, ad, exchange, sw, live.Bundle, live.Fault)
+				}
 				return b.predict(fv, ad, exchange, sw)
 			}
-			d = b.Policy.Decide(cands, n.Placement, n.IFA, n.Floor, rng, predict)
+			// shading: the win model in a shading test's treatment arm, else
+			// the deployed one, else the fixed factor (Chapter 20)
+			var wm *gbm.WinModel
+			if cur := b.Win.Current(); cur != nil {
+				wm, _ = gbm.NewWinModel(cur)
+			}
+			if live != nil && live.Kind == experiment.Shading && arm == campaigns.ArmTreatment {
+				wm = live.Win
+			}
+			var shade policy.Shader
+			if wm != nil {
+				var wx []float64 // the win model's inputs: the same for every campaign
+				shade = func(media, floor float64) (float64, float64, bool) {
+					t0 := time.Now()
+					defer func() { shadeD += time.Since(t0) }()
+					if wx == nil {
+						wx = wm.Inputs(fv, nil)
+					}
+					bid, p := wm.ShadeInputs(wx, media, floor)
+					return bid, p, bid > 0
+				}
+			}
+			d = b.Policy.Decide(cands, n.Placement, n.IFA, n.Floor, rng, predict, shade)
+			if loadTest && d.Capped > 0 && rng.Float64() < CapAuditSample {
+				audit = func() { b.Policy.AuditCap(cands, n.Placement, n.Floor, rng, predict, shade) }
+			}
+			if a, ok := ads[[2]int{d.CampaignID, d.CreativeID}]; ok {
+				ad = a
+			}
+			b.lastAdForTest = ad
 			d.Filtered = why
+			if live != nil {
+				d.Experiment = live.ID
+				if arm != campaigns.ArmNone {
+					d.Arm = [2]string{"control", "treatment"}[arm]
+				}
+				expArm = arm
+				if live.Sampled(n.ID) && d.CampaignID >= 0 && ad != nil {
+					t0 := time.Now()
+					if pr, ok := b.predictWith(fv, ad, exchange, sw, live.Bundle, ""); ok {
+						took := time.Since(t0)
+						modelsD += took
+						d.Shadow = &policy.ShadowScore{Model: live.Bundle.Spec.Version, PClick: pr.PClick,
+							PInstallClick: pr.PInstallClick, PInstallView: pr.PInstallView,
+							LatencyUS: float64(took.Nanoseconds()) / 1000}
+						b.Exp.ObserveShadow(live, n.Placement, &d, d.Shadow, ts)
+					}
+				}
+				var champ *policy.Prediction
+				if arm == campaigns.ArmTreatment && d.CampaignID >= 0 && ad != nil {
+					// the champion's prediction for the same request: the
+					// canary's guardrails compare the two on the same traffic
+					t0 := time.Now()
+					if pr, ok := b.predict(fv, ad, exchange, sw); ok {
+						champ = &pr
+					}
+					modelsD += time.Since(t0)
+				}
+				b.Exp.Observe(live, arm, n.Placement, &d, champ, ts)
+			}
 			if d.CampaignID >= 0 {
 				d.Throttle = b.Ops.Rate(d.CampaignID)
 			}
+			tm.Lap(latency.Price)
+			tm.Add(latency.Models, modelsD, latency.Price)
+			tm.Add(latency.Shade, shadeD, latency.Price)
 		}
 	}
+	tm.Lap(latency.Select) // no-bids before selection: bad requests, kill switches
 
 	if d.Action == "bid" {
-		b.mu.Lock()
-		b.pending[n.ID] = pending{n.IFA, d.CampaignID, d.CreativeID, day, ts, d.PClick,
-			exchange, n.Placement}
-		b.mu.Unlock()
+		if !loadTest {
+			b.mu.Lock()
+			b.pending[n.ID] = pending{n.IFA, d.CampaignID, d.CreativeID, day, ts, d.PClick,
+				exchange, n.Placement, d.Experiment, expArm}
+			b.mu.Unlock()
+		}
 		b.respond(w, &req, &d, ad)
 	} else {
 		// A no-bid, including a ghost bid, is an empty 204.
 		w.WriteHeader(http.StatusNoContent)
 	}
 
-	lat := time.Since(start).Microseconds()
+	tm.Lap(latency.Respond)
+	if loadTest {
+		tm.Done()
+		b.LoadLat.Record(tm)
+		if audit != nil {
+			audit()
+		}
+		return
+	}
+	lat := time.Since(tm.Start()).Microseconds()
 	pol := "crawl-prior-v1"
 	switch {
 	case d.PClickFrom == "model":
@@ -273,8 +417,12 @@ func (b *Bidder) bid(w http.ResponseWriter, r *http.Request) {
 		rec.RequestID = req.ID
 	}
 	b.Bids.Log(day, rec)
+	pInst := 0.0
+	if d.InstallRateFrom == "model" {
+		pInst = d.PInstallClick
+	}
 	b.Ops.Observe(ops.BidObs{TsMS: ts, Exchange: exchange, Action: d.Action, PClick: d.PClick,
-		PFrom: d.PClickFrom, LatencyUS: lat, ModelOn: b.Models.Current() != nil, Listen: b.Mode != ModeBid})
+		PInstall: pInst, PFrom: d.PClickFrom, LatencyUS: lat, ModelOn: b.Models.Current() != nil || b.Conversion.Current() != nil, Listen: b.Mode != ModeBid})
 	version := "priors"
 	switch {
 	case d.PClickFrom == "model":
@@ -286,6 +434,9 @@ func (b *Bidder) bid(w http.ResponseWriter, r *http.Request) {
 		Country: n.Country, Floor: n.Floor, ValidIFA: n.ValidIFA, Action: d.Action,
 		Reason: d.Reason, LatencyUS: lat, CampaignID: d.CampaignID, Bid: d.Bid,
 		Filtered: d.Filtered, PricedBy: version})
+	tm.Lap(latency.Log)
+	tm.Done()
+	b.Lat.Record(tm)
 }
 
 // filter applies the campaign kill switches and even-spend throttling to
@@ -327,17 +478,28 @@ func (b *Bidder) filter(cands []campaigns.Candidate, why map[int]string, sw *ops
 // on are treated as missing.
 func (b *Bidder) predict(fv *features.FeatureVector, ad map[string]string, exchange string,
 	sw *ops.Switches) (policy.Prediction, bool) {
+	return b.predictWith(fv, ad, exchange, sw, b.Conversion.Current(), "")
+}
+
+// predictWith predicts with a given conversion bundle: the champion's, or
+// an experiment's challenger. fault "scale" triples the bundle's click and
+// install predictions, the broken model of the Chapter 19 exercise.
+func (b *Bidder) predictWith(fv *features.FeatureVector, ad map[string]string, exchange string,
+	sw *ops.Switches, cb *gbm.Bundle, fault string) (policy.Prediction, bool) {
 	m := b.Models.Current()
-	if m == nil {
+	if m == nil && cb == nil {
 		return policy.Prediction{}, false
 	}
 	place, country := fv.Strings["placement"], fv.Strings["country"]
-	pr := policy.Prediction{Version: m.Version}
-	if m.Rates != nil {
-		pr.PInstallClick, pr.InstallRateFrom = m.Rates.Lookup(ad["campaign"], country, place)
+	pr := policy.Prediction{}
+	if m != nil {
+		pr.Version = m.Version
+		if m.Rates != nil {
+			pr.PInstallClick, pr.InstallRateFrom = m.Rates.Lookup(ad["campaign"], country, place)
+		}
 	}
 	fallback := func(why string) (policy.Prediction, bool) {
-		if m.ClickRates == nil {
+		if m == nil || m.ClickRates == nil {
 			pr.PClick, pr.PClickFrom = policy.CTRPrior[place], "fallback_prior"
 		} else {
 			pr.PClick, pr.PClickFrom = m.ClickRates.Lookup(place, country, exchange), "fallback_"+why
@@ -357,7 +519,39 @@ func (b *Bidder) predict(fv *features.FeatureVector, ad map[string]string, excha
 			}
 		}
 	}
-	p := m.Predict(in, adIn)
+	var p float64
+	clickDone := false
+	if cb != nil {
+		pr.Conversion = cb.Spec.Version
+		x := cb.Inputs(in, adIn)
+		k := 1.0
+		if fault == "scale" {
+			k = 3
+		}
+		if v, ok := cb.Predict("install_click", x); ok && v > 0 && v*k < 1 {
+			v *= k
+			pr.PInstallClick, pr.InstallRateFrom = v, "model"
+		}
+		if v, ok := cb.Predict("install_view", x); ok && v > 0 && v < 1 {
+			pr.PInstallView = v
+		}
+		if ad["goal"] == "roas" || ad["goal"] == "ROAS" {
+			if v, ok := cb.ValuePerInstall(ad["adv_app"]); ok {
+				pr.ValuePerInstall, pr.ValueFrom = v, "bundle"
+			}
+		}
+		if v, ok := cb.Predict("click", x); ok {
+			// the shift drill (Chapter 24): 1 unless it's running on this bundle
+			p, clickDone, pr.Version = v*k*b.Ops.Shift(cb.Spec.Version), true, cb.Spec.Version
+		}
+	}
+	if !clickDone {
+		if m == nil {
+			pr.PClick, pr.PClickFrom = policy.CTRPrior[place], "prior"
+			return pr, true
+		}
+		p = m.Predict(in, adIn)
+	}
 	if p < MinPClick || p > MaxPClick || p != p {
 		return fallback("bounds")
 	}
@@ -456,7 +650,13 @@ func (b *Bidder) notice(w http.ResponseWriter, r *http.Request) {
 			b.Profiles.RecordImpression(p.IFA, ts, ts/clock.DayMS)
 			b.Stats.ObservePrediction(cid, p.PClick)
 		}
-		b.Book.AddSpend(int(day), cid, rec.Price/1000)
+		arm := campaigns.ArmNone
+		if ok {
+			arm = p.Arm
+			b.Exp.ObserveSpend(p.Experiment, p.Arm, rec.Price/1000)
+		}
+		b.Book.AddSpendArm(int(day), cid, arm, rec.Price/1000)
+		b.Policy.Creatives.Impression(rid, crid, cid, day) // Thompson sampling (Chapter 21)
 		ex, pl := "unknown", "unknown"
 		if ok {
 			ex, pl = p.Exchange, p.Placement
@@ -515,7 +715,8 @@ func (b *Bidder) postback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no postback_id", http.StatusBadRequest)
 		return
 	}
-	rec := PostbackRecord{PostbackID: id, ReceivedMS: ts, Day: ts / clock.DayMS, Fields: fields}
+	rec := PostbackRecord{PostbackID: id, ReceivedMS: ts, Day: ts / clock.DayMS, Fields: fields,
+		SeenMS: max(ts, b.clockMS.Load())}
 	b.mu.Lock()
 	rec.Duplicate = b.seen["p"+id]
 	b.seen["p"+id] = true
@@ -528,6 +729,19 @@ func (b *Bidder) postback(w http.ResponseWriter, r *http.Request) {
 		cid = -1
 	}
 	b.Stats.ObservePostback(fields["event_name"], fields["touch_type"], cid, rec.Duplicate)
+	if !rec.Duplicate && b.Profiles != nil {
+		b.Profiles.RecordConversion(strings.ToLower(fields["advertising_id"]), fields["event_name"])
+	}
+	if !rec.Duplicate && fields["event_name"] == "install" {
+		// credit the creative that showed: the MMP echoes our click or
+		// impression ID, which is "c" or "i" and the request ID
+		for _, k := range []string{"click_id", "impression_id"} {
+			if v := fields[k]; len(v) > 1 {
+				b.Policy.Creatives.Install(v[1:])
+				break
+			}
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

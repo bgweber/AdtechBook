@@ -3,8 +3,9 @@
 // it was seen in, and how many of our ads it has been shown.
 //
 // In crawl, this is the whole device profile. It lives in memory and is
-// rebuilt from traffic after a restart. Later parts add data from MMPs
-// and SDKs, and move the store out of process (Chapter 17).
+// rebuilt from traffic after a restart. From walk on, it also counts the
+// MMP's postbacks and is saved to disk across restarts (persist.go). A
+// production store lives out of process (Chapter 17).
 package profile
 
 import (
@@ -33,6 +34,8 @@ type Profile struct {
 	LastImpMS   int64 // 0 if we never showed this device an ad
 	ImpDay      int64
 	ImpsToday   int64
+	Installs    int64            // installs credited to us, from the MMP's postbacks
+	Purchases   int64            // purchases after those installs
 	apps        map[string]int64 // app -> last seen
 	recent      []Visit          // most recent first
 }
@@ -45,6 +48,8 @@ type Snapshot struct {
 	Requests    int64    `json:"requests"`
 	LastImpMS   int64    `json:"last_imp_ms"`
 	ImpsToday   int64    `json:"imps_today"`
+	Installs    int64    `json:"installs,omitempty"` // postbacks received before this request
+	Purchases   int64    `json:"purchases,omitempty"`
 	Apps        []string `json:"apps"`   // sorted, deduplicated
 	Recent      []Visit  `json:"recent"` // most recent first
 }
@@ -103,6 +108,18 @@ func (st *Store) Observe(ifa, app string, tsMS, day int64) Snapshot {
 	return snap
 }
 
+// Peek returns the device's profile without recording a request: for
+// the load test, which replays requests without changing anything.
+func (st *Store) Peek(ifa string, day int64) Snapshot {
+	sh := st.shard(ifa)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	if p, ok := sh.m[ifa]; ok {
+		return p.snapshot(day)
+	}
+	return Snapshot{}
+}
+
 // RecordImpression notes that we showed the device an ad.
 func (st *Store) RecordImpression(ifa string, tsMS, day int64) {
 	sh := st.shard(ifa)
@@ -121,6 +138,47 @@ func (st *Store) RecordImpression(ifa string, tsMS, day int64) {
 	}
 }
 
+// RecordConversion notes an install or a purchase credited to us, when the
+// MMP's postback arrives (Chapter 14). A feature built from it is as of the
+// postback's arrival, the only time the bidder could know it.
+func (st *Store) RecordConversion(ifa, event string) {
+	sh := st.shard(ifa)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	p, ok := sh.m[ifa]
+	if !ok {
+		return
+	}
+	switch event {
+	case "install":
+		p.Installs++
+	case "af_purchase":
+		p.Purchases++
+	}
+}
+
+// SetConversions replaces every known device's install and purchase
+// counts with recounted ones, such as after a batch of bad postbacks is
+// quarantined (Chapter 24): a feature built from bad data has to be
+// rebuilt too. A device missing from counts has none. It returns how many
+// devices changed.
+func (st *Store) SetConversions(counts map[string][2]int64) int {
+	changed := 0
+	for i := range st.s {
+		sh := &st.s[i]
+		sh.mu.Lock()
+		for ifa, p := range sh.m {
+			c := counts[ifa]
+			if p.Installs != c[0] || p.Purchases != c[1] {
+				changed++
+				p.Installs, p.Purchases = c[0], c[1]
+			}
+		}
+		sh.mu.Unlock()
+	}
+	return changed
+}
+
 // Devices returns how many devices the store knows.
 func (st *Store) Devices() int {
 	n := 0
@@ -135,6 +193,7 @@ func (st *Store) Devices() int {
 func (p *Profile) snapshot(day int64) Snapshot {
 	s := Snapshot{Known: true, FirstSeenMS: p.FirstSeenMS, LastSeenMS: p.LastSeenMS,
 		Requests: p.Requests, LastImpMS: p.LastImpMS,
+		Installs: p.Installs, Purchases: p.Purchases,
 		Recent: append([]Visit(nil), p.recent...)}
 	if p.ImpDay == day {
 		s.ImpsToday = p.ImpsToday

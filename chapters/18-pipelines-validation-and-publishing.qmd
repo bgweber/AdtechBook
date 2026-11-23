@@ -63,6 +63,16 @@ A few rules keep the registry trustworthy:
 - **Keep champions for each model type,** such as click, install after click, install after view, value, and win, and for each level of the fallback ladder in @sec-operating-a-competitive-dsp, so every fallback points at a registered version too.
 - **Retain enough history** to roll back and to reproduce old results, and clean up the rest on a schedule.
 
+The reference DSP keeps its registry in files, to stay runnable on a laptop: each bundle in its own directory, a `DEPLOYED` file naming the champion, a `CHALLENGER` file naming the latest bundle that passed the pipeline, and an append-only log of every deploy, promotion, and rollback with the version it replaced. MLflow's aliases do the same job with a server and a UI. @fig-c18-registry shows the console's view of it.
+
+::: {.content-visible when-format="html"}
+![The reference DSP's registry on its console: every LightGBM bundle with its dataset, metrics, and status, and the log of deploys, promotions, and rollbacks.](../images/ch18-console-registry.png){#fig-c18-registry width="100%" fig-alt="Screenshot of two tables. LightGBM conversion models, gbm-0001 to gbm-0009, with dataset, click AUC and calibration, install-after-click AUC and calibration, and install-after-view AUC. gbm-0009 and gbm-0005 have AUCs of 0.500 and failed checks: predictions vary, click AUC, and for gbm-0009 the comparisons with the champion; they offer Force deploy. gbm-0008 is the challenger, with a Promote button. gbm-0006 is the champion, with Roll back and Switch off. gbm-0003, gbm-0006, and gbm-0007 have identical metrics. gbm-0002 is marked leaky, dataset failed checks. Deploys: a rollback to gbm-0006 from gbm-0008, forced; a promotion of gbm-0008 from gbm-0006; a promotion of gbm-0006 from gbm-0001; and earlier deploys of gbm-0001 and gbm-0002, some forced."}
+:::
+
+::: {.content-visible unless-format="html"}
+![The reference DSP's registry on its console: every LightGBM bundle with its dataset, metrics, and status, and the log of deploys, promotions, and rollbacks.](../images/ch18-console-registry-print.png){#fig-c18-registry width="100%" fig-alt="Screenshot of two tables. LightGBM conversion models, gbm-0001 to gbm-0009, with dataset, click AUC and calibration, install-after-click AUC and calibration, and install-after-view AUC. gbm-0009 and gbm-0005 have AUCs of 0.500 and failed checks: predictions vary, click AUC, and for gbm-0009 the comparisons with the champion; they offer Force deploy. gbm-0008 is the challenger, with a Promote button. gbm-0006 is the champion, with Roll back and Switch off. gbm-0003, gbm-0006, and gbm-0007 have identical metrics. gbm-0002 is marked leaky, dataset failed checks. Deploys: a rollback to gbm-0006 from gbm-0008, forced; a promotion of gbm-0008 from gbm-0006; a promotion of gbm-0006 from gbm-0001; and earlier deploys of gbm-0001 and gbm-0002, some forced."}
+:::
+
 ## Environments, Publishing, and Activation
 
 Most DSPs run at least two environments, such as experiments and production, and the rules for how models move between them prevent a lot of trouble:
@@ -107,6 +117,18 @@ Before a model is registered as a challenger, it passes a set of checks. In craw
 
 The constant prediction incident from @sec-operating-the-first-dsp is the reason for the comparison with the champion. A retrain produced a click model that predicted 25% for every request, with an AUC of 0.5. It happened in about 2% of training runs, and the guardrail was exactly this: thresholds on validation metrics, plus a comparison of the new and prior models' outputs on the same data.[^c18-incidents]
 
+The reference DSP's pipeline runs these steps in order and stops at the first one that fails: build the dataset, check it, train, check the models, and publish the bundle as the challenger. @fig-c18-pipeline shows the runs from our experiments, including two failures we caused on purpose. A run on the leaky dataset from @sec-building-training-datasets stopped at the dataset's checks, before any training. A run with the model features removed, which reproduces the constant-prediction incident, trained without complaint and stopped at the model checks: every model predicted one number for every impression, the click AUC was 0.5 against a limit of 0.65, and on the same evaluation rows the champion's install-after-click AUC was 0.77.
+
+::: {.content-visible when-format="html"}
+![Pipeline runs on the reference DSP's console. Each run stops at the first step that fails; the two failures were caused on purpose, with a leaky dataset and with the model features removed.](../images/ch18-console-pipeline.png){#fig-c18-pipeline width="100%" fig-alt="Screenshot of a table of pipeline runs, run-0001 to run-0008, with dataset, bundle, and steps. Runs 0001, 0004, 0005, and 0006 pass build dataset, validate dataset, train, validate model, and publish, and end as challengers gbm-0003, gbm-0006, gbm-0007, and gbm-0008. Runs 0002 and 0008 stop at validate dataset: backfill matches logged, about 23% of rows differing. Runs 0003 and 0007 stop at validate model: predictions vary, with a standard deviation of 0 for click, install_click, and install_view; click AUC 0.5, limit 0.65; and in run 0007, click log loss 0.1257 against 0.1070 for champion gbm-0006, and install_click AUC 0.500 against 0.768."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Pipeline runs on the reference DSP's console. Each run stops at the first step that fails; the two failures were caused on purpose, with a leaky dataset and with the model features removed.](../images/ch18-console-pipeline-print.png){#fig-c18-pipeline width="100%" fig-alt="Screenshot of a table of pipeline runs, run-0001 to run-0008, with dataset, bundle, and steps. Runs 0001, 0004, 0005, and 0006 pass build dataset, validate dataset, train, validate model, and publish, and end as challengers gbm-0003, gbm-0006, gbm-0007, and gbm-0008. Runs 0002 and 0008 stop at validate dataset: backfill matches logged, about 23% of rows differing. Runs 0003 and 0007 stop at validate model: predictions vary, with a standard deviation of 0 for click, install_click, and install_view; click AUC 0.5, limit 0.65; and in run 0007, click log loss 0.1257 against 0.1070 for champion gbm-0006, and install_click AUC 0.500 against 0.768."}
+:::
+
+The comparison with the champion needs the same rows for both models. The reference DSP scores the champion on the challenger's evaluation days, restricted to the rows each model's stage trains on, so the two numbers differ only by the model.
+
 ### Stability Checks for Trees and Deep Models
 
 In @sec-shipping-the-first-model, the logistic regression click model is checked against the previous day's model with the cosine similarity of their weight vectors. That works because each weight belongs to a fixed, hashed feature, so weight 4,512 means the same thing in both models. Tree ensembles and deep networks don't have that property. Two LightGBM models trained on nearly the same data can split on different features in a different order, and two networks can learn the same function with their hidden units in a different order. Their parameters can't be compared directly, so the check moves to what the models do:
@@ -131,7 +153,7 @@ As in crawl, set each threshold from the history of past runs, and make a failur
 
 ## Packaging and Publishing Artifacts
 
-A published model is a **bundle**, as in @sec-shipping-the-first-model, extended for walk: the model file in its serving format (ONNX for LightGBM in the reference DSP), the preprocessing specification, vocabularies, fitted statistics, calibration tables, the downsampling rate, golden vectors, and the metadata that links it to its registry version. The bundle is written once to a shared store, such as a versioned bucket, and never modified. Write everything a version needs next to its artifacts before the alias moves, so a resolved champion is always complete.
+A published model is a **bundle**, as in @sec-shipping-the-first-model, extended for walk: the model file in its serving format (LightGBM's own JSON dump in the reference DSP, which the bidder evaluates natively, as @sec-serving-models-in-the-bid-path explains), the preprocessing specification, vocabularies, fitted statistics, calibration tables, the downsampling rate, golden vectors, and the metadata that links it to its registry version. The bundle is written once to a shared store, such as a versioned bucket, and never modified. Write everything a version needs next to its artifacts before the alias moves, so a resolved champion is always complete.
 
 ## Automated vs. Manual Approval
 
@@ -176,6 +198,8 @@ Any registered model should be rebuildable from its record. That takes more than
 
 For GPU training, bit-for-bit reproducibility usually isn't realistic, because parallel floating point operations don't run in a fixed order. Define reproducible as "metrics and predictions within a tolerance" instead, and check rebuilt models against it.
 
+LightGBM on a CPU can be bit-for-bit reproducible with a fixed seed, one thread, and its deterministic setting. The reference DSP trains that way, and every bundle's report records its lineage: the dataset version and a hash of its manifest, the code and library versions, and the training settings. In @fig-c18-registry, gbm-0003, gbm-0006, and gbm-0007 were trained by three pipeline runs on the same days of the ledger, and their metrics match to the last digit.
+
 ## First-Time Pitfalls
 
 - **Registry labels can be shared across all versions of a model** rather than stored per version, depending on the registry. Read a version's run ID and metadata from per-version fields, such as its artifact path, not from labels.
@@ -186,7 +210,7 @@ For GPU training, bit-for-bit reproducibility usually isn't realistic, because p
 ::: {.callout-tip title="Try it on the simulator"}
 Run the walk pipeline end to end: build the install dataset, validate it, train, validate the model, and register it as a challenger. Then inject a training run that predicts a constant, and watch validation stop it. Finally, promote a good challenger by moving the champion alias, and watch the bidders pick it up.
 
-*Status: planned. This exercise needs the companion training pipeline and model registry, which isn't built yet.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). Run the pipeline from the Conversions tab or with `adtrain pipeline`; break it with a leaky dataset or with features missing, and promote or roll back a challenger. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

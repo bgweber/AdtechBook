@@ -109,6 +109,33 @@ The simplest strong baseline is a gradient-boosted classifier on the win label, 
 - **A monotone constraint on the bid.** Without it, the model can learn a win rate that falls as the bid rises, or that is jagged between the bid levels in the training data, and either breaks the search for the best bid. LightGBM supports monotone constraints per feature.[^c20-lgbm]
 - **A grid of candidate bids.** Because the bid is an input, the model runs once per candidate. A grid of 10 to 20 multipliers of the media value, from about 0.3 to 1.0, is usually enough, followed by choosing the grid point with the highest expected surplus. On a fast tree model this is affordable, but it multiplies inference cost by the grid size.
 
+The reference DSP's win model is this baseline: LightGBM on the win notice, with $\ln b$ and $\ln(b/\text{floor})$ as inputs, a monotone constraint on both, and the request's features from the FeatureVector. Two of the simulated exchanges report the minimum bid to win, one exactly and one rounded up; each report adds a row just above it, as a win, and one just below, as a loss. Its shading is a grid of 17 shares of the media value, from 0.2 to 1.0, plus the floor. This is the Go code, lightly trimmed:
+
+```go
+for _, k := range ShadeGrid { // 0.2, 0.25, ..., 1.0
+    if b := k * media; b > 0 && b <= media && b >= floor {
+        bids = append(bids, b)
+    }
+}
+if floor > 0 && floor <= media {
+    bids = append(bids, floor)
+}
+rows := make([][]float64, len(bids)) // the request's inputs, once per bid
+for i, b := range bids {
+    rows[i] = append([]float64(nil), x...)
+    w.setBid(rows[i], b, floor) // ln(bid) and ln(bid / floor)
+}
+p := make([]float64, len(bids))
+w.Models["win"].PredictBatch(rows, p) // every bid through the trees together
+for i, b := range bids {
+    if s := (media - b) * p[i]; s > best {
+        best, bestB, bestP = s, b, p[i]
+    }
+}
+```
+
+Eighteen candidate bids for every campaign priced made shading the largest cost in the bid path, as @sec-serving-models-in-the-bid-path measured. The closed form below, or a coarse grid refined around its best point, is how to make it cheaper.
+
 [^c20-lgbm]: LightGBM documentation, "Parameters: monotone_constraints," <https://lightgbm.readthedocs.io/en/latest/Parameters.html>
 
 Manual overbids, which we met in @sec-inside-a-demand-side-platform, are the opposite of the randomized multipliers. They change bids for reasons unrelated to the user, but they aren't random, logged as such, or bounded. Bids raised by an overbid look to the win model like ordinary bids, so it learns a win curve that's shifted by whatever the account managers happened to do that week. If your DSP has overbids, log them as a separate field in the bid ledger, and either exclude those bids from win model training or treat the overbid as a feature.
@@ -141,6 +168,27 @@ Because the win rate multiplies directly into the surplus, it has to be calibrat
 
 ![A calibration plot for the first win model. Simulated data.](../images/ch20-calibration-win.png){#fig-c20-calibration width="100%" fig-alt="Calibration plot of actual and predicted win rate across ten deciles. The lines match closely from about 7% to 80%, with predictions slightly too high in the top deciles."}
 
+Calibration at the bids the DSP made isn't enough, because shading bids where it hasn't. The simulator knows the highest competing price in every auction, so the reference DSP can check the model at bids it never made. @fig-c20-win compares two win models trained on the same seven days, one with the minimum-bid-to-win reports and one without. Both were calibrated at the logged bids, at 0.98 and 1.00. At half the logged bid, the true win rate was 27.1%. The model trained without the reports predicted 34.1%, and the one with them 28.1%. Without the reports, the model only saw wins and losses near the bids the fixed shade made, and it extended the curve too gently below them. That overstates what a lower bid wins, which pushes shading too low.
+
+::: {.content-visible when-format="html"}
+![Two win models on the reference DSP's console, trained on the same days with and without the exchanges' minimum-bid-to-win reports, checked at half the logged bid against the simulator's true win rate.](../images/ch20-console-win.png){#fig-c20-win width="100%" fig-alt="Screenshot of a table of win models. win-0002, days 33 to 39, reports used: AUC 0.872, calibration 0.983, at half the bid true 0.271 and predicted 0.281. win-0001, the same days, no reports: AUC 0.874, calibration 1.001, at half the bid true 0.271 and predicted 0.341. Each row has Shading A/B 50/50 and Deploy buttons."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Two win models on the reference DSP's console, trained on the same days with and without the exchanges' minimum-bid-to-win reports, checked at half the logged bid against the simulator's true win rate.](../images/ch20-console-win-print.png){#fig-c20-win width="100%" fig-alt="Screenshot of a table of win models. win-0002, days 33 to 39, reports used: AUC 0.872, calibration 0.983, at half the bid true 0.271 and predicted 0.281. win-0001, the same days, no reports: AUC 0.874, calibration 1.001, at half the bid true 0.271 and predicted 0.341. Each row has Shading A/B 50/50 and Deploy buttons."}
+:::
+
+Then the test that matters. The reference DSP ran an A/B test with the model trained on the reports in the treatment arm and the fixed 0.7 shade in the control, with half the devices and half of each budget in each arm, for three simulated days:
+
+| Arm | Mean shade | Win rate | Spend | Media value won | Surplus |
+|-----|-----------|----------|-------|-----------------|---------|
+| Fixed 0.7 | 0.70 | 52.8% | \$135 | \$194 | \$58 |
+| Model shading | 0.48 | 42.8% | \$62 | \$176 | \$114 |
+
+: A shading A/B test on the reference DSP, three simulated days. Surplus is the media value won minus what was paid. {#tbl-c20-shading tbl-colwidths="[20,14,14,14,22,16]"}
+
+Model shading won fewer auctions and paid less than half as much, for 9% less media value, and nearly doubled the surplus. Its predicted win rate, 45.8%, was close to the 42.8% it got. Three days later, with the installs in, its cost per install on CPI campaigns was 0.62 times the control's, with a 95% interval of 0.37 to 0.98; the simulator's true install rates put it at 0.57. The test also showed the cost: the treatment arm spent less than its half of each budget. A DSP that pays less per impression has to buy more of them to deliver its budgets, which is the job of the pacing in @sec-basic-pacing.
+
 ## Floors
 
 Floors set by exchanges and mediation platforms carry real information. A mediation floor often reflects what other demand sources have paid for the same placement and user, so it's a strong feature for the win model. The pricing rules are simple. If the media value is at or below the floor, don't bid. If the shaded bid is below the floor, raise it to the floor, which still leaves surplus, because the value is above it. For a parametric win model, the floor also truncates the curve, since bids below it can't win:
@@ -154,11 +202,12 @@ Logging the floor with every bid, and every request skipped because of it, lets 
 - **Minimum bid to win means different things on different exchanges.** It can include or exclude fees, be rounded, be reported only for losses, or be in another currency. Normalize it per exchange, as with every other field in @sec-parsing-bid-requests-and-eligibility, before training on it.
 - **Training only on the explored share.** The randomized bids are what identify the slope of the curve, but the model still needs every bid to learn the level. Train on all bids, with the explored share telling the model how the win rate responds to the bid.
 - **Shading before the floor and cap checks.** The optimal shaded bid can fall below the floor or above the cap. Apply the floor and cap rules after shading, every time.
+- **Checking the win model against the wrong truth.** The reference DSP's first check against the simulator counted a bid as a winner if it beat the highest competing bid, and forgot the floor. A bid below the floor loses no matter what the others bid, so the "true" win rate at low bids was too high, and the model looked worse than it was. Whatever defines winning, floors, ties, and fees included, has to be the same in the label, the check, and the shading.
 
 ::: {.callout-tip title="Try it on the simulator"}
 Train a LightGBM win model on the simulated bids, including the randomized multipliers logged since Part II, and the minimum bids to win from the exchanges that report them. Check its calibration by bid level. Then replace the fixed shade with model-based shading in an A/B test, and compare surplus, spend, and win rate between the arms.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). Train win models with and without the minimum-bid-to-win reports, check them at bids the bidder didn't make against the simulator's true win rates, and run a shading A/B test against the fixed 0.7. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

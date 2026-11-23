@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/bgweber/adtechbook/code/dsp/internal/campaigns"
 	"github.com/bgweber/adtechbook/code/dsp/internal/clock"
@@ -43,6 +44,19 @@ type Ops struct {
 	invoiced map[reconKey]*reconCell // the exchanges' invoices
 	modelOn  bool                    // a model is deployed, for the fallback alert
 	listen   bool
+
+	// pacing by bid modification (Chapter 22), in pacing.go
+	pacing      bool
+	pace        map[int]*PaceState
+	forecast    map[int]float64
+	forecastDay int64
+
+	// prediction baselines and shift alerts (Chapter 24), in monitor.go
+	monitor *monitor
+	// incident drills (Chapter 24), in drills.go
+	drills       map[string]Drill
+	shiftVersion atomic.Pointer[shiftFault]
+	parity       *ParityResult // the daily parity job's newest result
 }
 
 // New returns an Ops that keeps its switches and audit log in dir.
@@ -53,6 +67,8 @@ func New(dir string) *Ops {
 	o.sw.dir = dir
 	o.sw.load()
 	o.loadRates()
+	o.loadPacing()
+	o.loadMonitor()
 	return o
 }
 
@@ -116,7 +132,8 @@ type BidObs struct {
 	Exchange  string
 	Action    string // bid, ghost, nobid
 	PClick    float64
-	PFrom     string // model, fallback_segment, fallback_bounds, prior, ...
+	PInstall  float64 // the install-after-click model's prediction, if one priced it
+	PFrom     string  // model, fallback_segment, fallback_bounds, prior, ...
 	LatencyUS int64
 	ModelOn   bool // a model is deployed
 	Listen    bool
@@ -144,6 +161,8 @@ func (o *Ops) Observe(b BidObs) {
 			q.fallback++
 		} else if b.PFrom == "model" {
 			q.pred[predBin(b.PClick)]++
+			o.observePredLocked(b.TsMS, "click", b.PClick)
+			o.observePredLocked(b.TsMS, "install", b.PInstall)
 		}
 	}
 }
@@ -185,19 +204,24 @@ func (o *Ops) Step(tsMS int64, book *campaigns.Book) {
 		return
 	}
 	o.lastStep = k
-	o.updateThrottleLocked(tsMS, book)
+	if o.pacing {
+		o.updatePacingLocked(tsMS, book)
+	} else {
+		o.updateThrottleLocked(tsMS, book)
+	}
 	o.evaluateLocked(tsMS, book)
+	o.evaluateShiftLocked(tsMS)
 	o.mu.Unlock()
 }
 
 // Rate is the campaign's throttle rate: the chance of bidding on a
 // request it's eligible for (1 when throttling is off).
 func (o *Ops) Rate(campaignID int) float64 {
-	if !o.Throttle {
-		return 1
-	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if !o.Throttle && !o.pacing { // with pacing on, the rates are its backstop
+		return 1
+	}
 	if r, ok := o.rates[campaignID]; ok {
 		return r
 	}

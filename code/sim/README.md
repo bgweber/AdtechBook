@@ -91,6 +91,11 @@ first simulated day of a live run:
   first CPC campaign with its target 100 times too high.
 - `--scenario lost-billing`: from 12:00, beta_exchange stops sending
   billing notices for rewarded video, while still billing for it.
+- `--scenario bad-labels` (Chapter 24): from 06:00 to 18:00 on the run's
+  first day, the MMP turns on probabilistic matching for view-throughs and
+  credits us with installs, for 2% of that day's impressions, on devices
+  that never installed. Every postback carries a `match_type` field:
+  `id_matching`, or `probabilistic` for these.
 
 At the end of every live run, each simulated exchange also sends its
 invoice (`PUT /api/invoices`): what it billed, by day, exchange, and
@@ -99,6 +104,14 @@ placement, also written to `logs/invoices`.
 With `--start-day auto`, as Docker Compose runs it, the simulator asks the
 bidder (`GET /api/ledger` on the admin port) for the day after the latest
 one in its ledger, so each run continues the market.
+
+The MMP sends each postback at the simulated time it would really arrive,
+which for some installs and purchases is days after the impression. A live
+run sends the postbacks due before it ends; the rest wait in
+`state/pending_postbacks.parquet` and go out during the next run, when their
+time comes, so the bidder never hears about an install before it happens.
+Each live run also keeps a copy of its logs and truth in
+`runs/start=NNNN/`, so analysis can read every run, not just the latest.
 
 ## What it writes
 

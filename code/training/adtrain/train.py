@@ -22,7 +22,7 @@ from pathlib import Path
 import mmh3
 import numpy as np
 
-from . import artifact, click_rates, dataset, install_rates, metrics
+from . import simout, artifact, click_rates, dataset, install_rates, metrics
 from .ftrl import FTRL
 from .tokens import Spec
 
@@ -341,31 +341,16 @@ def _bought_note(r: dict) -> str:
 
 def _truth_map(sim_out, column):
     """impression ID -> one of the simulator's true probabilities."""
-    if not sim_out:
-        return None
-    f = Path(sim_out) / "truth" / "impressions.parquet"
-    if not f.exists():
-        return None
-    try:
-        import pandas as pd
-        t = pd.read_parquet(f, columns=["impression_id", column])
-    except Exception:
+    t = simout.table(sim_out, "truth", "impressions", ["impression_id", column])
+    if t is None:
         return None
     return dict(zip(t.impression_id, t[column]))
 
 
 def _truth(sim_out, ev, log):
     """The simulator's true click rates, when its output is available."""
-    if not sim_out:
-        return None
-    f = Path(sim_out) / "truth" / "impressions.parquet"
-    if not f.exists():
-        return None
-    try:
-        import pandas as pd
-        t = pd.read_parquet(f, columns=["impression_id", "p_click"])
-    except Exception as err:  # pandas or pyarrow not installed
-        log(f"note: true click rates not read ({err})")
+    t = simout.table(sim_out, "truth", "impressions", ["impression_id", "p_click"])
+    if t is None:
         return None
     m = dict(zip(t.impression_id, t.p_click))
     out = np.array([m.get("i" + e.request_id, np.nan) for e in ev], float)

@@ -86,6 +86,10 @@ def build(n: dict, p: dict, ts_ms: int) -> dict:
         numeric["our_imps_today"] = float(p.get("imps_today", 0))
         if p.get("last_imp_ms", 0) > 0:
             numeric["seconds_since_our_last_imp"] = _secs(ts_ms - p["last_imp_ms"])
+        if p.get("installs", 0) > 0:
+            numeric["device_prior_installs"] = float(p["installs"])
+        if p.get("purchases", 0) > 0:
+            numeric["device_prior_purchases"] = float(p["purchases"])
         if p.get("apps"):
             fv["sets"] = {"apps_seen": list(p["apps"])}
         if p.get("recent"):

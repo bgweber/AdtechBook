@@ -226,6 +226,8 @@ def postbacks(world: World, installs: pd.DataFrame,
         "campaign_id": ev.campaign_id,
     })
     pb = pd.concat([inst_pb, ev_pb], ignore_index=True)
+    # how the MMP matched the install to our touch: by advertising ID
+    pb["match_type"] = "id_matching"
     row = pb.install_row.to_numpy()
     pb["app_bundle"] = apps.bundle.to_numpy()[installs.app_id.to_numpy()[row]]
     pb["advertising_id"] = ifa[installs.device_idx.to_numpy()[row]]
@@ -234,12 +236,15 @@ def postbacks(world: World, installs: pd.DataFrame,
     slow = rng.random(n) < 0.01
     delay[slow] += rng.uniform(1, 48, slow.sum()) * 3_600_000
     pb["received_ts_ms"] = (pb.event_ts_ms + delay).astype(np.int64)
+    # One ID per postback, unique across runs (each run starts its rows at
+    # zero) and across a device's purchases; a duplicate keeps its ID.
+    pb = pb.reset_index(drop=True)
+    pb["postback_id"] = [f"pb{cfg.start_day:04d}-{i:07d}-{e}" for i, e in
+                         enumerate(pb.event_name.str[:6])]
     pb = pb[rng.random(n) >= cfg.postback_loss]
     dup = pb[rng.random(len(pb)) < cfg.postback_duplicate].copy()
     dup["received_ts_ms"] += rng.integers(1_000, 600_000, len(dup))
     pb = pd.concat([pb, dup], ignore_index=True)
-    pb["postback_id"] = [f"pb{r:09d}{e}" for r, e in
-                         zip(pb.install_row, pb.event_name.str[:6])]
     return pb.drop(columns=["install_row"]).sort_values(
         "received_ts_ms", kind="stable").reset_index(drop=True)
 
@@ -284,3 +289,39 @@ def nonattributed(world: World, installs: pd.DataFrame,
     out = out[out.advertising_id != ""]
     return out.sort_values("event_ts_ms", kind="stable").reset_index(
         drop=True), sharing
+
+
+# The bad-labels scenario (Chapter 24): an MMP configuration change turns on
+# probabilistic matching for view-throughs for half a day, and the MMP
+# credits us with installs on devices that never installed.
+BAD_LABELS_FROM_H, BAD_LABELS_TO_H = 6, 18
+BAD_LABELS_SHARE = 0.02  # of our impressions in those hours
+
+
+def misattributed(world: World, imps: pd.DataFrame, day: int) -> pd.DataFrame:
+    """False install postbacks for a share of one day's impressions."""
+    cfg = world.cfg
+    rng = np.random.default_rng([cfg.seed, 24, day])
+    lo = day * 86_400_000 + BAD_LABELS_FROM_H * 3_600_000
+    hi = day * 86_400_000 + BAD_LABELS_TO_H * 3_600_000
+    cand = imps[(imps.imp_ts_ms >= lo) & (imps.imp_ts_ms < hi)]
+    cand = cand[rng.random(len(cand)) < BAD_LABELS_SHARE]
+    devs = world.devices
+    ifa = np.where(devs.lmt.to_numpy(), "", devs.device_id.to_numpy())
+    n = len(cand)
+    event_ts = cand.imp_ts_ms.to_numpy() + rng.uniform(5, 180, n) * 60_000
+    pb = pd.DataFrame({
+        "event_name": "install",
+        "event_ts_ms": event_ts.astype(np.int64),
+        "revenue_usd": 0.0,
+        "touch_type": "view",
+        "click_id": "",
+        "impression_id": cand.impression_id.to_numpy(),
+        "campaign_id": cand.campaign_id.to_numpy(),
+        "match_type": "probabilistic",
+        "app_bundle": world.apps.bundle.to_numpy()[cand.adv_app_id.to_numpy()],
+        "advertising_id": ifa[cand.true_device_idx.to_numpy()],
+    })
+    pb["received_ts_ms"] = (event_ts + rng.lognormal(np.log(120_000), 1.0, n)).astype(np.int64)
+    pb["postback_id"] = [f"pb{day:04d}-p{i:06d}-instal" for i in range(n)]
+    return pb

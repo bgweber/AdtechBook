@@ -11,6 +11,7 @@ package features
 import (
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/bgweber/adtechbook/code/dsp/internal/campaigns"
 	"github.com/bgweber/adtechbook/code/dsp/internal/clock"
@@ -77,6 +78,15 @@ func Build(n *normalize.Request, p profile.Snapshot, tsMS int64) FeatureVector {
 		if p.LastImpMS > 0 {
 			fv.Numeric["seconds_since_our_last_imp"] = secs(tsMS - p.LastImpMS)
 		}
+		// Conversions credited to us before this request (Chapter 14).
+		// Logged only when there are some, so the FeatureVector grows
+		// without changing for devices with none.
+		if p.Installs > 0 {
+			fv.Numeric["device_prior_installs"] = float64(p.Installs)
+		}
+		if p.Purchases > 0 {
+			fv.Numeric["device_prior_purchases"] = float64(p.Purchases)
+		}
 		if len(p.Apps) > 0 {
 			fv.Sets = map[string][]string{"apps_seen": p.Apps}
 		}
@@ -110,8 +120,9 @@ func secs(ms int64) float64 {
 
 // SkewFineConnection injects a training-serving skew for the Chapter 8
 // exercise: the bidder logs finer cellular connection types, such as
-// "cellular_4g", while the training code still expects "cellular".
-var SkewFineConnection bool
+// "cellular_4g", while the training code still expects "cellular". The
+// parity drill (Chapter 24) switches it on in a running bidder.
+var SkewFineConnection atomic.Bool
 
 func major(v string) string {
 	if i := strings.IndexByte(v, '.'); i >= 0 {
@@ -121,7 +132,7 @@ func major(v string) string {
 }
 
 func connType(c int) string {
-	if SkewFineConnection {
+	if SkewFineConnection.Load() {
 		if g, ok := map[int]string{4: "cellular_2g", 5: "cellular_3g", 6: "cellular_4g", 7: "cellular_5g"}[c]; ok {
 			return g
 		}

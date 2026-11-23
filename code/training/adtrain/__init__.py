@@ -10,4 +10,4 @@ Run it from the command line (`python -m adtrain train`), or as a small
 service the bidder's console calls (`python -m adtrain serve`).
 """
 
-__version__ = "0.4.0"
+__version__ = "0.8.0"

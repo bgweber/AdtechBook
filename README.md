@@ -17,7 +17,8 @@ Read online: <https://bgweber.github.io/AdtechBook/>
 
 > **Run the simulator:** start a simulated ad market, a Go bidder, and its console with one command,
 > then follow the book chapter by chapter. The **[walkthrough](WALKTHROUGH.md)** has the commands for
-> every Part II exercise and screenshots of what you'll see.
+> the exercises in Parts II and III and screenshots of what you'll see. The commands are for Linux and
+> macOS; on Windows, use WSL 2 or the [PowerShell versions](WALKTHROUGH-windows.md).
 >
 > ```bash
 > docker compose up --build    # then open http://localhost:8081

@@ -125,6 +125,11 @@ func (o *Ops) Set(kind, key string, on bool, who string, simMS int64) (*Switches
 // Note records a configuration change that isn't a switch, such as a new
 // campaign book, so "what changed?" has an answer (Chapter 12).
 func (o *Ops) Note(what, who string, simMS int64) {
+	if simMS == 0 { // the console's changes happen at the newest simulated time seen
+		o.mu.Lock()
+		simMS = o.nowMS
+		o.mu.Unlock()
+	}
 	o.sw.mu.Lock()
 	defer o.sw.mu.Unlock()
 	o.auditLocked(what, o.sw.cur.Load().Version, who, simMS)

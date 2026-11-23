@@ -33,6 +33,22 @@ As we saw for backfills, the time that matters is when the value became availabl
 
 Most warehouses and Spark support as-of joins directly or through a window function: sort each table by key and time, and for each bid, take the latest row at or before the bid time. They're more expensive than plain joins, which is one more reason to log the features the bidder already has, and use as-of joins only for what it doesn't.
 
+The reference DSP has one input of this kind: each device's installs and purchases credited to us, which the bidder learns from postbacks and keeps in its device profile. Its dataset builder rebuilds that history for every training row from the postback log. Each postback is placed at the time the bidder could first use it, the later of when it arrived and the newest request the bidder had seen, and each row counts only the postbacks before its bid. This is the core of it, from `adtrain`, lightly trimmed:
+
+```python
+for p in ledger.read(ledger_dir, "postbacks"):
+    f = p["fields"]
+    # when the bidder could first use it, for the as-of join
+    avail = max(int(p["received_ts_ms"]), int(p.get("seen_ts_ms") or 0))
+    if f.get("event_name") == "install":
+        device_installs[f["advertising_id"].lower()].append(avail)
+...
+as_of = now if s.leak else t  # t is the impression's time
+row["device_prior_installs"] = bisect.bisect_left(device_installs[ifa], as_of)
+```
+
+The `leak` setting is there for this chapter's exercise. With it, the count is taken as of the build instead of the bid, which is what joining today's device profile does, and the count includes the row's own install.
+
 ## Logged vs. Recomputed Features, and Backfill by Replay
 
 The default, as we set up in @sec-logging-at-bid-time, is to train on the features the bidder logged. One practice from that chapter matters even more now that postbacks are an input: keep data from the MMP and SDKs in its own vocabulary, separate from bid request fields, and join the two only on the device ID. The two sources often describe the same thing differently, such as country codes in different standards or device models by marketing name instead of hardware ID, and merging them early turns every mismatch into a parity bug.[^c14-intent]
@@ -58,6 +74,16 @@ A backfill is only trustworthy if it reproduces what the bidder actually compute
 $$\text{mismatch}_j = \frac{1}{N}\sum_{i=1}^{N} \mathbb{1}\left[\,\lvert x^{backfill}_{ij} - x^{logged}_{ij}\rvert > \epsilon_j\,\right]$$
 
 where $x_{ij}$ is feature $j$ for bid $i$, and $\epsilon_j$ is a tolerance, zero for strings and sets. A mismatch rate below a threshold, such as 0.1%, means the backfill can be used for training. Higher rates usually come from availability times, event ordering, or list truncation, and are worth fixing before any model sees the data.
+
+The reference DSP runs this check on every dataset it builds. Its bidder has logged the device's install count on every bid since the walk stage began, so for every row it compares the rebuilt count with the logged one, and fails the build above 0.1%. @fig-c14-datasets shows two datasets built from the same ledger. The as-of build matches the logged values on every row. The leaky one, with history as of the build, differs on 23% of the rows, because a device that installed later carries that install back to its earlier bids. The check caught the leak before any model trained on it. In the next chapter, we train on both anyway, to see what the leak does.
+
+::: {.content-visible when-format="html"}
+![Two conversion datasets on the reference DSP's console, built from the same ledger. The as-of build passes every check; the leaky build, with device history as of the build, fails the check that compares its rebuilt history with what the bidder logged.](../images/ch14-console-datasets.png){#fig-c14-datasets width="100%" fig-alt="Screenshot of a table of datasets. conversions-0011, 281,057 impressions and 792 installs, leaky: 1 failed, backfill matches logged: 23.39% of rows on the 20 days the bidder logged it have a device install count that differs from the logged one, limit 0.1%. conversions-0010, the same impressions and installs, not leaky: all checks pass. Each row has a Train LightGBM button."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Two conversion datasets on the reference DSP's console, built from the same ledger. The as-of build passes every check; the leaky build, with device history as of the build, fails the check that compares its rebuilt history with what the bidder logged.](../images/ch14-console-datasets-print.png){#fig-c14-datasets width="100%" fig-alt="Screenshot of a table of datasets. conversions-0011, 281,057 impressions and 792 installs, leaky: 1 failed, backfill matches logged: 23.39% of rows on the 20 days the bidder logged it have a device install count that differs from the logged one, limit 0.1%. conversions-0010, the same impressions and installs, not leaky: all checks pass. Each row has a Train LightGBM button."}
+:::
 
 ![Backfilling a new feature. The feature is reconstructed for past bids by replaying logged raw context through the bidder's feature code. During the overlap window, after live logging begins, backfilled values are compared with logged values before the backfill is trusted for training.](../images/features-backfill.png){#fig-c9b-backfill width="100%" fig-alt="Timeline in days around shipping a new feature. Raw context has been logged throughout; the past 90 days are backfilled by replay; live logging starts at day 0; a two-week parity check follows; and training data for the feature spans the whole range once the backfill is trusted."}
 
@@ -154,11 +180,12 @@ In walk, a DSP holds months of device-level data, from several sources, under se
 - **Late partitions and backfills.** A dataset rebuilt next week can differ from the one a model trained on, because late data arrived in the meantime. Record the exact inputs, and treat a rebuild as a new dataset version.
 - **Scores used as features.** When one model's score is a feature of another, such as a click model's prediction used by an install model, the training data must use the score from the version that was live at each time. Rescoring history with today's model leaks information from data the old model never saw.
 - **Joining on the newest partition only.** A job that reads only yesterday's postbacks misses every postback that arrived late for earlier days. Read postbacks by arrival time, and join them to impressions across the whole window.
+- **State that a restart resets.** The reference DSP first kept its device profiles only in memory. After a bidder restart, every device's history started from zero, so the bidder served install counts of zero to devices whose training rows had real counts, a skew that no code change caused. The profiles are now saved every few minutes and on shutdown. Any feature built from state in the bidder needs that state to survive a deploy.
 
 ::: {.callout-tip title="Try it on the simulator"}
 Build an install training dataset with as-of joins and the label cutoffs above. Then add a feature that's computed from the device profile as it is today, rather than as of the bid, and train with it. Watch the offline metrics improve, and the live results on the simulator get worse.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). Build the as-of and the leaky dataset from the Conversions tab, or with `adtrain dataset` and `adtrain dataset --leak`; the leaky one fails the check that compares its device history with what the bidder logged. Training and serving both of them is the next chapter's exercise. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

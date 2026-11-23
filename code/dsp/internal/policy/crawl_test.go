@@ -102,3 +102,40 @@ func TestCPIValue(t *testing.T) {
 		t.Fatalf("with a bundle: %+v", d)
 	}
 }
+
+// With a cap, the auction prices only the campaigns with the best recent
+// scores (Chapter 17); a campaign never priced goes first.
+func TestAuctionCap(t *testing.T) {
+	p := DefaultCrawl()
+	p.ExploreShare, p.HoldoutPerMil, p.AuctionExplore = 0, 0, 0
+	p.SetSelection("auction")
+	var cands []campaigns.Candidate
+	for i, target := range []float64{0.02, 0.50, 0.10, 0.05} {
+		cands = append(cands, campaigns.Candidate{Campaign: &campaigns.Campaign{ID: i, Goal: "CPC", Target: target},
+			Creatives: []campaigns.Creative{{ID: 10 * i}}, Remaining: 1})
+	}
+	priced := map[int]int{}
+	predict := func(c *campaigns.Campaign, _ campaigns.Creative) (Prediction, bool) {
+		priced[c.ID]++
+		return Prediction{PClick: 0.01, Version: "v"}, true
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	p.Decide(cands, "banner", "d", 0, rng, predict) // uncapped: every campaign gets a score
+	if len(priced) != 4 {
+		t.Fatalf("priced %v", priced)
+	}
+	p.AuctionCap.Store(2)
+	clear(priced)
+	d := p.Decide(cands, "banner", "d", 0, rng, predict)
+	if len(priced) != 2 || priced[1] != 1 || priced[2] != 1 || d.Capped != 2 || d.CampaignID != 1 {
+		t.Fatalf("capped at 2: priced %v, capped %d, picked %d", priced, d.Capped, d.CampaignID)
+	}
+	// a new campaign has no estimate yet, so it's priced first
+	cands = append(cands, campaigns.Candidate{Campaign: &campaigns.Campaign{ID: 9, Goal: "CPC", Target: 0.01},
+		Creatives: []campaigns.Creative{{ID: 90}}, Remaining: 1})
+	clear(priced)
+	p.Decide(cands, "banner", "d", 0, rng, predict)
+	if priced[9] != 1 || priced[1] != 1 || len(priced) != 2 {
+		t.Fatalf("new campaign: priced %v", priced)
+	}
+}

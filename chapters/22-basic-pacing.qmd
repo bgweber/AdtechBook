@@ -45,6 +45,31 @@ Two things make the controller stable:
 
 Bound $\gamma$, for example between 0.3 and 2, and bound how much it can change per step. A controller that pushes $\gamma$ to 10 to make up for a broken campaign is a runaway bid with extra steps.
 
+The reference DSP's controller runs every simulated quarter hour, with $K_p = 0.5$ and $K_i = 0.05$, $\gamma$ bounded to 0.3–2, and at most 0.2 of change in $\ln \gamma$ per step. The error uses spend so far today against plan so far, with a small slack added to both, 2% of the budget, so the first impressions of a day don't swing $\gamma$. This is the step, lightly trimmed:
+
+```go
+planned := v.DailyBudget * plan // the share of the day's plan due by now
+d := paceSlack * v.DailyBudget
+e := math.Log((planned + d) / (v.SpendToday + d))
+s.Integral += e
+target := math.Log(s.Gamma0) + PaceKp*e + PaceKi*s.Integral
+cur := math.Log(s.Gamma)
+step := math.Max(-PaceMaxStep, math.Min(PaceMaxStep, target-cur))
+s.Gamma = math.Max(PaceMin, math.Min(PaceMax, math.Exp(cur+step)))
+```
+
+Its forecast replays the newest day's priced bids at a range of multipliers, with the win rates observed at each bid level, and starts each campaign at the multiplier whose spend matches its budget. @fig-c22-pacing shows a day of it.
+
+::: {.content-visible when-format="html"}
+![A day of pacing on the reference DSP's console: each campaign's spend against plan and its multiplier, and one campaign's day charted.](../images/ch22-console-pacing.png){#fig-c22-pacing width="100%" fig-alt="Screenshot of the pacing card. A table of campaigns 0 to 5 with goal, budget, spend today, plan so far, gamma, starting gamma, and overbid: campaigns 0 and 1, CPI, spent their budgets with gamma near 0.33; campaign 2, ROAS, spent nothing at gamma 2.00; campaigns 3, 4, and 5 are at gamma 2.00 and short of plan. Below, campaign 1's spend against plan through the day: on plan until about 14:00, then ahead, reaching its budget of $16.42 around 19:30, while its gamma stays between 0.3 and 0.4."}
+:::
+
+::: {.content-visible unless-format="html"}
+![A day of pacing on the reference DSP's console: each campaign's spend against plan and its multiplier, and one campaign's day charted.](../images/ch22-console-pacing-print.png){#fig-c22-pacing width="100%" fig-alt="Screenshot of the pacing card. A table of campaigns 0 to 5 with goal, budget, spend today, plan so far, gamma, starting gamma, and overbid: campaigns 0 and 1, CPI, spent their budgets with gamma near 0.33; campaign 2, ROAS, spent nothing at gamma 2.00; campaigns 3, 4, and 5 are at gamma 2.00 and short of plan. Below, campaign 1's spend against plan through the day: on plan until about 14:00, then ahead, reaching its budget of $16.42 around 19:30, while its gamma stays between 0.3 and 0.4."}
+:::
+
+Three patterns showed up in the table. Campaigns pinned at 2 couldn't spend their budgets at any multiplier the controller allows; in our run, those were the ROAS campaigns, whose value per install is tiny in this market, and a few campaigns with narrow targeting. They need a person, not a higher bound. Campaigns near 0.3 would overspend even at the lowest multiplier. Campaign 1 tracked its plan until mid-afternoon, then pulled ahead and spent its budget by 19:30, with $\gamma$ already near its floor. Its plan was shaped like all of our traffic, not the traffic it's eligible for; a plan from each campaign's own eligible requests is the fix, and a reader exercise. And where the forecast started a campaign far from where the controller ended its day, the forecast's win curve was off.
+
 ## Pacing with the Win Model
 
 The win model is also the core of spend forecasting. If we know the win rate at the bid we would place for each request, and how many requests a campaign will see, we can predict wins, spend, and conversions for any pacing multiplier before bidding. For a campaign that expects $R$ eligible requests over a period, and a **pacing multiplier** $\gamma$ that scales its values up or down:
@@ -88,6 +113,16 @@ A pacing controller is the bounded, automated replacement for most overbids, bec
 
 Some manual control remains legitimate, such as a deliberate push for a launch week. That belongs in the campaign's budget and goal, where the controller can act on it, not in a multiplier that bypasses the pricing.
 
+The reference DSP takes a manual overbid per campaign, logged apart from $\gamma$. We gave campaign 9 an overbid of 2 and played a day. The controller fought it: $\gamma$ fell to its floor of 0.3 within hours, and the campaign ran ahead of plan all day anyway, because the overbid had used up the controller's room. Then we lowered it in steps, a day each. At 1.5, $\gamma$ stayed pinned at 0.3. At 1, it rose to about 0.5, and the campaign tracked its plan through the day, in @fig-c22-overbid, with the controller in charge again. An overbid doesn't add to the controller; it takes away its range.
+
+::: {.content-visible when-format="html"}
+![Campaign 9 on the reference DSP's console, the day after its manual overbid was removed: on plan through the day, with the controller's multiplier near 0.5.](../images/ch22-console-overbid.png){#fig-c22-overbid width="100%" fig-alt="Screenshot of the pacing card for campaign 9, CPI, budget $9.29, spend today $8.47, plan so far $9.20, gamma 0.49, started at 0.51 from yesterday, overbid 1.0. The chart of spend against plan follows the plan closely all day, slightly ahead until about 18:00 and slightly behind after. Gamma starts near 0.5, dips to about 0.43 by 05:00, and rises back to 0.49 by the end of the day."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Campaign 9 on the reference DSP's console, the day after its manual overbid was removed: on plan through the day, with the controller's multiplier near 0.5.](../images/ch22-console-overbid-print.png){#fig-c22-overbid width="100%" fig-alt="Screenshot of the pacing card for campaign 9, CPI, budget $9.29, spend today $8.47, plan so far $9.20, gamma 0.49, started at 0.51 from yesterday, overbid 1.0. The chart of spend against plan follows the plan closely all day, slightly ahead until about 18:00 and slightly behind after. Gamma starts near 0.5, dips to about 0.43 by 05:00, and rises back to 0.49 by the end of the day."}
+:::
+
 ## New Campaigns and Weekly Budgets
 
 **New campaigns** have no spend history and uncertain predictions. Start them from a feedforward forecast built from similar campaigns' traffic, with a conservative $\gamma$, and let the controller ramp up over the first days rather than chasing the full budget on day one. A ramp also limits the cost of a misconfigured campaign before anyone notices.
@@ -105,14 +140,14 @@ Pacing gets its own dashboard panels and alerts:
 
 ## First-Time Pitfalls
 
-- **Controller windup at the start of the day.** The integral term accumulates error while a campaign can't spend, such as overnight in its geo, and then overshoots when traffic arrives. Bound the integral, reset or decay it daily, and ramp $\gamma$ at the start of the day.
-- **A spend spike when the day resets.** Every campaign starts the day with a full budget and a fresh controller. Stagger resets, or carry $\gamma$ over from the previous day's end.
+- **Controller windup at the start of the day.** The integral term accumulates error while a campaign can't spend, such as overnight in its geo, and then overshoots when traffic arrives. Bound the integral, reset or decay it daily, and ramp $\gamma$ at the start of the day. The reference DSP's controller holds still until 1% of the day's plan has passed, so a campaign that started the day at a forecast of 2 bid at twice its value through the quiet first hour; it now starts each day at no more than 1, and the step limit raises $\gamma$ toward its starting value over the first hour of control.
+- **A spend spike when the day resets.** Every campaign starts the day with a full budget and a fresh controller. Stagger resets, or carry $\gamma$ over from the previous day's end. The reference DSP's throttling, in Part II, first reset every campaign's rate to 100% at midnight, with the same result.
 - **Budget edits mid-day.** When an advertiser changes a budget during the day, decide whether the plan resets or continues from the spend so far, and test both cases.
 
 ::: {.callout-tip title="Try it on the simulator"}
 Pace a campaign through a simulated day with the PI controller, starting from the replay forecast, and plot spend against plan and $\gamma$ over the day. Then give a second campaign a manual overbid, migrate it to the controller in steps, and compare its spend and CPI before and after.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). The Pricing tab's pacing card forecasts each campaign's starting multiplier, switches on the PI controller, charts spend against plan and $\gamma$, and takes manual overbids. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

@@ -46,7 +46,7 @@ python -m adsim --preset crawl --scale tiny --days 1 --start-day auto --bidder h
 | Port | Who uses it | What's there |
 |---|---|---|
 | 8080, the bid port | Exchanges, here the simulator | `POST /openrtb/{exchange}`: OpenRTB 2.6 bid requests. A no-bid is an empty `204`. `GET /notice/{win,loss,billing}`: notices, through the URLs in each bid. `GET /click`: the click tracker in each bid's ad markup. `GET /postback`: install and event postbacks from the advertiser's MMP, with the shared token (`-mmp-token`) in `X-MMP-Token`. |
-| 8081, the admin port | You, and the campaign system | The console, `GET /api/stats`, `PUT /api/campaigns` (the campaign book; adsim pushes it when a live run starts), `GET /api/models`, `GET /api/models/report?version=`, `POST /api/models/deploy` (`{"version": ..., "force": false}`; an empty version goes back to the priors), `POST /api/train` (`{"deploy": true}`) and `GET /api/train`, `GET /api/ledger` (the next simulated day to play), `GET /api/ops` (switches, alerts, throttle rates, reconciliation, audit log), `POST /api/ops/switch` (`{"kind": "campaign", "key": "3", "on": true}`; kinds: global, model, exchange, campaign, feature), `PUT /api/invoices`, `POST /api/parity` (run the feature parity check) and `GET /api/parity`, and `GET /healthz` |
+| 8081, the admin port | You, and the campaign system | The console, `GET /api/stats`, `PUT /api/campaigns` (the campaign book; adsim pushes it when a live run starts), `GET /api/models`, `GET /api/models/report?version=`, `POST /api/models/deploy` (`{"version": ..., "force": false}`; an empty version goes back to the priors), `POST /api/train` (`{"deploy": true}`) and `GET /api/train`, `GET /api/ledger` (the next simulated day to play), `GET /api/ops` (switches, alerts, throttle rates, reconciliation, audit log), `POST /api/ops/switch` (`{"kind": "campaign", "key": "3", "on": true}`; kinds: global, model, exchange, campaign, feature), `PUT /api/invoices`, `POST /api/parity` (run the feature parity check) and `GET /api/parity`, `POST /api/labels` (read the install labels, Chapter 13) and `GET /api/labels`, `GET /api/datasets` and `POST /api/datasets` (`{"leak": false}`, build a conversion dataset, Chapter 14), `GET /api/conversion`, `POST /api/conversion/train` (`{"dataset": "conversions-0001"}`), `POST /api/conversion/deploy` (`{"version": ..., "force": false}`) and `POST /api/conversion/undeploy` (LightGBM conversion models, Chapter 15), `POST /api/conversion/pipeline` (`{"leak": false, "inject": "no-features"}`, run the pipeline) and `GET /api/conversion/pipeline` (its runs), `POST /api/conversion/promote`, `POST /api/conversion/rollback`, and `GET /api/conversion/history` (Chapter 18), `GET` and `POST /api/policy/selection` (`{"name": "uniform"}`: budget, uniform, or cpi-first), `POST /api/eval/replay` (`{"day": 19, "a": "logged", "b": "gbm-0003"}`), `POST /api/eval/ope` (`{"policy": "uniform", "reward": "click"}`), and `POST /api/eval/periods` (Chapter 16), `GET /api/experiment`, `POST /api/experiment/start` (`{"kind": "shadow" | "canary" | "ab", "challenger": "gbm-0003", "share": 0.5, "budget_split": true, "stages": [0.05, 0.25, 0.5], "stage_hours": 4}`), `POST /api/experiment/stop`, `POST /api/experiment/inject` (`{"fault": "scale"}`), and `POST /api/eval/abtest` and `/api/eval/shadow` (Chapter 19), `GET /api/win`, `POST /api/win/train` (`{"use_mtw": true}`), `POST /api/win/deploy` and `/api/win/undeploy`, and `POST /api/eval/shadetest` (Chapter 20), `GET` and `POST /api/calibration` (`{}` to update, `{"off": true}`), `GET` and `POST /api/creatives` (`{"thompson": true, "reset": false}`), and the `auction` selection policy (Chapter 21), `GET` and `POST /api/pacing` (`{"on": true}`), `POST /api/pacing/overbid` (`{"campaign": 9, "overbid": 1.5}`), and `POST /api/pacing/forecast` (Chapter 22), `POST /api/eval/lift` (`{"holdout_share": 0.01, "app": "com.racegames.wordcraft"}`, Chapter 23), `GET /api/latency` (stage timings, load test runs, the cap and its audit), `POST /api/latency/reset` (`{"which": "load"}` or `"live"`), `POST /api/policy/auction-cap` (`{"cap": 3}`), and `/debug/pprof/` (Chapter 17), `GET /api/drills`, `POST /api/drills/start` (`{"kind": "shift", "factor": 1.1}` or `{"kind": "parity"}`) and `/api/drills/stop`, `POST /api/parity/day` (`{"day": 41}`), `GET /api/quarantine`, `POST /api/quarantine/add` (`{"from_ms": ..., "to_ms": ..., "where": {"match_type": "probabilistic"}, "reason": ...}`), `/remove`, and `/inspect` (`{"day": 41}`), `POST /api/profiles/recount`, and `/playbook.html?alert=` (Chapter 24), and `GET /healthz` |
 
 Admin traffic never touches the bid port, so looking at the console can't
 slow down bidding.
@@ -76,6 +76,20 @@ slow down bidding.
 | 12 | Even-spend throttling, shaped like yesterday's traffic, with the throttle rate logged on every bid | Works |
 | 12 | Alerts: spend far above plan, no bids, fallback use, prediction collapse, latency, reconciliation gap | Works |
 | 12 | Spend reconciliation against the exchanges' invoices, by day, exchange, and ad format | Works |
+| 13 | The walk stage (`-stage walk`, with the simulator's `walk` preset): tier-1 and low-CPM countries, three exchanges, CPI, ROAS, and CPC campaigns | Works |
+| 13 | The Labels tab: install label delays for click-through and view-through installs, label maturity by day of impression, and attributed vs. caused installs by placement (`python -m adtrain labels`) | Works |
+| 14 | Device history from postbacks: installs and purchases credited to us, counted when the postback arrives and logged on the FeatureVector; in walk, device profiles are saved across restarts (`out/state/profiles.gob.gz`) | Works |
+| 14 | Conversion datasets with as-of device history, label finality per cutoff, validation checks, and a leaky version for the exercise (Conversions tab) | Works |
+| 15 | LightGBM click, install-after-click, and install-after-view models, served by a native Go tree evaluator (`internal/gbm`); deploys check 200 golden examples and refuse a bundle trained on a failed dataset unless forced; CPI bids use the bundle's install rates | Works |
+| 16 | Switchable campaign selection (budget-weighted, uniform, CPI-first), with the eligible campaigns, their goals, and the creative count logged for off-policy evaluation; the Evaluate tab: replay, IPS estimates against live runs, and serving periods | Works |
+| 17 | Serving performance: stage timings with p50 and p99 for live and load-test requests (`internal/latency`, the Serving tab); the load generator (`cmd/loadgen`, `docker compose run --rm loadgen`), which replays the raw request log open loop at rising rates with an `X-Load-Test` header the bidder answers without writing anything; Go's profiler on the admin port; bitsets for categorical splits; cached creative chances for Thompson sampling; the win model's inputs built once per request and its grid batched; an auction candidate cap with an audit of what it gives up; ONNX Runtime from Go without cgo for comparison (`code/onnxbench`) | Works |
+| 24 | Operating: a prediction monitor (each model's hourly mean against the same hour on up to four days before, robust z and PSI, a shift alert after three quarter hours, annotated with the last deploy; `internal/ops/monitor.go`); a daily parity check when the simulated day turns, with an alert; playbooks for every alert (`internal/console/static/playbooks`), linked from the alerts; incident drills (a bad deploy that shifts click predictions, a serving bug in connection_type; bad labels come from the simulator's `bad-labels` scenario); quarantine of postbacks by time range and field, read by every dataset build, with an install label rate check and a recount of device profiles; pacing that starts each day at a gamma of at most 1 | Works |
+| 19 | Experiments (`internal/experiment`): shadow scoring on a sample of requests; a staged canary by device hash, with guardrails on the same requests (prediction ratios by placement, fallback share, spend rate), automatic rollback, and promotion; budget-split A/B tests; every bid record carries the experiment and arm | Works |
+| 20 | Win rate models (`gbm.WinModel`, the `win` family of the registry): shading by expected surplus over a grid of shares of the media value; exploration multiplies the shaded bid; shading A/B tests against the fixed 0.7; bid records log `shade_from`, `shade`, and `win_prob` | Works |
+| 21 | Pricing for goals: installs from both paths, D7 revenue per install by app for ROAS (`values.json` in the bundle), calibration multipliers by campaign, the internal auction by expected surplus with 10% exploration and logged candidates, Thompson sampling over creatives with matured posteriors; selection, creative stats, and Thompson's on/off survive restarts | Works |
+| 22 | Pacing by bid modification (`internal/ops/pacing.go`): a PI controller on each campaign's gamma in log space every simulated quarter hour (Kp 0.5, Ki 0.05, bounds 0.3-2, at most 0.2 in ln gamma a step), against the traffic-shaped plan; days start from the replay forecast or yesterday's gamma; manual overbids logged apart; throttling as the backstop; state survives restarts | Works |
+| 23 | Incrementality from the ghost-bid holdout (the Evaluate tab, `adtrain lift`), against the simulator's true caused installs | Works |
+| 18 | Champion and challenger: `DEPLOYED` is the champion, `CHALLENGER` the latest bundle that passed the pipeline; promote, roll back, and a deploy log with the action and the version before; a bundle that failed the pipeline's checks needs force | Works |
 
 ## Modes
 
@@ -88,6 +102,7 @@ slow down bidding.
 
 ```
 cmd/bidder/          main: flags, the bid and admin servers
+cmd/loadgen/         the load test: replays the raw request log at rising rates (Chapter 17)
 internal/openrtb/    the OpenRTB 2.6 fields the bidder reads
 internal/normalize/  one internal request, whatever the exchange's quirks
 internal/bidder/     the bid path and notice handler: parse, normalize, decide, respond, log
@@ -96,11 +111,14 @@ internal/profile/    device profiles from the bidder's own traffic
 internal/features/   the FeatureVector and its canonicalization rules
 internal/policy/     crawl selection and pricing, and the holdout
 internal/model/      the click model: tokens, MurmurHash3, predict, the registry and deploys
+internal/gbm/        LightGBM trees in Go: conversion bundles, golden checks, their registry
+internal/experiment/ shadow, canary, and A/B tests next to the champion
 internal/ops/        kill switches, audit log, throttling, alerts, reconciliation
 internal/ledger/     the bid ledger, one JSON line per request, per day
 internal/stats/      live numbers for the console
+internal/latency/    stage timings and their percentiles (Chapter 17)
 internal/clock/      simulated time from the X-Adsim-Time header
-internal/console/    the admin console (static/index.html), and starting training runs
+internal/console/    the admin console (static/index.html), playbooks (static/playbooks), and starting training runs
 ```
 
 ## The bid ledger and notice log
@@ -162,8 +180,8 @@ To try the Chapter 12 exercise, play a day with both failure scenarios:
 ADSIM_SCENARIO=wrong-target,lost-billing docker compose run --rm sim
 ```
 
-In PowerShell: `$env:ADSIM_SCENARIO="wrong-target,lost-billing"; docker
-compose run --rm sim`, then `Remove-Item Env:ADSIM_SCENARIO`. At 06:00 a
+(PowerShell versions of every walkthrough command are in
+[WALKTHROUGH-windows.md](../../WALKTHROUGH-windows.md).) At 06:00 a
 CPC target becomes 100 times too high: watch the spend alert, pause the
 campaign, and see how much it overspent. From 12:00, beta_exchange stops
 sending billing notices for rewarded video: the reconciliation finds it

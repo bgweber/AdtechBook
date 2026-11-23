@@ -18,6 +18,24 @@ Two more commands for Chapter 8:
 python -m adtrain parity --ledger out/ledger           # feature parity check
 python -m adtrain trace <request_id> --ledger out/ledger  # one request, bid to label
 python -m adtrain find --clicked --ledger out/ledger      # request IDs to trace
+python -m adtrain labels --ledger out/ledger --sim-out out/sim  # label delays, attributed vs caused (Ch 13)
+python -m adtrain dataset --ledger out/ledger --out out/datasets  # conversion dataset (Ch 14), the newest 28 days; --leak for the exercise
+python -m adtrain gbm --dataset out/datasets/conversions/conversions-0001 --models out/models --sim-out out/sim  # LightGBM (Ch 15)
+python -m adtrain replay --day 19 --a gbm-0006 --b gbm-0008  # rescore a logged day (Ch 16)
+python -m adtrain ope --policy uniform  # a selection policy, from logged propensities (Ch 16)
+python -m adtrain periods  # what each serving conversion model bought (Ch 16)
+python -m adtrain shadow exp-0001  # shadow scores against offline ones (Ch 19)
+python -m adtrain abtest exp-0005 --sim-out out/sim  # an A/B test's readout (Ch 19)
+python -m adtrain win --sim-out out/sim  # a win rate model on the last 7 days; --no-mtw to ignore reports (Ch 20)
+python -m adtrain shadetest exp-0006  # a shading test: win rate, spend, surplus by arm (Ch 20)
+python -m adtrain kappa  # calibration multipliers by campaign, from matured installs (Ch 21)
+python -m adtrain pace --sim-out out/sim  # the pacing forecast: tomorrow's starting gamma by campaign (Ch 22)
+python -m adtrain lift --sim-out out/sim  # incrementality from the ghost-bid holdout, by app (Ch 23)
+python -m adtrain quarantine inspect --day 74  # install postbacks by match_type, against the days before (Ch 24)
+python -m adtrain quarantine add --day 74 --where match_type=probabilistic --reason "..."  # skipped by every dataset build (Ch 24)
+python -m adtrain quarantine list  # and: quarantine remove q-0001
+python -m adtrain onnx --bundle out/models/conversion/gbm-0012  # export to ONNX, time ONNX Runtime; needs onnx, onnxruntime, onnxmltools (Ch 17)
+python -m adtrain pipeline --ledger out/ledger --models out/models  # dataset to challenger, with checks (Ch 18); --leak or --inject no-features to see it stop
 ```
 
 The parity check recomputes the FeatureVector of every bid whose raw
@@ -40,6 +58,16 @@ on the same cases, from `code/dsp/internal/features/testdata`.
 | Stability: cosine similarity of the weights with the deployed model, and how much predictions moved (no deployed model, no comparison) | `train.py` | 11 |
 | Checks: enough evaluation clicks, AUC, calibration, beating what the bidder logged, and stability | `train.py` | 11 |
 | The artifact: `model.json`, `weights.bin`, `golden.jsonl`, `report.json` | `artifact.py` | 9, 11 |
+| Conversion datasets: one row per impression with click, install (click and view), and 7-day revenue labels, each with its cutoff and a flag for whether it is final; device install history as of the bid, from the time each postback reached the bidder; checks for schema, logged features, label joins, backfill against what the bidder logged, volume, and label rate | `datasets.py` | 14 |
+| LightGBM conversion models: click, install after a click, install after a view (no click), categorical features coded from one vocabulary with an `__other__` code, evaluated on the newest days whose labels are final, with calibration by placement and by predicted value; a bundle of `dump_model` trees, `golden.jsonl`, and `report.json` | `gbm.py` | 15 |
+| Replay: a logged day's priced bids rescored with two bundles and repriced as the bidder does; wins from an isotonic win curve by exchange, checked against the simulator's highest other bid; bids that change hands; a numpy evaluator of LightGBM's JSON dump for older bundles | `evaluate.py` | 16 |
+| Off-policy evaluation: IPS and self-normalized IPS with 95% intervals, effective sample size, for the uniform and CPI-first selection policies from any logged policy | `evaluate.py` | 16 |
+| A/B readout: cost per install by arm from final installs, the treatment/control ratio with a 95% interval from resampling devices, and the same ratio from the simulator's true install probabilities; shadow parity | `evaluate.py` | 19 |
+| Win rate model: LightGBM on the win notice, the bid as ln(bid) and ln(bid/floor) with a monotone constraint, request features only (no campaign or ad), the minimum-bid-to-win reports as weighted rows above and below each reported price; calibration by bid level, exploration multiplier, and exchange, and against the simulator's truth at other bids | `win.py` | 20 |
+| Calibration multipliers: realized over predicted installs on billed impressions at least 3 days old, the last 10 days, each day weighted 0.8 per day of age, shrunk toward the overall with k = 20 predicted installs, bounded to 0.5-2; D7 revenue per install by app in each bundle, shrunk with k = 20 installs | `kappa.py`, `gbm.py` | 21 |
+| Pacing forecast: the newest day's bids per campaign, without that day's gamma, repriced over a grid of gammas with the observed win rates by exchange and bid level and the billed share of wins; requests skipped for budget counted at the average; the gamma whose forecast spend meets the budget | `pacing.py` | 22 |
+| Incrementality: per advertiser app, devices with a real bid against holdout devices with a ghost bid; installs from any source (our postbacks plus the advertiser's shared non-attributed installs) after the first bid; ITT, exposure share, lift per exposed device, incremental installs, incrementality, iCPI, with Agresti-Caffo intervals; the simulator's caused installs on the same devices; a smaller holdout by a second hash | `lift.py` | 23 |
+| The pipeline: build a dataset, validate it, train, validate the models (predictions vary; click AUC and calibration; install calibration; top fifth of install predictions against what happened; no worse than the champion when both score the same rows), publish as the challenger; one record per run, and lineage in each bundle's report | `pipeline.py` | 18 |
 
 Every number in the report is computed by reading the published artifact
 back and predicting the way the bidder does (float32 weights, the

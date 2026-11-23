@@ -32,21 +32,38 @@ def main() -> None:
     p.add_argument("--bidder-admin", default=None, metavar="URL",
                    help="the bidder's admin API, for the campaign book "
                         "(default: the bidder's host on port 8081)")
+    p.add_argument("--settle", default=None, choices=["run", "day"],
+                   help="live mode: when the MMP settles installs and sends "
+                        "postbacks: at the end of the run, or at the end of "
+                        "each simulated day, so the bidder hears about "
+                        "conversions while it bids (default: day for walk "
+                        "and run, run for crawl, as Part II used)")
     p.add_argument("--scenario", default="",
                    help="live mode: failure scenarios for Chapter 12, comma "
                         "separated: wrong-target (a CPC target 100x too "
                         "high from 06:00), lost-billing (an exchange stops "
                         "sending billing notices for rewarded video from "
-                        "12:00)")
+                        "12:00), creative-test (one campaign gets a much "
+                        "better creative, Chapter 21; keep it on for every "
+                        "run of the same market), bad-labels (the MMP credits "
+                        "false installs on the run's first day, 06:00-18:00, "
+                        "Chapter 24)")
     p.add_argument("--workers", type=int, default=32,
                    help="concurrent connections to the bidder in live mode")
     a = p.parse_args()
     t0 = time.time()
     scen = tuple(x for x in a.scenario.replace(" ", "").split(",") if x)
+    # creative-test changes the world, not the traffic: it's a config flag
+    creative_test = "creative-test" in scen
+    # bad-labels changes what the MMP sends on the run's first day
+    bad_labels = "bad-labels" in scen
+    scen = tuple(x for x in scen if x not in ("creative-test", "bad-labels"))
     if scen and not a.bidder:
         p.error("--scenario needs --bidder")
     policy = (HttpPolicy(a.bidder, workers=a.workers, admin_url=a.bidder_admin,
-                         seed=a.seed, scenarios=scen) if a.bidder else None)
+                         seed=a.seed, scenarios=scen,
+                         pending_path=f"{a.out}/state/pending_postbacks.parquet")
+              if a.bidder else None)
     if a.start_day == "auto":
         start = policy.next_day() if policy else 0
         if start:
@@ -55,8 +72,17 @@ def main() -> None:
     else:
         start = int(a.start_day)
     cfg = preset(a.preset, a.scale, seed=a.seed, days=a.days).with_(
-        start_day=start)
-    res = simulate(cfg, policy=policy, progress=True)
+        start_day=start, creative_test=creative_test)
+    settle = a.settle or ("run" if a.preset == "crawl" else "day")
+    if policy is not None and settle == "day" and a.days > 1:
+        # one simulated day at a time: the MMP settles each day's installs
+        # at its end, and postbacks due later go out when their time comes
+        for d in range(a.days):
+            res = simulate(cfg.with_(days=1, start_day=start + d, bad_labels=bad_labels and d == 0),
+                           policy=policy, progress=True)
+            res.write(f"{a.out}/runs/start={start + d:04d}")
+    else:
+        res = simulate(cfg.with_(bad_labels=bad_labels), policy=policy, progress=True)
     if policy is not None:
         policy.close()
         print(f"live mode: {policy.sent:,} requests to {a.bidder} "
@@ -64,6 +90,10 @@ def main() -> None:
               f"{policy.notices_sent:,} notices, {policy.clicks_sent:,} clicks, "
               f"{policy.postbacks_sent:,} postbacks")
     res.write(a.out)
+    if policy is not None and not (settle == "day" and a.days > 1):
+        # Live runs continue the market, so each run's logs and truth are
+        # also kept by start day, for analysis across runs.
+        res.write(f"{a.out}/runs/start={start:04d}")
     if a.openrtb_sample:
         req = res.logs["bid_requests"].head(a.openrtb_sample)
         openrtb.write_jsonl(req, f"{a.out}/logs/bid_requests_sample.jsonl")
