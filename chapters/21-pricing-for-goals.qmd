@@ -45,6 +45,16 @@ A few practical choices make $\kappa$ work:
 
 $\kappa$ is the first **fast-adapting layer** in the DSP. The base models retrain daily, and $\kappa$ updates every hour or so, absorbing drift in between. The pacing multiplier in @sec-basic-pacing is the second. @sec-retraining-and-real-time-learning frames both as part of real-time learning.
 
+The reference DSP computes $\kappa$ by campaign from impressions at least three days old, whose installs have mostly arrived, with the predicted installs from what the bidder logged when it bought them, shrunk toward the overall ratio and bounded to 0.5–2. @fig-c21-calibration shows the first update. Overall, the models had predicted about a third more installs than arrived: $\kappa = 0.74$. That's the overconfidence on won impressions that @sec-gradient-boosted-conversion-models found in the as-of bundle's report, now measured on live outcomes, and the multipliers pull each campaign's value down to match.
+
+::: {.content-visible when-format="html"}
+![Calibration multipliers by campaign on the reference DSP's console, from installs on impressions at least three days old.](../images/ch21-console-calibration.png){#fig-c21-calibration width="100%" fig-alt="Screenshot of a table: kappa-0001, overall 0.741, from days 35 to 42. Campaign 0, CPI, 5.4 installs against 8.5 predicted, ratio 0.63, kappa 0.71; campaign 1, CPI, 13.2 against 21.2, ratio 0.63, kappa 0.68; campaign 2, ROAS, 10.4 against 10.1, ratio 1.04, kappa 0.84; campaign 4, CPI, 7.0 against 7.1, ratio 0.99, kappa 0.81; campaign 5, CPI, 3.5 against 7.4, ratio 0.47, kappa 0.67; campaign 6, ROAS, 2.7 against 4.2, ratio 0.64, kappa 0.72."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Calibration multipliers by campaign on the reference DSP's console, from installs on impressions at least three days old.](../images/ch21-console-calibration-print.png){#fig-c21-calibration width="100%" fig-alt="Screenshot of a table: kappa-0001, overall 0.741, from days 35 to 42. Campaign 0, CPI, 5.4 installs against 8.5 predicted, ratio 0.63, kappa 0.71; campaign 1, CPI, 13.2 against 21.2, ratio 0.63, kappa 0.68; campaign 2, ROAS, 10.4 against 10.1, ratio 1.04, kappa 0.84; campaign 4, CPI, 7.0 against 7.1, ratio 0.99, kappa 0.81; campaign 5, CPI, 3.5 against 7.4, ratio 0.47, kappa 0.67; campaign 6, ROAS, 2.7 against 4.2, ratio 0.64, kappa 0.72."}
+:::
+
 ## Margin, Fees, and Billing Models
 
 With $A$ and $\kappa$, the media value follows the equation from @sec-inside-a-demand-side-platform:
@@ -72,7 +82,20 @@ The order of the steps matters, because several of them are nonlinear. The walk 
 
 All multipliers come before shading, because the optimal shaded bid depends on the value being shaded. Scaling the bid after shading by a pacing multiplier, for example, gives a different and worse bid than shading the scaled value. Floors and caps come last, because they're hard limits that nothing else should override.
 
-The bid ledger records the output of every step, so a bid can always be explained term by term.
+The bid ledger records the output of every step, so a bid can always be explained term by term. In the reference DSP, the steps are a few lines of Go, lightly trimmed:
+
+```go
+pc := pr.PClick
+pInst := pc*pr.PInstallClick + (1-pc)*pr.PInstallView // the install equation
+k := p.Kappa.Get(campaign.ID)                          // calibration
+value := p.GoalValue(campaign, pc, pr.PInstallClick, pr.PInstallView, vpi) * k
+gamma, overbid := p.Pace(campaign.ID)                  // pacing
+media := value * gamma * overbid * (1 - p.Margin)      // margin
+shaded, win := shade(media, floor)                     // the win model
+score := win * (value - math.Max(shaded, floor))       // the internal auction's score
+```
+
+`adtrain trace` prints the same terms for any logged bid, from the ledger, which is the first thing to run when someone asks why the DSP bid what it did.
 
 ## Combining Install and Value Predictions
 
@@ -83,6 +106,8 @@ Three practices keep the product honest:
 - **Check the calibration of the product,** by campaign and by bid range, against realized revenue, not just each model on its own, as in @sec-gradient-boosted-conversion-models.
 - **Keep separate multipliers,** one for installs and one for value per install, so a drift in one doesn't get corrected by a change in the other. The overall correction is their product.
 - **Use enough data for value.** Revenue labels are sparse and heavy-tailed, so value calibration needs larger segments and longer windows than install calibration.
+
+The reference DSP has no value model yet. Its ROAS campaigns price with each app's average D7 revenue per install in the bundle's training data, shrunk toward the average over all apps. In the simulated walk market, payers are rare enough that this average is tiny, and with it the ROAS campaigns could barely bid above the floors. That's the right answer for their targets in this market, and a reminder that a ROAS campaign's value depends on a number that's much harder to estimate than an install rate.
 
 ## Choosing the Winning Campaign
 
@@ -97,6 +122,8 @@ The score doesn't depend on the billing model. Billing decides how the surplus i
 Continuing the example, suppose a second campaign is eligible for the same request: a CPI campaign for another game with a target CPI of \$3.00 and a predicted IPM of 1.2, so $A = \$3.60$. With the same multipliers, its media value and shaded bid are lower than Cozy Farm Tycoon's, and so is its expected surplus, so Cozy Farm Tycoon bids. On a different request, where the second game's audience is a better match, the order flips.
 
 Pacing interacts with the internal auction. A campaign that's behind on spend has a higher $\gamma$, which raises its media value and its bid. That lowers its surplus at the margin, but raises its chance of winning, and the internal auction takes both into account.
+
+The reference DSP's internal auction prices every eligible campaign, picks the highest score, and logs the top five candidates with their values, bids, win probabilities, and scores. One request in ten picks a campaign at random instead, weighted by remaining budget, and logs the probability of the choice either way, so the selection stays evaluable offline as in @sec-offline-evaluation-and-model-iteration. Our first version logged the wrong ad. It priced every campaign through one shared function that recorded the ad it was pricing, so the ledger ended up with the last campaign priced, not the winner. Bids went out right and the training rows came out wrong. A test that runs an auction with a known winner and checks the logged ad now guards it.
 
 ## Uncertainty and Low-Volume Segments
 
@@ -143,6 +170,16 @@ A few details matter in practice:
 - **Delayed rewards.** Installs arrive hours or days after the impression, so the posteriors update in batches, on matured labels, and a creative's recent impressions are excluded from its posterior until their labels mature.
 - **Creative attributes as features.** The LightGBM models also get the creative's format, length, orientation, and end card type as features, so a new creative borrows from similar ones in the base predictions too.
 - **Log the selection probability.** Thompson sampling's probability of choosing each creative isn't returned directly, but it can be estimated by sampling the posteriors many times. Log it, so that @sec-personalized-creative-selection can evaluate learned policies offline.
+
+The simulator's `creative-test` scenario gives one of a campaign's three creatives a much higher install rate. @fig-c21-creatives shows the reference DSP's posteriors after six simulated days of Thompson sampling: the strong creative went from a third of the draws to 78%, at 3.5 installs per thousand impressions against 1.2 and 1.9 for the others, and the other two still get about a tenth of the traffic each, which is how the bandit would notice if one of them improved. The bidder estimates each creative's chance of being shown from 4,000 draws, and keeps it for 1,000 picks, since the posteriors change only as day-old installs arrive; estimating it on every request was a seventh of the bidder's CPU, as @sec-serving-models-in-the-bid-path found.
+
+::: {.content-visible when-format="html"}
+![Thompson sampling over one campaign's three creatives on the reference DSP's console, after six simulated days with one creative much better than the others.](../images/ch21-console-creatives.png){#fig-c21-creatives width="100%" fig-alt="Screenshot of a table for campaign 1. Creative 3: 6,533 impressions, 23 installs, 3.52 per 1,000, posterior mean 3.55, 77.8% of draws. Creative 4: 1,654 impressions, 2 installs, 1.21 per 1,000, posterior mean 2.18, 10.7% of draws. Creative 5: 2,614 impressions, 5 installs, 1.91 per 1,000, posterior mean 2.43, 11.5% of draws."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Thompson sampling over one campaign's three creatives on the reference DSP's console, after six simulated days with one creative much better than the others.](../images/ch21-console-creatives-print.png){#fig-c21-creatives width="100%" fig-alt="Screenshot of a table for campaign 1. Creative 3: 6,533 impressions, 23 installs, 3.52 per 1,000, posterior mean 3.55, 77.8% of draws. Creative 4: 1,654 impressions, 2 installs, 1.21 per 1,000, posterior mean 2.18, 10.7% of draws. Creative 5: 2,614 impressions, 5 installs, 1.91 per 1,000, posterior mean 2.43, 11.5% of draws."}
+:::
 
 ## Inputs to the Pricing Equation
 

@@ -227,6 +227,9 @@ func (o *Ops) lastChange(ts, window int64) string {
 		if e.SimMS > ts {
 			continue // after the shift began
 		}
+		if strings.HasPrefix(w, "drill ended") {
+			continue // ending a drill doesn't start a problem
+		}
 		if e.SimMS > 0 && ts-e.SimMS <= window {
 			return fmt.Sprintf("Last change before it: %s, at %s.", e.What, simClock(e.SimMS))
 		}

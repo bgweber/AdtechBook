@@ -25,6 +25,8 @@ func (o *Ops) SetParity(r ParityResult) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.parity = &r
+	// the check runs once the day is over: at least the end of that day
+	ts := max(o.nowMS, (r.Day+1)*clock.DayMS)
 	if r.Rows < 100 {
 		return
 	}
@@ -37,7 +39,7 @@ func (o *Ops) SetParity(r ParityResult) {
 	if dep := o.lastChange((r.Day+1)*clock.DayMS, clock.DayMS); dep != "" && r.Rate > ParityThreshold {
 		detail += " " + dep
 	}
-	o.setAlertLocked("parity", "features", r.Rate > ParityThreshold, o.nowMS, r.Rate, ParityThreshold, detail)
+	o.setAlertLocked("parity", "features", r.Rate > ParityThreshold, ts, r.Rate, ParityThreshold, detail)
 }
 
 // LastParity is the newest daily parity result, or nil.

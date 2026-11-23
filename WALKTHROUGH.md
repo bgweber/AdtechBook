@@ -1,6 +1,6 @@
 # Run the Simulator: A Chapter-by-Chapter Walkthrough
 
-Part II of the book builds a working demand-side platform (DSP): a Go bidder that buys ads on a simulated mobile ad market, a training pipeline that learns a click model from the bidder's own logs, and a web console to watch it all. This page gives the commands for each chapter's "Try it on the simulator" box, and shows what you should see.
+Part II of the book builds a working demand-side platform (DSP): a Go bidder that buys ads on a simulated mobile ad market, a training pipeline that learns a click model from the bidder's own logs, and a web console to watch it all. Part III grows it into a competitive DSP on a bigger market: LightGBM conversion models, a pipeline and registry, experiments, bid shading, pricing for goals, pacing, incrementality, serving performance, and operations. This page gives the commands for each chapter's "Try it on the simulator" box, and shows what you should see. The book's chapters tell the story of the same runs, with the reasoning behind each result.
 
 You need [Docker](https://docs.docker.com/get-docker/) with Compose v2 (`docker compose version` should work). Nothing else: the simulator, the bidder, and the training code all run in containers.
 
@@ -539,6 +539,8 @@ Every false postback carried `match_type=probabilistic`, a value the MMP had nev
 2. **Rebuild.** Every dataset build reads the quarantine list. The rebuilt dataset skipped the 249 postbacks, and every check passed.
 3. **Retrain.** Run the pipeline again. In our run, the install-after-view model evaluated on the rebuilt data had 48 installs to predict instead of 290, an AUC of 0.58, and a calibration of 0.82.
 4. **Rebuild what carries it forward.** The bidder's device profiles counted the false installs, so `device_prior_installs` was wrong for every device that got one. Click **Recount device profiles**. In our run, 212 of 1,948 devices changed. Before the recount, every bid on those devices logged a count that included the false installs (100% of about 5,500 rows a day); on the day after it, none did.
+
+**Watch the prediction monitor too.** The false installs feed a model feature, each device's install count, so the bad labels showed up in the click model's predictions before any dataset was built: in our run, the mean click prediction fell 12% the day after the bad day, and the shift alert fired at 01:30 with no deploy before it. The recount moves the predictions back, and the alert may fire again, because the baseline days now include the bad ones. That's a lesson the book takes up: incidents poison the baselines meant to catch the next one.
 
 **Homework.** Two more drills are built, under **Incident drills** on the Controls tab:
 

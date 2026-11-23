@@ -79,6 +79,20 @@ where $a_i$ and $e_i$ are the shares of observations in bin $i$ for the current 
 
 @fig-c19-dashboard shows what this looks like for one conversion model. Each panel answers a different question, and most real incidents show up in more than one of them at once.
 
+### The Reference DSP's Prediction Monitor
+
+The reference DSP monitors the mean prediction of its click and install-after-click models this way. Every simulated quarter hour, it compares the mean over the last hour with the same hour on up to four earlier days. The alert fires when the robust z-score is above 4, and the change above 5%, for three quarter hours in a row; the 5% floor and a floor on the MAD keep baseline days that happen to agree closely from turning every wobble into a page. PSI against the baseline days is shown with it. The alert names the last deploy, rollback, or drill in the audit log before the shift began.
+
+To see what it catches, we ran drills. A deploy that multiplied the serving bundle's click predictions by 1.3 at 10:29 on a simulated day paged at 13:00: the mean was 27% above the baseline, with a z of 8.3 and a PSI of 0.17, and the alert named the deploy. Rolling back at once resolved it by 14:30. A 10% shift took about three hours to page, at a z of 6.3, and between pages its z-score wandered between 1.5 and 5. That's the volume problem from earlier in this chapter: at the simulator's small scale, an hour's mean click prediction moves 3 to 6% from one day to the next, so a 10% shift is only two or three of its standard deviations at any moment. @fig-c24-monitor shows a repeat of the 1.3 drill, and something we didn't plan: the rollback went to an older bundle, whose install-after-click model predicts differently, and the monitor flagged that too. A rollback is a deploy.
+
+::: {.content-visible when-format="html"}
+![The reference DSP's prediction monitor over two simulated days, with a drill: a deploy that raised click predictions by 30%, its alert, and the rollback. The vertical lines are changes from the audit log.](../images/ch24-console-monitor.png){#fig-c24-monitor width="100%" fig-alt="Screenshot of two line charts over days 84 and 85, each with the hourly mean prediction, the baseline median as a dashed line, and the baseline range as a gray band. Click model: the mean stays near the band around 3.3% until a vertical line at about 10:30 on day 85, then rises to about 4.2%; red dots mark points beyond the thresholds; a second vertical line at about 15:00 marks the rollback, after which the mean falls back near the band. The header reads now 3.45%, +5.9% against the baseline, z 0.8, PSI 0.129. Install-after-click model: the mean tracks the band until after the rollback, then falls to about 8%, 34.7% below the baseline, z -4.66, with red dots marking points beyond the thresholds."}
+:::
+
+::: {.content-visible unless-format="html"}
+![The reference DSP's prediction monitor over two simulated days, with a drill: a deploy that raised click predictions by 30%, its alert, and the rollback. The vertical lines are changes from the audit log.](../images/ch24-console-monitor-print.png){#fig-c24-monitor width="100%" fig-alt="Screenshot of two line charts over days 84 and 85, each with the hourly mean prediction, the baseline median as a dashed line, and the baseline range as a gray band. Click model: the mean stays near the band around 3.3% until a vertical line at about 10:30 on day 85, then rises to about 4.2%; red dots mark points beyond the thresholds; a second vertical line at about 15:00 marks the rollback, after which the mean falls back near the band. The header reads now 3.45%, +5.9% against the baseline, z 0.8, PSI 0.129. Install-after-click model: the mean tracks the band until after the rollback, then falls to about 8%, 34.7% below the baseline, z -4.66, with red dots marking points beyond the thresholds."}
+:::
+
 [^c24-psi]: Bilal Yurdakul and Joshua Naranjo, "Statistical Properties of the Population Stability Index," *Journal of Risk Model Validation*. The paper notes that the 0.10 and 0.25 cutoffs are an industry convention without a statistical basis, and that the right threshold depends on sample sizes and the number of bins.
 
 ### Segments and Volume
@@ -155,6 +169,18 @@ Prediction parity uses a relative tolerance, because inference libraries can dif
 $$\text{mismatch}_{pred} = \frac{1}{N}\sum_{i=1}^{N} \mathbb{1}\left[\frac{\lvert\hat{p}^{\,offline}_i - \hat{p}^{\,logged}_i\rvert}{\hat{p}^{\,logged}_i} > \tau\right]$$
 
 These checks pay for themselves. The divide-by-zero and string parsing incidents from @sec-logging-at-bid-time were both found by a parity checker that logged model tensors for a subset of impressions and compared them with what the training pipeline produced for the same impressions. Golden test vectors in continuous integration catch most tensor and prediction mismatches before deploy. The daily job catches what slips through, such as differences between hosts or problems that only appear on real traffic.
+
+The reference DSP runs feature parity as a daily job: when the simulated day turns, the training service recomputes the FeatureVector of the day's sampled bids from their raw requests, with its second implementation of the bidder's feature code, and an alert fires if any feature mismatches on more than 0.1% of rows. To test it, we changed the bidder's serving code for one feature at 06:29 on a simulated day, so that it logged finer cellular connection types, such as `cellular_2g`, than training computes. The next morning's check, in @fig-c24-parity, found it on a third of the rows, with an example and the change that lined up.
+
+::: {.content-visible when-format="html"}
+![The parity alert on the reference DSP's console, from the daily check of the day a drill changed the serving code for one feature. Every alert links to its playbook.](../images/ch24-console-alerts.png){#fig-c24-parity width="100%" fig-alt="Screenshot of the alerts table with one row: parity, features, firing since day 84, 00:00. Detail: Day 83's parity check: 33.36% of 2,953 rows have a different connection_type when the training code recomputes it from the raw request, limit 0.10%. For example, logged cellular_2g, recomputed cellular, on beta_exchange. Last change before it: bidder deployed, drill: serving code for connection_type changed, at day 83, 06:29. Check first: the parity report, which feature, which exchange, and since when, then the bidder deploy or upstream change that lines up. Owner: ML team. A Playbook link."}
+:::
+
+::: {.content-visible unless-format="html"}
+![The parity alert on the reference DSP's console, from the daily check of the day a drill changed the serving code for one feature. Every alert links to its playbook.](../images/ch24-console-alerts-print.png){#fig-c24-parity width="100%" fig-alt="Screenshot of the alerts table with one row: parity, features, firing since day 84, 00:00. Detail: Day 83's parity check: 33.36% of 2,953 rows have a different connection_type when the training code recomputes it from the raw request, limit 0.10%. For example, logged cellular_2g, recomputed cellular, on beta_exchange. Last change before it: bidder deployed, drill: serving code for connection_type changed, at day 83, 06:29. Check first: the parity report, which feature, which exchange, and since when, then the bidder deploy or upstream change that lines up. Owner: ML team. A Playbook link."}
+:::
+
+The prediction monitor never moved during this drill: the mean click prediction stayed within 1.7 robust standard deviations of its baseline all day. The serving model barely used connection type, so the bug changed the logged features without changing the predictions much. It would still have changed the next model, trained on features that serving and training compute differently. Some bugs only parity can see.
 
 ## Alerting and Tooling
 
@@ -346,6 +372,8 @@ Each paging alert links to a short **playbook**, stored in the incident manageme
 
 For example, a playbook for a prediction shift after a deploy would say to check whether the shift lines up with a model, vocabulary, or bidder deploy, and whether it's limited to certain hosts or segments. If it lines up with a deploy, roll it back. If it's limited to some hosts and no deploy matches, escalate to bidder engineering. Recovery is confirmed when predictions return to their baseline band.
 
+The reference DSP's playbooks are short Markdown files in its console, one per alert, with these five sections and the exact commands; the alerts table in @fig-c24-parity links each alert to its own. Writing them found two gaps. The fallback and prediction-collapse alerts from @sec-operating-the-first-dsp had never fired in the walk stage: they counted only bids priced by the Part II click model, and walk prices with the LightGBM bundle, so they were watching nothing. And the bad-labels playbook needed a command that didn't exist yet, the profile recount below. Writing the playbook before the incident is how both turned up.
+
 Playbooks cover what to do when an alert fires. Two related documents cover the rest:
 
 - **Runbooks** for procedures done under time pressure, such as promoting a champion, rolling back a model, or rebuilding a base image. Each step has the exact command, and what a failure at that step means. A runbook written during a calm afternoon is much better than one improvised during an incident.
@@ -409,11 +437,44 @@ The response has four steps:
 
 The last step is the easiest to miss. In one incident I've written about, false-positive labels from a small experiment drove a clearing-price feature upward, which pushed bids up, which pushed the feature up further, a feedback loop that outlived the experiment. Removing the bad labels wasn't enough. The feature had to be rebuilt as well.
 
+### A Bad-Labels Drill on the Reference DSP
+
+The simulator can break the labels on purpose. In its `bad-labels` scenario, the advertisers' MMP turns on probabilistic matching for view-throughs from 06:00 to 18:00 on one day, and credits the DSP with installs on 2% of that day's impressions, on devices that never installed. In our run, that was 249 false installs on day 74, against about 40 real ones a day. Here's how it played out, step by step.
+
+**The first sign was the prediction monitor, a day before anything else.** The bidder's device profiles count each device's installs credited to us, and the model uses that count. The false installs raised it for 212 devices, and those devices were busy ones. From day 75, the mean click prediction fell 12%, and the shift alert fired at 01:30 on day 75: 16% below the baseline, at a z of $-8$, with no deploy before it. Its playbook says that a shift with no deploy points at the inputs.
+
+**The dataset check found the cause.** The next dataset build failed a check the reference DSP added for this: the install rate by day of impression, against the median of the other days, with a limit of twice the median. Real performance doesn't jump sevenfold in a day, and labels can. Day 74 had 1.34% installs per impression against a median of 0.19%, and the pipeline stopped before training. The bad day hadn't reached the install models yet, because its labels hadn't passed the three-day cutoff, but it was already in the evaluation days: a model trained anyway had an install-after-view AUC of 0.49 and a calibration of 0.14 on them, against labels that were mostly wrong.
+
+**What marks the bad postbacks.** The failed check links to its playbook, which says to break the day's install postbacks down by the fields the MMP sends. By `match_type`, the answer was immediate: on day 74, 34 postbacks matched by advertising ID, as usual, and 249 by probabilistic matching, a value the MMP had never sent before, between 07:00 and 20:00. In real integrations the marker is often subtler, but there usually is one: a field value, an app, a campaign, or a block of hours.
+
+::: {.content-visible when-format="html"}
+![The reference DSP's quarantine card: install postbacks received on the bad day and the three before it, by how the MMP matched them, and the quarantine entry that marks the bad ones.](../images/ch24-console-quarantine.png){#fig-c24-quarantine width="100%" fig-alt="Screenshot of the quarantine card. Day 74 inspected by match_type: day 71, 37 id_matching and 0 probabilistic; day 72, 44 and 0; day 73, 46 and 0; day 74, 34 and 249. A form to quarantine the day where match_type=probabilistic with a reason. The entry q-0001: postbacks received from day 74 00:00 to day 75 00:00, where match_type=probabilistic, reason MMP probabilistic matching turned on by mistake, with a Remove button. A Recount device profiles button."}
+:::
+
+::: {.content-visible unless-format="html"}
+![The reference DSP's quarantine card: install postbacks received on the bad day and the three before it, by how the MMP matched them, and the quarantine entry that marks the bad ones.](../images/ch24-console-quarantine-print.png){#fig-c24-quarantine width="100%" fig-alt="Screenshot of the quarantine card. Day 74 inspected by match_type: day 71, 37 id_matching and 0 probabilistic; day 72, 44 and 0; day 73, 46 and 0; day 74, 34 and 249. A form to quarantine the day where match_type=probabilistic with a reason. The entry q-0001: postbacks received from day 74 00:00 to day 75 00:00, where match_type=probabilistic, reason MMP probabilistic matching turned on by mistake, with a Remove button. A Recount device profiles button."}
+:::
+
+**The four steps.** We quarantined the postbacks received on day 74 with `match_type=probabilistic`. The quarantine list is a small file that every dataset build reads; each build skips what it marks, for labels and for device history alike, and records which entries it applied. The rebuilt dataset skipped the 249 postbacks and passed every check, in @fig-c24-datasets, and the retrained model's evaluation on the same days was sane again: 48 installs to predict instead of 290, with a calibration of 0.82.
+
+::: {.content-visible when-format="html"}
+![Two builds of the same days of the reference DSP's ledger: before the quarantine, the install label rate check fails on the bad day; after it, every check passes and the build records the quarantine it applied.](../images/ch24-console-datasets.png){#fig-c24-datasets width="100%" fig-alt="Screenshot of a table of datasets. conversions-0022, 213,956 impressions, 125 installs, not leaky: all pass; quarantine q-0001: 249 postbacks skipped. conversions-0020, the same impressions and installs: 1 failed, install label rate: day 74: 1.336% installs per impression, against a median of 0.190% over 10 days, limit 2 times; a Playbook link."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Two builds of the same days of the reference DSP's ledger: before the quarantine, the install label rate check fails on the bad day; after it, every check passes and the build records the quarantine it applied.](../images/ch24-console-datasets-print.png){#fig-c24-datasets width="100%" fig-alt="Screenshot of a table of datasets. conversions-0022, 213,956 impressions, 125 installs, not leaky: all pass; quarantine q-0001: 249 postbacks skipped. conversions-0020, the same impressions and installs: 1 failed, install label rate: day 74: 1.336% installs per impression, against a median of 0.190% over 10 days, limit 2 times; a Playbook link."}
+:::
+
+The fourth step, rebuilding what carries the bad data forward, is the one the drill made concrete. The bidder's device profiles still counted the false installs, so it priced those 212 devices with the wrong install history, and logged it on every bid. The rebuilt datasets didn't, so training and serving disagreed on that feature for every one of those devices. The reference DSP recounts each device's installs and purchases from the postback log, with the same quarantine list. Before the recount, every bid on the affected devices logged a count that included the false installs, about 5,500 rows a day; on the day after it, none did.
+
+The drill had one more lesson. The recount moved the mean click prediction back up by 15%, to where it was before day 75, and the shift alert fired again, against a baseline of four days that were themselves wrong. An incident poisons the baselines that are supposed to catch the next one. Mark incident days, and leave them out of baselines, the same way the quarantine leaves bad postbacks out of datasets.
+
 ## First-Time Pitfalls
 
 - **New baselines are noisy.** In the first weeks, alerts fire too often, because the baselines haven't settled. Start with a few alerts on high-volume segments, and tune them before paging anyone.
 - **Alerts on low-volume segments flap.** Set a minimum volume before an alert can fire on a segment.
 - **Root-cause analysis on immature labels.** A campaign that looks like it dropped yesterday often just hasn't received yesterday's installs yet. Check label maturity first.
+- **Alerts that watch the wrong thing.** An alert that never fires is either a healthy system or a broken alert. Run a drill for each one, and check that it pages.
 
 ## What Breaks Next
 

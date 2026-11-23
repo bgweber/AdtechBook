@@ -37,6 +37,8 @@ Training each stage on the population that reaches it keeps each model focused. 
 
 There's an alternative: one model that predicts an attributed install directly from every impression, with no separate click stage. It's simpler to serve, and with LightGBM it often performs about as well. Separate stages are worth it for a DSP because the two paths behave so differently, and because monitoring each one on its own catches problems, such as a broken click tracker, that a single model would hide. In Part IV, a multi-task network trains all of these heads on a shared base, which gets the benefits of both.
 
+The reference DSP trains the first three, one LightGBM model per stage, from one dataset, and ships them together as a **bundle**: the three models, the vocabulary that maps each categorical value to its code, and 200 golden examples with the predictions LightGBM made for them. The bidder evaluates the trees itself, in Go, from LightGBM's own dump of the model, and before it serves a bundle it scores the golden examples and compares. On every bundle we trained, the two agreed to within $10^{-16}$, the rounding of a 64-bit float. @sec-serving-models-in-the-bid-path compares this with serving the same model through ONNX Runtime.
+
 ## Categorical Features and High Cardinality
 
 Most of the strong features in a DSP are categorical, and several have very high cardinality: publisher apps, placement IDs, device models, campaigns, and creatives. Trees handle them in a few ways:
@@ -117,6 +119,8 @@ Both work well with pretrained features, as we'll see in Part IV, and both are m
 
 Evaluate the value model on two things: the calibration of predicted revenue, by campaign and by country, and how well it ranks installs by value, for example by the share of total revenue in the top 10% of predicted value. Because revenue is so skewed, a few large payers can swing these metrics, so evaluate on enough days to see past them. We return to value prediction in @sec-value-prediction.
 
+The reference DSP doesn't train a value model yet. Its D7 ROAS bids use each advertised app's average D7 revenue per install from the bundle's training data, shrunk toward the average over all apps, which is the crudest version of $E[\text{value}]$. In the simulated walk market, revenue per install is so small that the ROAS campaigns can barely bid above the floors with it. A real value model, and what it buys, is a reader exercise for now, and the subject of @sec-value-prediction.
+
 ## Universal Models and Specialized Models
 
 The walk DSP trains one install model for Android across all campaigns and advertisers whose terms allow pooling, rather than one model per campaign. This is a design choice worth being explicit about, because neither option is better in every case, and the right answer can change as the DSP grows.
@@ -168,6 +172,32 @@ A few practices matter more than the choice of method:
 - **Calibrate by segment.** A model that's calibrated overall can be 30% high on one exchange and 20% low on another. Check calibration by exchange, country, placement type, and campaign, and correct segments that are consistently off. The calibration multiplier $\kappa$ in @sec-pricing-for-goals does this continuously.
 - **Report normalized entropy, and AUC within each campaign.** Overall AUC is dominated by differences between placements and campaigns, which are easy to learn. AUC within each campaign shows whether the model ranks impressions well where the bidder actually has to choose.
 - **Check the calibration of the product.** For a ROAS goal, the bid depends on $P(\text{install}) \times E[\text{value}]$. Check the calibration of that product by campaign and by bid range, not only of each model on its own.
+
+### Offline Wins, Live Losses
+
+The reference DSP's console reports each bundle's metrics next to the dataset it was trained on. @fig-c15-conversions shows the experiment from @sec-building-training-datasets: one bundle trained on the as-of dataset, and one on the leaky dataset, whose device history counts installs that happened after the bid. Offline, the leaky bundle looks far better. Its install-after-click model has an AUC of 0.95, against 0.77 for the as-of bundle, and its install-after-view model 0.88 against 0.55.
+
+::: {.content-visible when-format="html"}
+![Datasets and LightGBM bundles on the reference DSP's console. The bundle trained on the leaky dataset scores far higher offline, and needs a forced deploy because its dataset failed a check.](../images/ch15-console-conversions.png){#fig-c15-conversions width="100%" fig-alt="Screenshot of two tables. Conversion datasets: conversions-0001 and conversions-0003 pass all checks; conversions-0002, leaky, fails the backfill check with 15.29% of rows differing. LightGBM conversion models: gbm-0002, trained on the leaky dataset, click AUC 0.788, install-after-click AUC 0.951, install-after-view AUC 0.879, marked leaky and dataset failed checks, with a Force deploy button; gbm-0001, trained on the as-of dataset, click AUC 0.784, install-after-click AUC 0.773, install-after-view AUC 0.551, serving."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Datasets and LightGBM bundles on the reference DSP's console. The bundle trained on the leaky dataset scores far higher offline, and needs a forced deploy because its dataset failed a check.](../images/ch15-console-conversions-print.png){#fig-c15-conversions width="100%" fig-alt="Screenshot of two tables. Conversion datasets: conversions-0001 and conversions-0003 pass all checks; conversions-0002, leaky, fails the backfill check with 15.29% of rows differing. LightGBM conversion models: gbm-0002, trained on the leaky dataset, click AUC 0.788, install-after-click AUC 0.951, install-after-view AUC 0.879, marked leaky and dataset failed checks, with a Force deploy button; gbm-0001, trained on the as-of dataset, click AUC 0.784, install-after-click AUC 0.773, install-after-view AUC 0.551, serving."}
+:::
+
+Then we served each for three simulated days, on the same market, and compared what they bought for the CPI campaigns, in @tbl-c15-periods. Margin is what the advertisers paid for the installs at their CPI targets, minus what we spent.
+
+| Days | Serving | Spend | Installs | Margin |
+|------|---------|-------|----------|--------|
+| 7–9 | Priors from Part II | \$33 | 41 | \$135 |
+| 10–12 | As-of bundle | \$80 | 54 | \$126 |
+| 13–15 | Leaky bundle | \$90 | 48 | \$98 |
+
+: What three days of each model bought for the CPI campaigns, in the reference DSP's simulated walk market at its smallest scale. {#tbl-c15-periods tbl-colwidths="[16,36,16,16,16]"}
+
+The leaky bundle spent the most and bought fewer installs than the as-of one. It learned that a device with an install in its history is very likely to install, which is true in a leaky dataset, where that install is often the row's own. At serving time, the devices with installs in their history are the ones that already have the app.
+
+The as-of bundle bought more installs than the priors, but paid more for each, and earned a little less margin. Its report shows why: it overpredicts installs at the top of its range, where the bidder spends most, and the bidder bid its full estimate of each impression's value, at first price. The model was better and the bids weren't. The calibration multiplier of @sec-pricing-for-goals and the bid shading of @sec-win-rate-and-bid-shading are what turn a better model into more margin. The numbers are small, a few dozen installs for each period, so treat the differences as directions rather than measurements; @sec-shadow-mode-canaries-and-ab-tests measures one properly.
 
 ## Predicted Installs Aren't Caused Installs
 
