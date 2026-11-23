@@ -158,7 +158,7 @@ In walk, a DSP holds months of device-level data, from several sources, under se
 ::: {.callout-tip title="Try it on the simulator"}
 Build an install training dataset with as-of joins and the label cutoffs above. Then add a feature that's computed from the device profile as it is today, rather than as of the bid, and train with it. Watch the offline metrics improve, and the live results on the simulator get worse.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). Build the as-of and the leaky dataset from the Conversions tab, or with `adtrain dataset` and `adtrain dataset --leak`; the leaky one fails the check that compares its device history with what the bidder logged. Training and serving both of them is the next chapter's exercise. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

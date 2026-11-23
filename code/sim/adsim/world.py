@@ -194,6 +194,13 @@ def make_campaigns(cfg: SimConfig, apps: pd.DataFrame,
             "start_day": 0,
         })
     campaigns = pd.DataFrame(rows)
+    if cfg.late_launch_share > 0:
+        # some campaigns launch later, for cold-start checks (Chapter 15);
+        # a separate stream, so presets without them don't change
+        r2 = np.random.default_rng([cfg.seed, 31])
+        late = r2.random(len(campaigns)) < cfg.late_launch_share
+        lo, hi = cfg.late_launch_days
+        campaigns.loc[late, "start_day"] = r2.integers(lo, hi + 1, late.sum())
     crows = []
     cid = 0
     for c in campaigns.itertuples():
@@ -211,7 +218,17 @@ def make_campaigns(cfg: SimConfig, apps: pd.DataFrame,
                 "quality": float(rng.normal(0.0, 0.3)),
             })
             cid += 1
-    return campaigns, pd.DataFrame(crows)
+    creatives = pd.DataFrame(crows)
+    if cfg.creative_test:
+        # the creative test of Chapter 21: the CPI campaign with the largest
+        # budget among those running from day 0 gets one creative far better
+        # than its other two
+        cpi = campaigns[(campaigns.goal == "CPI") & (campaigns.start_day == 0)]
+        c = int(cpi.sort_values("daily_budget", ascending=False).campaign_id.iloc[0])
+        ids = creatives.index[creatives.campaign_id == c]
+        creatives.loc[ids, "quality"] = -0.5
+        creatives.loc[ids[0], "quality"] = 3.0
+    return campaigns, creatives
 
 
 def make_world(cfg: SimConfig) -> World:

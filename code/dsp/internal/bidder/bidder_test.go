@@ -305,3 +305,64 @@ func TestFallbackLadder(t *testing.T) {
 		t.Fatal("with no bundle, the policy's priors should price")
 	}
 }
+
+// In the internal auction, the bidder prices every campaign; the bid must
+// carry the ad of the campaign that won the auction, not the last one
+// priced. The response's ad markup and click URL name the campaign.
+func TestAuctionBidsWithTheWinnersAd(t *testing.T) {
+	b := newBidder(t, ModeBid)
+	b.Book.Load([]campaigns.Campaign{
+		{ID: 1, Goal: "CPC", Target: 0.50, DailyBudget: 5, Geos: "BRA"},
+		{ID: 2, Goal: "CPC", Target: 0.05, DailyBudget: 5, Geos: "BRA"},
+		{ID: 3, Goal: "CPC", Target: 0.02, DailyBudget: 5, Geos: "BRA"}},
+		[]campaigns.Creative{{ID: 10, CampaignID: 1, Format: "static"},
+			{ID: 20, CampaignID: 2, Format: "static"}, {ID: 30, CampaignID: 3, Format: "static"}})
+	b.Policy.SetSelection("auction")
+	b.Policy.AuctionExplore = 0
+	w := do(b, "POST", "/openrtb/beta_exchange", banner, "1000")
+	if w.Code != http.StatusOK {
+		t.Fatalf("want a bid, got %d", w.Code)
+	}
+	body := w.Body.String()
+	// the highest target has the most surplus: campaign 1, creative 10,
+	// even though campaign 3 was priced last
+	if !strings.Contains(body, `"cid":"1"`) || !strings.Contains(body, `"crid":"10"`) {
+		t.Fatalf("the bid isn't campaign 1's: %s", body)
+	}
+	if ad := b.lastAdForTest; ad["campaign"] != "1" || ad["creative"] != "10" {
+		t.Fatalf("logged ad %v", ad)
+	}
+}
+
+// A load test request runs the whole bid path and gets a bid, but leaves
+// nothing behind: no ledger row, no profile, no pending bid (Chapter 17).
+func TestLoadTestWritesNothing(t *testing.T) {
+	b := newBidder(t, ModeBid)
+	r := httptest.NewRequest("POST", "/openrtb/beta_exchange", strings.NewReader(banner))
+	r.Header.Set(clock.Header, "1000")
+	r.Header.Set(LoadTestHeader, "1")
+	w := httptest.NewRecorder()
+	b.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want a bid, got %d", w.Code)
+	}
+	if n := b.Profiles.Devices(); n != 0 {
+		t.Fatalf("load test recorded %d devices", n)
+	}
+	if len(b.pending) != 0 || b.Stats.Snapshot().Total != 0 {
+		t.Fatalf("load test left a pending bid or stats")
+	}
+	if s := b.LoadLat.Summary(); s.Requests != 1 || b.Lat.Summary().Requests != 0 {
+		t.Fatalf("timings went to the wrong recorder")
+	}
+	// a live request is timed by stage, and the stages add up
+	do(b, "POST", "/openrtb/beta_exchange", banner, "2000")
+	s := b.Lat.Summary()
+	sum := 0.0
+	for _, st := range s.Stages[:len(s.Stages)-1] {
+		sum += st.Mean
+	}
+	if tot := s.Stages[len(s.Stages)-1].Mean; s.Requests != 1 || sum > tot+1 || sum < tot*0.5 {
+		t.Fatalf("stages sum to %v of a %v total", sum, tot)
+	}
+}

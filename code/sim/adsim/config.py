@@ -83,6 +83,10 @@ class SimConfig:
     share_publisher: float = 0.6
     share_advertiser: float = 0.25
     n_campaigns: int = 8
+    creative_test: bool = False  # one campaign gets a much better creative (Chapter 21)
+    bad_labels: bool = False  # the MMP credits false installs on the first day (Chapter 24)
+    late_launch_share: float = 0.0  # campaigns that start after day 0
+    late_launch_days: tuple = (3, 10)  # their first day, uniform in this range
     creatives_per_campaign: int = 3
     geos: dict = field(default_factory=lambda: {
         "IND": 0.5, "BRA": 0.3, "IDN": 0.2})
@@ -134,6 +138,7 @@ def preset(name: str = "crawl", scale: str = "laptop",
                          competition=1.2, tmax_ms=200),),
             goals=("CPI", "CPI", "ROAS", "CPC"),
             n_campaigns=16,
+            late_launch_share=0.25,
             nonattributed_sharing=0.5,
         )
     elif name == "run":

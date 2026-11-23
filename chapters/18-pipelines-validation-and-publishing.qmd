@@ -186,7 +186,7 @@ For GPU training, bit-for-bit reproducibility usually isn't realistic, because p
 ::: {.callout-tip title="Try it on the simulator"}
 Run the walk pipeline end to end: build the install dataset, validate it, train, validate the model, and register it as a challenger. Then inject a training run that predicts a constant, and watch validation stop it. Finally, promote a good challenger by moving the champion alias, and watch the bidders pick it up.
 
-*Status: planned. This exercise needs the companion training pipeline and model registry, which isn't built yet.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). Run the pipeline from the Conversions tab or with `adtrain pipeline`; break it with a leaky dataset or with features missing, and promote or roll back a challenger. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

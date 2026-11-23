@@ -197,7 +197,7 @@ Both limits point to Part IV, where embeddings let related values share what the
 ::: {.callout-tip title="Try it on the simulator"}
 Train LightGBM click, install-after-click, install-after-view, and purchase models on a simulated month of tier-1 and low-CPM traffic. Compare their calibration by segment with the true rates from the ground truth, and compare the click model with the logistic regression model from Part II. Then hold out the campaigns that launched in the last week, and check cold-start calibration on them separately.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3) for the click, install-after-click, and install-after-view models, trained from the Conversions tab, with each bundle's report comparing calibration with the simulator's true rates; serving periods compare what each model bought. Yours to build: a purchase model (D7 ROAS bids use each app's revenue per install from the bundle instead), the comparison with Part II's logistic regression on the same rows, and the cold-start holdout of recently launched campaigns. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

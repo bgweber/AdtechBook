@@ -424,9 +424,9 @@ The competitive DSP holds its own. It prices the goals advertisers buy with cali
 - **Attributed results overstate what the DSP causes.** We can measure incrementality, but the models still optimize attributed installs, and nothing in the bid prices the lift.
 
 ::: {.callout-tip title="Try it on the simulator"}
-Run three incident drills. First, shift click predictions up by 10% everywhere after a deploy, and follow the alert to the playbook and the rollback. Second, introduce a parity bug in one feature's serving code, and find it with the parity checks. Third, inject a day of bad install labels, quarantine it, rebuild the datasets, and retrain.
+Run an incident drill: a day of bad install labels from a misconfigured MMP. Find it with the dataset checks, follow the playbook to what marks the bad postbacks, quarantine them, rebuild the datasets, retrain, and recount the device history that carried them forward. Then, as homework, run two more: a deploy that shifts click predictions up by 10% everywhere, which you follow from the prediction monitor to its playbook and a rollback, and a parity bug in one feature's serving code, which the daily parity check finds. How large a shift can the monitor see at the simulator's scale?
 
-*Status: planned. This exercise needs fault injection in the simulator and the companion pipeline's quarantine tooling, which isn't built yet.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). The bad-labels drill runs end to end: `ADSIM_SCENARIO=bad-labels`, the dataset check that stops the pipeline, its playbook, and the Quarantine card on the Controls tab, which also recounts the device profiles. The other two drills are built for you to run as homework, under **Incident drills** on the Controls tab: a bad deploy that shifts click predictions, which the prediction monitor watches, and a serving bug that the daily parity check finds. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

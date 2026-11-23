@@ -91,7 +91,7 @@ Measure churn directly: score a fixed sample of requests with consecutive model 
 ::: {.callout-tip title="Try it on the simulator"}
 Replay a simulated day of traffic through two install model versions, and compare their bids by exchange and the volume each would win. Then evaluate a new campaign selection policy offline with the logged propensities, and compare the estimate with the result of running that policy on the simulator, where the true outcome is known.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). The Evaluate tab replays a day through two bundles, with the simulator's true wins next to the estimated ones, and estimates one campaign selection policy from another's logged propensities, which you can then run. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

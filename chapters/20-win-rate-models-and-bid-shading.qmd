@@ -158,7 +158,7 @@ Logging the floor with every bid, and every request skipped because of it, lets 
 ::: {.callout-tip title="Try it on the simulator"}
 Train a LightGBM win model on the simulated bids, including the randomized multipliers logged since Part II, and the minimum bids to win from the exchanges that report them. Check its calibration by bid level. Then replace the fixed shade with model-based shading in an A/B test, and compare surplus, spend, and win rate between the arms.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). Train win models with and without the minimum-bid-to-win reports, check them at bids the bidder didn't make against the simulator's true win rates, and run a shading A/B test against the fixed 0.7. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

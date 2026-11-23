@@ -16,14 +16,16 @@ from datetime import datetime, timezone
 from . import features_ref, ledger
 
 
-def check(ledger_dir, max_examples: int = 3) -> dict:
-    raw = {r["request_id"]: r for r in ledger.read(ledger_dir, "raw")}
+def check(ledger_dir, max_examples: int = 3, days=None) -> dict:
+    """days limits the check to some days of the ledger, as the bidder's
+    daily parity job does (Chapter 24); None checks every day."""
+    raw = {r["request_id"]: r for r in ledger.read(ledger_dir, "raw", days)}
     stats = defaultdict(lambda: {"compared": 0, "mismatched": 0, "examples": []})
     rows = mismatched_rows = 0
     by_exchange = defaultdict(lambda: [0, 0])
     by_day = defaultdict(lambda: [0, 0])
     if raw:
-        for b in ledger.read(ledger_dir, "bids"):
+        for b in ledger.read(ledger_dir, "bids", days):
             r = raw.get(b.get("request_id"))
             if r is None or not b.get("features"):
                 continue
@@ -54,6 +56,7 @@ def check(ledger_dir, max_examples: int = 3) -> dict:
     feats.sort(key=lambda f: (-f["mismatched"], f["feature"]))
     return {
         "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "checked_days": days,
         "rows": rows, "mismatched_rows": mismatched_rows,
         "passed": rows > 0 and mismatched_rows == 0,
         "features": feats,
@@ -121,6 +124,32 @@ def print_trace(t: dict) -> None:
             line += (f", install rate {d['p_install_click']:.4f} "
                      f"from {d.get('install_rate_from', '?')}")
         print(line)
+    if d.get("p_install"):
+        # walk pricing, term by term (Chapter 21)
+        print(f"  installs per impression: {d.get('p_click', 0):.4f} x {d.get('p_install_click', 0):.4f}"
+              f" + (1 - {d.get('p_click', 0):.4f}) x {d.get('p_install_view', 0):.6f} = {d['p_install']:.6f}")
+        if d.get("value_per_install"):
+            print(f"  D7 revenue per install: ${d['value_per_install']:.2f} ({d.get('value_from', '?')})")
+        print(f"  target {d.get('target')}, calibration multiplier {d.get('kappa', 1):.3f}, "
+              f"advertiser value ${d.get('advertiser_value', 0):.4f}, media value ${d.get('media_value', 0):.4f}"
+              f" after the {20}% margin")
+    if d.get("shade_from"):
+        print(f"  shading: {d['shade_from']}, {d.get('shade', 0):.3f} of the media value"
+              + (f", predicted win rate {d['win_prob']:.3f}" if d.get("win_prob") else ""))
+    if d.get("candidates"):
+        print(f"  internal auction ({'explored: picked at random' if d.get('auction_explored') else 'most expected surplus wins'}):")
+        for c in d["candidates"]:
+            mark = "*" if c["campaign_id"] == d.get("campaign_id") else " "
+            print(f"   {mark} campaign {c['campaign_id']:>3} {c['goal']:<5} value ${c['value']:.3f}  bid ${c['bid']:.3f}"
+                  + (f"  win {c['win_prob']:.3f}" if c.get("win_prob") else "")
+                  + ("  below the floor" if c.get("below_floor") else f"  score {c['score']:.4f}"))
+    if d.get("creative_from"):
+        print(f"  creative {d.get('creative_id')}: {d['creative_from']}, selection probability "
+              f"{d.get('selection_prob', 0):.4f} (campaign and creative)")
+    if d.get("conversion_model"):
+        print(f"  conversion models: {d['conversion_model']} (click, install after a click "
+              f"{d.get('p_install_click', 0):.4f}, install after a view "
+              f"{d.get('p_install_view', 0):.6f})")
     if b.get("features"):
         fv = b["features"]
         print(f"  FeatureVector: {len(fv.get('strings', {}))} strings, "

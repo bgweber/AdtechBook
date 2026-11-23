@@ -51,11 +51,32 @@ type Book struct {
 	creatives map[[2]any][]Creative // (campaign ID, placement) -> creatives
 	version   int
 	spend     map[[2]int]float64 // (day, campaign ID) -> dollars
+	// A budget-split experiment (Chapter 19): the treatment arm's share
+	// of every campaign's budget, and spend by arm. 0 is no split.
+	split    float64
+	armSpend map[[3]int]float64 // (day, campaign ID, arm) -> dollars
+}
+
+// Arms of a budget-split experiment.
+const (
+	ArmNone      = -1
+	ArmControl   = 0
+	ArmTreatment = 1
+)
+
+// SetSplit splits every campaign's daily budget between the arms of an
+// experiment: share to the treatment, the rest to the control. Each arm
+// can spend only its part, so neither can spend the other's money. 0
+// ends the split.
+func (b *Book) SetSplit(share float64) {
+	b.mu.Lock()
+	b.split = share
+	b.mu.Unlock()
 }
 
 func NewBook() *Book {
 	return &Book{byID: map[int]*Campaign{}, creatives: map[[2]any][]Creative{},
-		spend: map[[2]int]float64{}}
+		spend: map[[2]int]float64{}, armSpend: map[[3]int]float64{}}
 }
 
 // Load replaces the campaigns and creatives. Spend so far is kept.
@@ -115,6 +136,12 @@ const (
 // that isn't eligible, so the bid ledger can say which campaigns were
 // filtered and why.
 func (b *Book) EligibleWhy(country, placement string, day int) ([]Candidate, map[int]string) {
+	return b.EligibleArm(country, placement, day, ArmNone)
+}
+
+// EligibleArm is EligibleWhy for one arm of a budget-split experiment:
+// the budget left is the arm's own part.
+func (b *Book) EligibleArm(country, placement string, day, arm int) ([]Candidate, map[int]string) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	var out []Candidate
@@ -134,6 +161,13 @@ func (b *Book) EligibleWhy(country, placement string, day int) ([]Candidate, map
 			continue
 		}
 		left := 1 - b.spend[[2]int{day, c.ID}]/c.DailyBudget
+		if b.split > 0 && arm != ArmNone {
+			part := b.split
+			if arm == ArmControl {
+				part = 1 - b.split
+			}
+			left = 1 - b.armSpend[[3]int{day, c.ID, arm}]/(c.DailyBudget*part)
+		}
 		if left <= 0 {
 			why[c.ID] = FilterBudget
 			continue
@@ -145,8 +179,16 @@ func (b *Book) EligibleWhy(country, placement string, day int) ([]Candidate, map
 
 // AddSpend records a billed impression's cost.
 func (b *Book) AddSpend(day, campaignID int, dollars float64) {
+	b.AddSpendArm(day, campaignID, ArmNone, dollars)
+}
+
+// AddSpendArm records a billed impression's cost against an arm too.
+func (b *Book) AddSpendArm(day, campaignID, arm int, dollars float64) {
 	b.mu.Lock()
 	b.spend[[2]int{day, campaignID}] += dollars
+	if arm != ArmNone {
+		b.armSpend[[3]int{day, campaignID, arm}] += dollars
+	}
 	b.mu.Unlock()
 }
 

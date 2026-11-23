@@ -112,7 +112,7 @@ Pacing gets its own dashboard panels and alerts:
 ::: {.callout-tip title="Try it on the simulator"}
 Pace a campaign through a simulated day with the PI controller, starting from the replay forecast, and plot spend against plan and $\gamma$ over the day. Then give a second campaign a manual overbid, migrate it to the controller in steps, and compare its spend and CPI before and after.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). The Pricing tab's pacing card forecasts each campaign's starting multiplier, switches on the PI controller, charts spend against plan and $\gamma$, and takes manual overbids. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

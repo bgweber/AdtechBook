@@ -137,7 +137,7 @@ This matters because many incidents in a DSP come from configuration rather than
 ::: {.callout-tip title="Try it on the simulator"}
 Shadow a new install model on 10% of simulated traffic, and compare its live and offline predictions. Run a staged canary, inject a broken model at the 10% stage, and watch the automated rollback. Then run a budget-split A/B test between two models, and compare the measured difference in CPI with the true difference from the ground truth.
 
-*Status: planned. This exercise needs an experiment harness for running policies side by side, which isn't built yet.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). The Experiments tab runs a 10% shadow with a parity check, a staged canary with a **Break the challenger** button and automated rollback, and a budget-split A/B test read out against the simulator's true install rates. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

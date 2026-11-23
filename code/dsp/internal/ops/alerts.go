@@ -23,6 +23,7 @@ type Alert struct {
 	Detail     string  `json:"detail"`
 	Owner      string  `json:"owner"`
 	Check      string  `json:"check"`
+	Playbook   string  `json:"playbook"` // the console path of its playbook (Chapter 24)
 }
 
 // Thresholds, in one place so a reader can change them.
@@ -48,6 +49,8 @@ var owners = map[string][2]string{
 	"prediction_collapse": {"ML team", "The model deployed last; roll back by deploying the previous version, or switch the model off."},
 	"latency":             {"bidder on-call", "The bidder's CPU and the latency card on the Live tab."},
 	"reconciliation_gap":  {"bidder on-call", "Billing notices by exchange and placement: an exchange may have stopped sending them for one format."},
+	"prediction_shift":    {"ML team", "Whether the shift lines up with a deploy; if it does, roll it back. Calibration of clicks on the Live tab confirms it."},
+	"parity":              {"ML team", "The parity report: which feature, which exchange, and since when. Then the bidder deploy or upstream change that lines up."},
 }
 
 func (o *Ops) setAlertLocked(name, scope string, firing bool, ts int64, value, threshold float64, detail string) {
@@ -62,7 +65,7 @@ func (o *Ops) setAlertLocked(name, scope string, firing bool, ts int64, value, t
 		}
 		if a == nil || a.State == "resolved" {
 			a = &Alert{Name: name, Scope: scope, State: "firing", SinceMS: ts,
-				Owner: owners[name][0], Check: owners[name][1]}
+				Owner: owners[name][0], Check: owners[name][1], Playbook: "playbook.html?alert=" + name}
 			o.alerts[k] = a
 		}
 		a.Value, a.Threshold, a.Detail = value, threshold, detail

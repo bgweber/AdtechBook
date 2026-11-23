@@ -4,21 +4,16 @@ Part II of the book builds a working demand-side platform (DSP): a Go bidder tha
 
 You need [Docker](https://docs.docker.com/get-docker/) with Compose v2 (`docker compose version` should work). Nothing else: the simulator, the bidder, and the training code all run in containers.
 
+The commands are for a Linux shell, bash, and run as written in the macOS Terminal (zsh) too. On Windows, run them in a WSL 2 terminal, the setup Docker Desktop recommends, or use the PowerShell versions in [WALKTHROUGH-windows.md](WALKTHROUGH-windows.md).
+
 Your numbers won't match the screenshots exactly. The simulator is seeded, but how far your run has got, and what you've clicked on the console, changes what you see. The shapes and the stories should match.
 
 ## Before you start
 
-**Setting options.** Runs are configured with environment variables. In bash or zsh, put them before the command:
+**Setting options.** Runs are configured with environment variables, put before the command. They apply to that command only:
 
 ```bash
 ADSIM_DAYS=7 docker compose up --build
-```
-
-In PowerShell, set them first, and clear them when you're done:
-
-```powershell
-$env:ADSIM_DAYS=7; docker compose up --build
-Remove-Item Env:ADSIM_DAYS
 ```
 
 | Variable | Default | What it does |
@@ -26,10 +21,13 @@ Remove-Item Env:ADSIM_DAYS
 | `ADSIM_DAYS` | `2` | Simulated days to play in each run |
 | `ADSIM_SEED` | `7` | The simulator's random seed |
 | `ADSIM_SCALE` | `tiny` | Traffic volume: `tiny` or `laptop` |
-| `ADSIM_SCENARIO` | (none) | Break something on purpose: `wrong-target`, `lost-billing` (Chapter 12) |
+| `ADSIM_PRESET` | `crawl` | The market: `crawl` (Part II) or `walk` (Part III) |
+| `ADSIM_SCENARIO` | (none) | Break something on purpose: `wrong-target`, `lost-billing` (Chapter 12); `creative-test` (Chapter 21); `bad-labels` (Chapter 24) |
 | `BIDDER_MODE` | `bid` | `listen` to log requests without bidding (Chapter 7) |
 | `BIDDER_BID_SHARE` | `1` | Share of requests to bid on (Chapter 7) |
 | `BIDDER_SKEW` | (none) | Normalize one feature wrongly: `bundle` or `conn` (Chapter 8) |
+| `BIDDER_STAGE` | `crawl` | The bidder's stage: `crawl` or `walk` (Part III) |
+| `LOADGEN_LABEL`, `LOADGEN_RATES` | (none), `100,200,400,800,1600` | The load test's name and rates (Chapter 17) |
 
 **Where things land.** Everything goes in `./out`: the bidder's ledger in `out/ledger`, models in `out/models`, and the simulator's logs and ground truth in `out/sim`.
 
@@ -43,7 +41,7 @@ To start over, stop everything and delete `./out`:
 
 ```bash
 docker compose down
-rm -rf out            # PowerShell: Remove-Item -Recurse -Force out
+rm -rf out
 ```
 
 **Looking inside the logs.** While the containers are running, the training container has two commands for the ledger. `find` lists a few request IDs that match a filter, and `trace` follows one request from its bid to its training label:
@@ -238,6 +236,316 @@ docker compose run --rm sim
 ```
 
 The last exercise is yours to build: a filter that finds invalid traffic from the logs alone and removes it from training. The simulator's `is_bot` column lets you check your filter against the truth.
+
+## Part III: A Competitive DSP
+
+Part III runs the same DSP on a bigger market, the `walk` stage: tier-1 countries next to the low-CPM ones, a third exchange, and CPI, ROAS, and CPC campaigns. Start over for it, so its days don't mix with a Part II run:
+
+```bash
+docker compose down; rm -rf out
+ADSIM_PRESET=walk BIDDER_STAGE=walk ADSIM_DAYS=7 docker compose up --build
+```
+
+Keep both variables set for every command in Part III, including `docker compose run --rm sim`.
+
+## Chapter 13: From Clicks to Installs and Purchases
+
+Install labels come from the advertiser's MMP, as postbacks, hours or days after the impression. The simulated MMP sends each one at the time it would really arrive; postbacks due after a run ends wait for the next run.
+
+After the week has played, open the console's Labels tab and click **Read the labels**, or run:
+
+```bash
+docker compose exec trainer python -m adtrain labels --ledger /out/ledger --sim-out /out/sim
+```
+
+![The Labels tab after a simulated week of the walk market](images/ch13-console-labels.png)
+
+Three things to look at:
+
+- **Delays.** Click-through installs mostly arrive within an hour or two of the impression. View-through installs take longer, because the device installs later, without clicking.
+- **Maturity.** Each day's installs keep arriving after the day ends, so the most recent day's labels are never complete. A model trained up to yesterday learns from a share of yesterday's installs.
+- **Attributed vs. caused.** The simulator knows which installs our ads caused. Compare that with what the MMP credited to us, by placement: a share of the credited installs, especially view-through ones, would have happened anyway, and some installs our ads caused were credited to another network.
+
+## Chapter 14: Datasets for Conversion Models
+
+Every postback that credits us an install also goes into the bidder's device profile, so from walk on the FeatureVector carries how many installs and purchases each device has made through our ads, as of the bid. The profiles are saved under `out/state` and survive a restart; without that, every device's history would drop to zero after `docker compose restart`, and the features served would no longer match the ones trained on.
+
+Open the console's Conversions tab and click **Build a dataset**, then **Build a leaky dataset**, or run:
+
+```bash
+docker compose exec trainer python -m adtrain dataset --ledger /out/ledger --out /out/datasets
+docker compose exec trainer python -m adtrain dataset --ledger /out/ledger --out /out/datasets --leak
+```
+
+Each dataset is one row per impression, with click, install, and revenue labels and a flag saying whether each label is final yet. The as-of dataset passes its checks. The leaky one counts every install a device ever made, including installs after the impression, and fails the check that compares its device history with what the bidder logged at the time.
+
+## Chapter 15: LightGBM Conversion Models
+
+Click **Train LightGBM** next to each dataset. The bundle trained on the leaky dataset scores far better offline: in our run, AUC 0.95 for installs after a click, against 0.77 for the as-of bundle.
+
+![The Conversions tab: two datasets, the bundles trained on them, and the as-of bundle serving](images/ch15-console-conversions.png)
+
+Click **Deploy** on the as-of bundle. The bidder first checks the bundle's 200 golden examples against its own Go evaluator, then serves it: bid records now show `conversion_model`, and CPI bids use the bundle's install rate after a click. Play a few days with `docker compose run --rm sim`.
+
+Then the live half of the exercise: the leaky bundle needs **Force deploy**, because its dataset failed a check. Play a few days with it, switch back, and compare the periods. In our run (tiny scale, three days each, CPI campaigns; margin is the advertisers' CPI payouts minus our spend):
+
+| Days | Serving | Spend | Installs | Margin |
+|---|---|---|---|---|
+| 7–9 | Priors | $33 | 41 | $135 |
+| 10–12 | As-of bundle | $80 | 54 | $126 |
+| 13–15 | Leaky bundle | $90 | 48 | $98 |
+
+The leaky model only rates devices highly once they have installed, which at serving time means devices that already have the app; it spent more for fewer installs. The as-of model bought more installs than the priors but paid more for each: it overpredicts at the top, where the bidder spends most (see the calibration by predicted value in its report), and the bidder still bids its full estimate of the value, at first price. Bid shading comes in Chapter 20. Small numbers: rerun with `ADSIM_SCALE=laptop` for steadier ones.
+
+## Chapter 16: Offline Evaluation
+
+The Evaluate tab has three tools. They read the ledger, so they work on any run; the off-policy part needs bidder 0.7 or later, which logs the campaigns each choice was made from.
+
+**Replay.** Pick a day, a bundle A (or "logged", for what the bidder did) and a bundle B, and click **Replay**, or:
+
+```bash
+docker compose exec trainer python -m adtrain replay --ledger /out/ledger --models /out/models --sim-out /out/sim --day 19 --a gbm-0006 --b gbm-0008
+```
+
+Replay rescores the day's priced bids with both bundles and reprices them the way the bidder does. Two checks come first: rescoring with the bundle that served that day reproduces the logged bids, and the simulator's highest other bid in each auction explains every logged win and loss. Then, by exchange and goal, the bids, the wins estimated from the win rates the logs show at each bid level, the true wins from the simulator, and spend.
+
+![Replaying day 19 through the champion and a challenger](images/ch16-console-replay.png)
+
+In our run, the estimated wins came within 2% of the true ones. The line under the table is the warning: about 2,000 impressions would change hands, and the challenger values the ones it would newly win at 1.8 times what the champion does. No outcome has been observed on them, and that's where a challenger's errors hide. Replay also can't see requests the champion priced below the floor, because the bidder doesn't log a FeatureVector for them.
+
+**Off-policy evaluation.** The bidder picks a campaign at random, weighted by remaining budget, and logs the probability. Switch the selection policy under **Campaign selection**, play a few days on each, build a dataset (for the labels), and estimate one policy from another's logs:
+
+```bash
+docker compose exec trainer python -m adtrain ope --ledger /out/ledger --policy cpi-first
+```
+
+![Estimating the CPI-first policy from the logs of two other policies, and running it](images/ch16-console-ope.png)
+
+In our run, the estimate of CPI-first from the budget-weighted days was 0.00754 clicks per decision; running it gave 0.00750. From the uniform days it was 0.00731. Both 95% intervals contain the live value, and both are about ±6% wide: three days of logs can tell policies apart only when they differ by more than that.
+
+**What each model bought.** **Compare serving periods** lists, for CPI campaigns, the spend, installs, and margin of each run of days with one conversion model serving: the table from Chapter 15, from the ledger.
+
+```bash
+docker compose exec trainer python -m adtrain periods --ledger /out/ledger --sim-out /out/sim
+```
+
+## Chapter 17: Serving Performance
+
+Bidder 0.13 times every request by stage of the bid path: parsing, the device profile and features, eligibility, the conversion models, the win model's search for a bid (shading), the rest of pricing, the response, and logging. The **Serving** tab shows each stage's 50th and 99th percentiles over the latest 8,192 requests.
+
+To see how the bidder holds up under more traffic than the simulator sends, play a day first (the load test needs the campaign book, which the simulator loads), then, with the bidder still up:
+
+```bash
+LOADGEN_LABEL=before docker compose run --rm loadgen
+```
+
+The load generator replays the requests in the raw log (the 5% sample from Chapter 8) at 100, 200, 400, 800, and 1,600 requests a second, ten-odd seconds each, and measures what an exchange would see: each answer's time, and how many came after the 100 ms deadline or couldn't be sent at all. The requests are dated the day after the log's last, so no budget is spent yet and every campaign is eligible, the busiest case for the internal auction. They carry an `X-Load-Test` header: the bidder runs the whole bid path and answers, but writes nothing to the ledger, the profiles, the budgets, or the alerts. The load is open loop: requests leave on schedule whether or not the earlier ones have answered, as an exchange's do. Set `LOADGEN_RATES=100,400,800` to choose the rates.
+
+![Each stage's time, for the simulator's requests and the load test's](images/ch17-console-latency.png)
+
+In our run, on two cores shared by the bidder and the load generator, shading was most of the time: the win model runs once per point of its grid, 18 points, for each campaign priced, and with every campaign eligible the auction priced about seven. The live column, the simulator's own requests, has a much longer tail in parsing and profiles than the load test: the simulator runs on the same machine and sends its requests in bursts, so the bidder waits for a core. The stages measure time on the request's clock, not CPU, and a stage that waits looks slow.
+
+To see which functions use the CPU, profile the bidder while a load test runs:
+
+```bash
+go tool pprof -top http://localhost:8081/debug/pprof/profile?seconds=10
+```
+
+In our first profile, the tree walk was two thirds of the CPU, and the Thompson sampling over creatives (Chapter 21) a seventh: every request drew 200 times from each campaign's posteriors to estimate the chance it logs for offline evaluation. Within the tree walk, before the load test, a benchmark of the click model had found half the time in map lookups for categorical splits. Three changes made the same decisions faster:
+
+- **Bitsets for categories.** LightGBM keeps a split's categories as a bitset; the bidder kept a map. The click model went from 17.1 to 10.2 µs per row, and the golden examples still match to 1e-16.
+- **Cached creative chances.** A campaign's posteriors change only as day-old installs arrive, so the bidder keeps them, and each creative's chance from 4,000 draws, for 1,000 picks. Pricing's own time fell from 224 to 44 µs per request.
+- **The win model's inputs once per request.** They don't depend on the campaign, so the bidder builds them once, and the grid's 18 bids go through the trees together, tree by tree.
+
+The fourth trades accuracy for time. Under **Auction candidate cap**, set 3: the auction prices only the three campaigns with the best recent scores. During a load test, 5% of capped auctions are priced again in full, to measure what the cap gives up. Run the load test again with a new label:
+
+```bash
+LOADGEN_LABEL="cap 3" docker compose run --rm loadgen
+```
+
+![Three load tests: before, after the exact fixes, and with a cap of 3](images/ch17-console-loadtest.png)
+
+| Run | Bidder p50 at 100/s | p99 seen at 800/s | Late or dropped at 1,600/s |
+|---|---|---|---|
+| Before | 1.45 ms | 41.8 ms | 98% |
+| Bitsets, cached chances, shared inputs | 1.14 ms | 9.7 ms | 96% |
+| And a cap of 3 | 0.64 ms | 4.4 ms | 0% |
+
+The exact fixes took a fifth off the median, but at 1,600 requests a second the bidder still fell behind: once requests arrive faster than two cores can price them, they queue, and almost every one misses the deadline, while the bidder's own stage timings barely move. That's the knee the chapter describes; past it, the exchange's view and the bidder's disagree. With a cap of 3, the capped auction found the full auction's best campaign 97% of the time, and gave up about 1.4% of the best expected surplus. A cap of 2 found it 89% of the time and gave up 4.7%; a cap of 4, 98.5% and 0.3%. Whether a point of surplus is worth half the CPU is a business question, and now it has numbers.
+
+**ONNX.** The chapter compares the bidder's tree walker with ONNX Runtime on the same model. `python -m adtrain onnx --bundle ...` converts a bundle's click model and times ONNX Runtime from Python; `code/onnxbench` times it from Go, without cgo. In our run, ONNX Runtime took 20 µs a row from Go, 11.5 µs in batches of 64, against the tree walker's 10 µs a row. See `code/onnxbench/README.md`.
+
+## Chapter 18: The Pipeline and the Registry
+
+Chapters 14 and 15 ran each step by hand. The pipeline runs them in order and stops at the first one that fails. On the Conversions tab, click **Run the pipeline**, or:
+
+```bash
+docker compose exec trainer python -m adtrain pipeline --ledger /out/ledger --models /out/models --sim-out /out/sim
+```
+
+A run that passes publishes its bundle as the **challenger**. The bundle the bidder serves is the **champion**. Click **Promote** to serve the challenger; **Roll back** goes back to the version that served before. Both are deploys, so the bidder still checks the bundle's golden examples first, and the Deploys table records each one with the version it replaced.
+
+Then break it twice on purpose:
+
+- **Run it on a leaky dataset.** The pipeline stops at the dataset's checks, before training.
+- **Run it with features missing.** Training succeeds, but every model predicts one number for every impression, and the model checks stop it: the predictions don't vary, the click AUC is 0.5, and it loses to the champion on the same rows.
+
+![Pipeline runs: three that passed and two stopped on purpose](images/ch18-console-pipeline.png)
+
+Each bundle's report records its lineage: the dataset version and a hash of its manifest, the code and library versions, and the training settings. Run the pipeline twice on the same ledger and the two bundles score identically against each other.
+
+## Chapter 19: Shadow Mode, Canaries, and A/B Tests
+
+The Experiments tab runs one experiment at a time, next to the champion. Pick a challenger bundle, then:
+
+- **Shadow 10%.** The challenger scores a tenth of requests and logs its predictions next to the champion's, without bidding. The tab compares the two by placement and shows the challenger's latency. Play a day, stop it, and click **Check parity**: in our run, all 4,778 logged shadow scores matched the challenger's offline predictions to 1e-16.
+- **Canary.** The challenger bids for 5% of devices, then 25%, then 50%, four simulated hours each, and is promoted if every stage passes. Every simulated quarter hour, guardrails compare its click and install predictions with the champion's on the same canary requests, by placement, along with the fallback share and the spend rate. Start one, play a day, and click **Break the challenger** once it reaches 25%: in our run, it rolled back 18 simulated minutes later. Our first version compared the two arms' mean predictions instead, on different devices, and rolled back a healthy canary on noise; comparing the same requests fixed that.
+- **A/B test 50/50.** Devices are split between the arms by a salted hash, and each campaign's budget is split too, so neither arm can spend the other's money. Run it for a few days, stop it, play a few more days so the installs arrive, build a dataset, and click **Read out**:
+
+```bash
+docker compose exec trainer python -m adtrain abtest exp-0005 --ledger /out/ledger --sim-out /out/sim
+```
+
+![Five experiments: a shadow, three canaries, and an A/B test with its readout](images/ch19-console-experiments.png)
+
+We tested the leaky bundle from Chapter 14 against the champion for three days. Measured from installs, its cost per install was 2.26 times the champion's, with a 95% interval from 1.26 to 4.49, because each arm had only a few dozen installs. The simulator's true install rates, which carry no outcome noise, put the ratio at 1.46 (1.29 to 1.69): inside the measured interval, and far narrower.
+
+## Chapter 20: Win Rate Models and Bid Shading
+
+Until now, every bid has been 0.7 times the media value. On the Experiments tab, under **Win rate models and bid shading**, click **Train on the last 7 days**, once with **use minimum-bid-to-win reports** ticked and once without, or:
+
+```bash
+docker compose exec trainer python -m adtrain win --ledger /out/ledger --models /out/models --sim-out /out/sim
+docker compose exec trainer python -m adtrain win --ledger /out/ledger --models /out/models --sim-out /out/sim --no-mtw
+```
+
+The label is the win notice, and the bid is an input with a monotone constraint. Two of the three exchanges report the minimum bid to win, exactly or rounded up; each report adds rows at bids above and below it. Both models are calibrated at the bids we made. Shading needs the win rate at bids we didn't make, and the simulator knows each auction's highest competing price, so it can check: at half the logged bid, the true win rate in our run was 27.1%; the model trained without the reports said 34.1%, and the one with them 28.1%.
+
+![Two win models: with and without the minimum-bid-to-win reports](images/ch20-console-win.png)
+
+Click **Shading A/B 50/50** on the model trained with the reports. The treatment arm bids the share of the media value with the most expected surplus; the control keeps 0.7. Run three days, stop it, and click **Read out**:
+
+```bash
+docker compose exec trainer python -m adtrain shadetest exp-0006 --ledger /out/ledger --models /out/models
+```
+
+![The shading test's readout](images/ch20-console-shading.png)
+
+In our run, model shading bid 0.48 of the media value on average, won 42.8% of its bids instead of 52.8%, and spent $62 instead of $135, for 9% less media value: the surplus rose from $58 to $114. Three days later, with the installs in, `adtrain abtest exp-0006` put its cost per install on CPI campaigns at 0.62 times the fixed shade's (95% interval 0.37 to 0.98; 0.57 from the simulator's true install rates). It also spent less than its half of each budget, which Chapter 22's pacing turns into more volume.
+
+## Chapter 21: Pricing for Goals
+
+From bidder 0.10, a conversion bundle prices with installs from both paths, a click and a view, and ROAS campaigns use each app's D7 revenue per install from the bundle's training data, shrunk toward the overall average, instead of a fixed $1.00. Run the pipeline and promote its bundle to get one.
+
+The new Pricing tab has three parts:
+
+- **Campaign selection.** Click **Internal auction**: the bidder prices every eligible campaign and bids for the one with the most expected surplus, with 10% of requests picking at random so the logged selection probabilities stay useful offline. Trace a bid to see every term and every campaign's score:
+
+```bash
+docker compose exec trainer python -m adtrain find --ledger /out/ledger --goal cpi --limit 1
+docker compose exec trainer python -m adtrain trace <request_id> --ledger /out/ledger
+```
+
+- **Calibration multipliers.** Click **Update from matured installs**. For each campaign, it compares the installs that arrived for impressions at least three days old with the installs the bidder predicted when it bought them. In our run the models predicted about a third more installs than arrived (overall kappa 0.74), the overconfidence on what the bidder wins that Chapter 15 showed, and the multipliers pull each campaign's value down to match.
+
+![Calibration multipliers by campaign](images/ch21-console-calibration.png)
+
+- **Creatives.** Click **Thompson sampling** and **Start over**, then play several days with one campaign's creative made much better:
+
+```bash
+ADSIM_SCENARIO=creative-test ADSIM_DAYS=1 docker compose run --rm sim
+```
+
+Keep the scenario on for every later run of the same market. Play a day at a time and watch campaign 1's shares: in our run, its strong creative went from a third of the draws to 78% in six days, at 3.5 installs per thousand impressions against 1.2 and 1.9 for the others.
+
+![Thompson sampling after six days](images/ch21-console-creatives.png)
+
+## Chapter 22: Basic Pacing
+
+On the Pricing tab, under **Pacing**, click **Forecast tomorrow's starting multipliers** and then **PI controller**, and play a day. Every simulated quarter hour, the controller compares each campaign's spend so far with its plan and sets its multiplier, gamma, which scales the campaign's value before shading, between 0.3 and 2. The forecast replays the newest day's bids at different multipliers and starts each campaign where its forecast spend matches its budget. Click **Chart** on a campaign to see its day:
+
+```bash
+docker compose exec trainer python -m adtrain pace --ledger /out/ledger --models /out/models --sim-out /out/sim
+```
+
+![Campaign 1 paced through a day: spend against plan, and gamma](images/ch22-console-pacing.png)
+
+Three things to look for in the table:
+
+- **Campaigns pinned at 2.** They can't spend their budget at any price the controller allows. In our run, those were the ROAS campaigns, whose D7 revenue per install is tiny in this market, and a few CPI and CPC campaigns with narrow targeting. The chapter says these need a person, not a higher bound.
+- **Campaigns near 0.3.** They would overspend even at the lowest multiplier. Campaign 1 tracked its plan until mid-afternoon, then pulled ahead and spent its budget by 19:30, with gamma already near its floor. Its plan follows all of our traffic, not the traffic it's eligible for; a plan shaped like each campaign's own eligible requests is the reader exercise.
+- **The forecast's starting point** against where the controller ended the day: when they differ a lot, the forecast's win curve is off.
+
+**Overbids.** Type 2 into campaign 9's **Overbid** box, a manual multiplier on its value, logged apart from gamma. Play a day: the controller fights it, gamma falls to its floor, and the campaign runs ahead of plan, because the overbid has taken away the controller's room. Then lower it in steps, 1.5 and then 1, a day each. In our run, gamma stayed pinned at 0.3 at 1.5, and rose to about 0.5 once the overbid was gone, with the controller in charge again.
+
+![Campaign 9 after its overbid was removed](images/ch22-console-overbid.png)
+
+## Chapter 23: Measuring Incrementality
+
+The holdout has been running since Part II: 5% of devices, by a salted hash of the device ID, get a ghost bid, which runs the whole bid path and logs the bid without sending it. On the Evaluate tab, click **Measure the last 28 days**, or:
+
+```bash
+docker compose exec trainer python -m adtrain lift --ledger /out/ledger --sim-out /out/sim
+```
+
+For each advertiser app, it compares the install rate of treated devices that got a bid with that of holdout devices that got a ghost bid, counting installs from any source: the ones the MMP credited to us, plus the ones the advertiser shares from its full install data. Only about half the walk advertisers share, so the rest can't be measured this way. The last column is the simulator's truth: the installs our ads caused on the same devices.
+
+![Incrementality by app, with the true incremental installs](images/ch23-console-lift.png)
+
+In our run, across the six apps that share, the holdout estimated 169 incremental installs (95% interval 88 to 212); our ads caused 189. Per app, the estimates were close to the truth, but each app's holdout had only 10 to 42 devices, so most intervals include zero: at the tiny scale, a per-advertiser estimate needs a much longer window, a larger holdout, or pooling, as the chapter says. In this simulated market the ads cause slightly more installs than the MMP credits to us, an incrementality a little above 1; organic installs are rare here, so few credited installs would have happened anyway.
+
+Then pick a smaller **holdout** for one app:
+
+```bash
+docker compose exec trainer python -m adtrain lift --ledger /out/ledger --sim-out /out/sim --app com.racegames.wordcraft --holdout-share 0.01
+```
+
+For that app, the interval went from -21 to 67 incremental installs at 5%, to -95 to 89 at 2%, and -153 to 106 at 1%. Our first version used the usual normal approximation, which gives a holdout with no installs no uncertainty at all; the readout now uses the Agresti-Caffo interval, which adds one install and one non-install to each group.
+
+## Chapter 24: Operating a Competitive DSP
+
+Bidder 0.14 adds the Chapter 24 monitoring to the Controls tab: a **prediction monitor** that compares each model's mean prediction over the last hour with the same hour on the days before, a **daily parity check** that runs when the simulated day turns, **playbooks** linked from every alert, and **quarantine** for bad data. Here we run one incident drill end to end: a day of bad install labels.
+
+**The incident.** Play a day with the `bad-labels` scenario, then two more days, so the bad day's install labels mature:
+
+```bash
+ADSIM_SCENARIO=bad-labels ADSIM_DAYS=1 docker compose run --rm sim
+ADSIM_DAYS=2 docker compose run --rm sim
+```
+
+From 06:00 to 18:00 on the first day, the simulated MMP turns on probabilistic matching for view-throughs, and credits us with installs on devices that never installed. In our run, that was 249 false installs on day 74, against about 40 real ones a day.
+
+**How it's found.** Run the pipeline from the Conversions tab, or build a dataset. The new **install label rate** check fails the build, and the pipeline stops before training:
+
+```
+FAIL  install label rate: day 74: 1.336% installs per impression, against a median of 0.190% over 10 days (limit 2 times)
+```
+
+The failed check links to its playbook. If we had trained on it anyway, the damage would already show in the model's report: evaluated on days that include the bad one, the install-after-view model's AUC fell to 0.49, and its calibration to 0.14, because the evaluation set's labels are wrong too.
+
+**Following the playbook.** The playbook says to look for what marks the bad batch. On the Controls tab, under **Quarantine**, inspect day 74 by `match_type`:
+
+![Install postbacks by how the MMP matched them, and the quarantine entry](images/ch24-console-quarantine.png)
+
+Every false postback carried `match_type=probabilistic`, a value the MMP had never sent before. Then the four steps of the chapter:
+
+1. **Quarantine.** Type `match_type=probabilistic` and a reason, and click **Quarantine the day**, or:
+
+   ```bash
+   docker compose exec trainer python -m adtrain quarantine add --datasets /out/datasets \
+     --day 74 --where match_type=probabilistic --reason "probabilistic matching turned on by mistake"
+   ```
+
+2. **Rebuild.** Every dataset build reads the quarantine list. The rebuilt dataset skipped the 249 postbacks, and every check passed.
+3. **Retrain.** Run the pipeline again. In our run, the install-after-view model evaluated on the rebuilt data had 48 installs to predict instead of 290, an AUC of 0.58, and a calibration of 0.82.
+4. **Rebuild what carries it forward.** The bidder's device profiles counted the false installs, so `device_prior_installs` was wrong for every device that got one. Click **Recount device profiles**. In our run, 212 of 1,948 devices changed. Before the recount, every bid on those devices logged a count that included the false installs (100% of about 5,500 rows a day); on the day after it, none did.
+
+**Homework.** Two more drills are built, under **Incident drills** on the Controls tab:
+
+- **A bad deploy.** Click **Deploy** with a factor of 1.1, and the serving bundle's click predictions are 10% too high, as a bad build's would be. Watch the prediction monitor, follow the alert to its playbook, and roll back. Then try 1.3. How large a shift can the monitor see within an hour at the tiny scale? In our data, an hour's mean click prediction moves 3 to 6% from one day to the next, and the alert needs four robust standard deviations.
+- **A serving bug.** Click **Deploy** next to the serving bug, and the bidder starts logging finer cellular connection types than the training code computes. Play a day: when the day turns, the daily parity check finds it, and the parity alert links to its playbook.
+
+Also built, without a drill: the pacing controller now starts each day at a gamma of at most 1 and steps up toward its starting value, so a campaign doesn't open the day at twice its value while its plan is still near zero.
 
 ## Running without Docker
 

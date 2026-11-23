@@ -77,6 +77,21 @@
   button.danger { background: #a12b2b; color: #fff; border-color: #a12b2b; }
   button.on { background: #fbe4e4; color: #a12b2b; border-color: #e7b4b4; }
   #alertcount .badge { margin-left: 4px; }
+  #datasets td:first-child, #bundles td:first-child, #bundles td:nth-child(2) { white-space: nowrap; }
+  #datasets td:nth-child(5), #datasets th:nth-child(5), #bundles td:nth-child(8), #bundles th:nth-child(8) { text-align: left; }
+  #datasets button, #bundles button { white-space: nowrap; }
+  #pipeline td:nth-child(-n+3), #pipeline td:last-child { white-space: nowrap; }
+  #pipeline td:nth-child(n+4), #pipeline th:nth-child(n+4), #deployhist td, #deployhist th { text-align: left; }
+  #replay td:first-child, #ope td:first-child, #periods td:first-child { white-space: nowrap; }
+  #periods td:nth-child(2), #periods th:nth-child(2) { text-align: left; }
+  #kappas td:nth-child(2), #kappas th:nth-child(2) { text-align: left; }
+  #lifts td:first-child, #lifts td:nth-child(8) { white-space: nowrap; }
+  #lifts tbody tr:last-child td { font-weight: 600; }
+  #xevents td, #xevents th, #xpast td:nth-child(n+4), #xpast th:nth-child(n+4), #xchecks td:last-child { text-align: left; }
+  #xarms td:first-child, #xevents td:first-child, #xchecks td:first-child,
+  #xpast td:nth-child(-n+4) { white-space: nowrap; }
+  #xpast td:nth-child(-n+3), #xpast th:nth-child(-n+3) { text-align: left; }
+  #pipebtn, #pipeleakbtn, #pipenofeatbtn, #dsbtn, #dsleakbtn { white-space: nowrap; }
   tr.sub td { color: var(--muted); font-size: 12px; }
   tr.sub td:first-child { padding-left: 22px; }
 </style>
@@ -88,11 +103,18 @@
   <span class="tag">mode <b id="mode">–</b></span>
   <span class="tag">stage <b id="stage">–</b></span>
   <span class="tag">click model <b id="modelv">–</b></span>
+  <span class="tag" id="convtag" hidden>conversion models <b id="convv">–</b></span>
   <span class="tag">simulated time <b id="simtime">–</b></span>
 </header>
 <nav>
   <a href="#live" id="nav-live" class="on">Live</a>
   <a href="#models" id="nav-models">Models</a>
+  <a href="#labels" id="nav-labels">Labels</a>
+  <a href="#conversions" id="nav-conversions">Conversions</a>
+  <a href="#evaluate" id="nav-evaluate">Evaluate</a>
+  <a href="#experiments" id="nav-experiments">Experiments</a>
+  <a href="#pricing" id="nav-pricing">Pricing</a>
+  <a href="#serving" id="nav-serving">Serving</a>
   <a href="#controls" id="nav-controls">Controls <span id="alertcount"></span></a>
 </nav>
 <main>
@@ -275,15 +297,350 @@
   </div>
 </section>
 
+<section id="tab-labels" hidden>
+  <div class="card wide">
+    <h2>Install labels</h2>
+    <div style="display:flex; gap:8px; align-items:center">
+      <button id="labelsbtn">Read the labels</button>
+      <span class="sub" id="labelsstate">Joins the MMP's postbacks to our impressions: how long install labels take
+        to arrive, how complete each day's labels are so far, and, with the simulator's truth, how many of the
+        installs credited to us our ads actually caused (Chapter 13).</span>
+    </div>
+  </div>
+  <div class="card wide">
+    <h2>Share of installs received, by hours after the impression</h2>
+    <table id="labeldelays"><thead></thead><tbody></tbody></table>
+    <p class="sub">Click-through installs arrive within hours; view-through installs take longer, because the
+      device installs later, without a click. A model trained on yesterday's impressions sees only the labels that
+      have arrived.</p>
+  </div>
+  <div class="card wide">
+    <h2>Label maturity by day of impression</h2>
+    <table id="labelmaturity"><thead></thead><tbody></tbody></table>
+    <p class="sub">The share of each day's installs, so far, that had arrived by the end of that day and each day
+      after. A dash is a day that hasn't happened yet.</p>
+  </div>
+  <div class="card wide">
+    <h2>Attributed and caused installs, by placement</h2>
+    <table id="labelplacements"><thead></thead><tbody></tbody></table>
+    <p class="sub">Attributed: installs the MMP credited to us. Caused: installs our ads caused, from the
+      simulator's truth; some of them the MMP credited to another network. The caused shares are the part of our
+      credited installs that the ads caused, rather than installs that would have happened anyway.</p>
+  </div>
+</section>
+
+<section id="tab-conversions" hidden>
+  <div class="card wide">
+    <h2>Pipeline</h2>
+    <div style="display:flex; gap:8px; align-items:center">
+      <button id="pipebtn">Run the pipeline</button>
+      <button id="pipeleakbtn">Run it on a leaky dataset</button>
+      <button id="pipenofeatbtn">Run it with features missing</button>
+      <span class="sub" id="pipestate">Builds a dataset, checks it, trains LightGBM, checks the models against
+        fixed limits and against the champion on the same rows, and publishes them as the challenger, stopping
+        at the first step that fails (Chapter 18). The last two buttons break a step on purpose.</span>
+    </div>
+    <table id="pipeline"><thead><tr><th>Run</th><th>Dataset</th><th>Bundle</th><th>Steps</th><th>Result</th>
+      </tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card wide">
+    <h2>Conversion datasets</h2>
+    <div style="display:flex; gap:8px; align-items:center">
+      <button id="dsbtn">Build a dataset</button>
+      <button id="dsleakbtn">Build a leaky dataset</button>
+      <span class="sub" id="dsstate">One row per impression, with click, install and revenue labels, and each
+        device's install history as of the bid. The leaky version counts every install the device ever made,
+        including later ones, for the exercise in Chapter 14.</span>
+    </div>
+    <table id="datasets"><thead><tr><th>Version</th><th>Impressions</th><th>Installs</th><th>Leaky</th>
+      <th>Checks</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card wide">
+    <h2>LightGBM conversion models</h2>
+    <div class="sub" id="convstate">Train click, install-after-click, and install-after-view models on a
+      dataset (Chapter 15). Deploying a bundle checks its golden examples against the Go evaluator first;
+      CPI bids then use its install rates.</div>
+    <table id="bundles"><thead><tr><th>Version</th><th>Dataset</th><th>Click AUC</th><th>Click calib.</th>
+      <th>Install (click) AUC</th><th>Install (click) calib.</th><th>Install (view) AUC</th><th>Status</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    <p class="sub" id="convmsg"></p>
+  </div>
+  <div class="card wide">
+    <h2>Deploys</h2>
+    <table id="deployhist"><thead><tr><th>When</th><th>Action</th><th>Serving</th><th>Before</th><th>Forced</th>
+      </tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<section id="tab-evaluate" hidden>
+  <div class="card wide">
+    <h2>Replay a logged day</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <label>Day <input id="rpday" type="number" min="0" style="width:5em"></label>
+      <label>A <select id="rpa"></select></label>
+      <label>B <select id="rpb"></select></label>
+      <button id="rpbtn">Replay</button>
+      <span class="sub" id="rpstate">Rescores the day's priced bids with two bundles and reprices them as the
+        bidder would (Chapter 16). Estimated wins come from the win rates the logs show at each bid; true wins
+        from the simulator's highest other bid, which a real DSP never sees.</span>
+    </div>
+    <div class="sub" id="rpchecks"></div>
+    <table id="replay"><thead><tr><th>Segment</th><th>Bids A</th><th>Bids B</th><th>Mean bid A</th><th>Mean bid B</th>
+      <th>Est. wins A</th><th>Est. wins B</th><th>True wins A</th><th>True wins B</th><th>Spend A</th><th>Spend B</th>
+      </tr></thead><tbody></tbody></table>
+    <p class="sub" id="rpratio"></p>
+  </div>
+  <div class="card wide">
+    <h2>Campaign selection, offline and live</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <span>Serving: <b id="selnow">–</b></span>
+      <select id="selpick"></select><button id="selbtn">Switch</button>
+      <span style="width:24px"></span>
+      <label>Estimate <select id="opepol"><option>uniform</option><option>cpi-first</option></select></label>
+      <label>reward <select id="operew"><option value="click">clicks</option><option value="install">installs</option></select></label>
+      <button id="opebtn">Estimate</button>
+    </div>
+    <p class="sub" id="opestate">The bidder logs the probability it chose each campaign with, and the campaigns it
+      chose from. Inverse propensity scoring reweights the logged outcomes to estimate another selection policy.
+      Play a few days on one policy, estimate another, then switch to it and compare. Labels come from the newest
+      dataset: build one first.</p>
+    <table id="ope"><thead><tr><th>Logged under</th><th>Days</th><th>Decisions</th><th>Logged value</th>
+      <th>IPS</th><th>95% CI</th><th>SNIPS</th><th>95% CI</th><th>Effective sample</th><th>Largest weight</th>
+      </tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card wide">
+    <h2>Incrementality from the ghost-bid holdout</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <button id="liftbtn">Measure the last 28 days</button>
+      <label>holdout <select id="liftshare"><option value="">5% (all of it)</option><option value="0.02">2%</option>
+        <option value="0.01">1%</option></select></label>
+      <span class="sub" id="liftstate">5% of devices get ghost bids: the whole bid path runs and the bid is logged, but
+        never sent (Chapter 23). Installs from any source on treated devices, against the same on holdout devices,
+        measure the installs our ads caused. Only advertisers who share their full install data can be measured.
+        The last column is the truth: installs the simulator says our ads caused.</span>
+    </div>
+    <table id="lifts"><thead><tr><th>App</th><th>Treated devices</th><th>Holdout devices</th><th>Install rate, treated</th>
+      <th>Holdout</th><th>Attributed</th><th>Incremental</th><th>95% CI</th><th>Incrementality</th><th>iCPI</th>
+      <th>True incremental</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card wide">
+    <h2>What each model bought (CPI campaigns)</h2>
+    <div style="display:flex; gap:8px; align-items:center">
+      <button id="perbtn">Compare serving periods</button>
+      <span class="sub" id="perstate">Spend, installs, and margin (the advertisers' CPI payouts minus our spend)
+        for each run of days with one conversion model serving, from the newest dataset.</span>
+    </div>
+    <table id="periods"><thead><tr><th>Days</th><th>Serving</th><th>Impressions</th><th>Spend</th><th>Clicks</th>
+      <th>Installs</th><th>Payouts</th><th>Margin</th><th>Cost per install</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<section id="tab-experiments" hidden>
+  <div class="card wide">
+    <h2>Start an experiment</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <label>Challenger <select id="xchal"></select></label>
+      <label><input type="checkbox" id="xforce"> force</label>
+      <button id="xshadow">Shadow 10%</button>
+      <button id="xcanary">Canary 5% → 25% → 50%</button>
+      <button id="xab">A/B test 50/50</button>
+      <label><input type="checkbox" id="xsplit" checked> split budgets</label>
+    </div>
+    <p class="sub" id="xstate">The champion is the conversion bundle deployed now. Shadow scores a sample of
+      requests with the challenger and logs it, without bidding. A canary bids with it on a growing share of
+      devices, checks guardrails every simulated quarter hour, rolls back on a failure, and promotes it after the
+      last stage. An A/B test runs until you stop it; read it out once installs arrive (Chapter 19).</p>
+  </div>
+  <div class="card wide">
+    <h2>Win rate models and bid shading</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <button id="wtrain">Train on the last 7 days</button>
+      <label><input type="checkbox" id="wmtw" checked> use minimum-bid-to-win reports</label>
+      <span class="sub" id="wstate">The win model predicts whether a bid wins, from the request and the bid (Chapter 20).
+        Shading then bids the share of the media value with the most expected surplus, instead of a fixed 0.7.
+        Test it against the fixed shade with an A/B test before deploying it.</span>
+    </div>
+    <table id="winmodels"><thead><tr><th>Version</th><th>Days</th><th>Reports used</th><th>AUC</th><th>Calibration</th>
+      <th>At half the bid: true</th><th>predicted</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card wide">
+    <h2>Running: <span id="xid">none</span></h2>
+    <div style="display:flex; gap:8px; align-items:center">
+      <button id="xstop">Stop</button>
+      <button id="xinject">Break the challenger (triple its predictions)</button>
+      <span class="sub" id="xstatus"></span>
+    </div>
+    <table id="xarms"><thead><tr><th>Arm</th><th>Requests</th><th>Decisions</th><th>Bids</th><th>Spend</th>
+      <th>Mean p(click)</th><th>Mean p(install | click)</th><th>Fallbacks</th></tr></thead><tbody></tbody></table>
+    <table id="xchecks"><thead><tr><th>Guardrail</th><th>Value</th><th>Limit</th><th></th><th>Detail</th></tr></thead><tbody></tbody></table>
+    <table id="xshadowt"><thead><tr><th>Placement</th><th>Champion p(install | click)</th><th>Challenger</th>
+      <th>Challenger / champion, clicks</th></tr></thead><tbody></tbody></table>
+    <p class="sub" id="xshadowlat"></p>
+    <table id="xevents"><thead><tr><th>Simulated time</th><th>Event</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card wide">
+    <h2>Past experiments</h2>
+    <table id="xpast"><thead><tr><th>ID</th><th>Kind</th><th>Challenger</th><th>Status</th><th>Why</th><th></th></tr></thead><tbody></tbody></table>
+    <p class="sub" id="xread"></p>
+    <table id="xreadt" hidden><thead><tr><th>Arm</th><th>Devices</th><th>Impressions</th><th>Spend</th><th>Installs</th>
+      <th>CPI</th><th>Expected installs (truth)</th><th>True CPI</th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<section id="tab-pricing" hidden>
+  <div class="card wide">
+    <h2>Pacing</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <span>Now: <b id="pacenow">–</b></span>
+      <button id="paceon">PI controller</button><button id="paceoff">Throttling (crawl)</button>
+      <button id="pacefc">Forecast tomorrow's starting multipliers</button>
+      <span class="sub" id="pacestate">The controller sets each campaign's pacing multiplier, gamma, every simulated quarter
+        hour, from its spend so far against a plan shaped like yesterday's traffic (Chapter 22). Gamma scales the
+        campaign's value before shading, between 0.3 and 2. The forecast replays the newest day's bids at different
+        multipliers and picks the one whose spend matches the budget.</span>
+    </div>
+    <table id="pacet"><thead><tr><th>Campaign</th><th>Goal</th><th>Budget</th><th>Spend today</th><th>Plan so far</th>
+      <th>Gamma</th><th>Started at</th><th>Overbid</th><th></th></tr></thead><tbody></tbody></table>
+    <div style="display:flex; gap:24px; flex-wrap:wrap; margin-top:12px">
+      <div><div class="sub" id="pacechart1t"></div><svg id="pacechart1" width="520" height="180"></svg></div>
+      <div><div class="sub">Gamma</div><svg id="pacechart2" width="520" height="180"></svg></div>
+    </div>
+  </div>
+  <div class="card wide">
+    <h2>Campaign selection</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <span>Serving: <b id="psel">–</b></span>
+      <button id="pauction">Internal auction</button><button id="pbudget">Budget-weighted (crawl)</button>
+      <span class="sub">The internal auction prices every eligible campaign and bids for the one with the most expected
+        surplus: the chance of winning times its calibrated value minus the bid (Chapter 21). 10% of requests pick a
+        campaign at random instead, so the logged selection probabilities stay useful offline. Trace a bid with
+        adtrain trace to see every campaign's score.</span>
+    </div>
+  </div>
+  <div class="card wide">
+    <h2>Calibration multipliers</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <button id="kbtn">Update from matured installs</button><button id="koff">Switch off</button>
+      <span class="sub" id="kstate">Realized installs over predicted installs on recent wins whose labels have matured,
+        by campaign, shrunk toward the overall ratio and bounded to 0.5–2. Each campaign's value is multiplied by its
+        kappa before the margin and shading.</span>
+    </div>
+    <table id="kappas"><thead><tr><th>Campaign</th><th>Goal</th><th>Installs</th><th>Predicted</th><th>Ratio</th>
+      <th>Kappa</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card wide">
+    <h2>Creatives: Thompson sampling</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <span>Now: <b id="tsnow">–</b></span>
+      <button id="tson">Thompson sampling</button><button id="tsoff">Random rotation (crawl)</button>
+      <button id="tsreset">Start over</button>
+      <span class="sub">Each creative's installs per impression has a Beta posterior, from impressions at least a day old;
+        each request draws once from each and shows the largest draw. The share is how often each creative wins
+        a draw now. Run the simulator with ADSIM_SCENARIO=creative-test for a campaign with one much better
+        creative.</span>
+    </div>
+    <table id="creatives"><thead><tr><th>Campaign</th><th>Creative</th><th>Impressions</th><th>Installs</th>
+      <th>Installs per 1,000</th><th>Posterior mean</th><th>Share of draws</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<section id="tab-serving" hidden>
+  <div class="card wide">
+    <h2>Where the time goes</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <button id="latreset">Reset live timings</button>
+      <span class="sub" id="latnote">Each bid request's time, by stage of the bid path, over the latest 8,192 requests
+        (Chapter 17). Models is the conversion models' predictions for every campaign priced; shade is the win
+        model's search for the bid; price is the rest of the policy. Load test requests are timed apart, and leave
+        nothing in the ledger.</span>
+    </div>
+    <table id="latt"><thead><tr><th>Stage</th><th>Live p50</th><th>p99</th><th>Mean</th><th>Share of mean</th>
+      <th>Load test p50</th><th>p99</th><th>Mean</th><th>Share of mean</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card wide">
+    <h2>Load tests</h2>
+    <div class="sub" id="ltnote">Run the load generator to replay logged requests at rising rates:
+      LOADGEN_LABEL=before docker compose run --rm loadgen. Each run's 99th percentile, as the
+      exchange sees it, against the request rate; the dashed line is the 100 ms deadline.</div>
+    <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start; margin-top:8px">
+      <svg id="ltchart" width="560" height="240"></svg>
+      <div id="ltlegend" class="sub" style="line-height:1.9"></div>
+    </div>
+    <table id="ltt"><thead><tr><th>Run</th><th>Cap</th><th>Rate</th><th>Achieved</th><th>Bids</th><th>Late or dropped</th>
+      <th>p50</th><th>p99</th><th>Bidder p50</th><th>Bidder p99</th><th>Campaigns priced</th><th>Slowest stage</th></tr></thead>
+      <tbody></tbody></table>
+  </div>
+  <div class="card wide">
+    <h2>Auction candidate cap</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <span>Now: <b id="capnow">–</b></span>
+      <input type="number" id="capin" min="0" max="20" step="1" value="0" style="width:4.5em"><button id="capset">Set</button>
+      <span class="sub" id="capnote">With a cap of k, the internal auction prices only the k campaigns with the best
+        recent scores, so models and shading run k times instead of once per eligible campaign. During a load test, 5%
+        of capped auctions are priced again in full, to measure what the cap gives up. 0 prices every campaign.</span>
+    </div>
+    <div id="capaudit" style="margin-top:8px"></div>
+  </div>
+</section>
+
 <section id="tab-controls" hidden>
   <div class="card">
     <h2>Alerts</h2>
     <table id="alerts"><thead><tr><th>State</th><th style="text-align:left">Alert</th><th style="text-align:left">Since</th>
-      <th style="text-align:left">Detail</th><th style="text-align:left">Owner</th></tr></thead><tbody></tbody></table>
+      <th style="text-align:left">Detail</th><th style="text-align:left">Owner</th><th></th></tr></thead><tbody></tbody></table>
     <p class="sub" id="noalerts"></p>
     <p class="sub">The few alerts that matter (Chapter 12): spend far above plan, no bids while requests arrive, the
       fallback pricing many bids, the click predictions collapsing or jumping, latency, and a reconciliation gap.
-      Each is checked every simulated 15 minutes, on the last simulated hour.</p>
+      Chapter 24 adds a prediction shift against the same hour on the days before, and the daily parity check.
+      Each is checked every simulated 15 minutes, on the last simulated hour, and links to its playbook.</p>
+  </div>
+
+  <div class="card wide">
+    <h2>Prediction monitor</h2>
+    <div class="sub" id="monnote">Each model's mean prediction over the last simulated hour (line), against the
+      range of the same hour on up to four days before (band) and their median (dashed). Vertical lines are deploys,
+      rollbacks, and drills from the audit log. The shift alert fires when the mean is more than 4 robust standard
+      deviations, and 5%, from the median, for three quarter hours in a row (Chapter 24).</div>
+    <div style="display:flex; gap:24px; flex-wrap:wrap; margin-top:8px">
+      <div><div class="sub" id="mon1t">Click model</div><svg id="mon1" width="540" height="190"></svg></div>
+      <div><div class="sub" id="mon2t">Install-after-click model</div><svg id="mon2" width="540" height="190"></svg></div>
+    </div>
+    <div class="sub" id="monlegend" style="margin-top:4px"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Incident drills</h2>
+      <div class="switch"><div><b>A bad deploy</b><div class="sub">The serving conversion bundle's click predictions
+        multiplied, as a bad build would. A rollback to any other bundle ends it.</div></div>
+        <span><input type="number" id="drillfac" value="1.1" step="0.05" min="0.5" max="3" style="width:4.5em">
+        <button id="drillshift">Deploy</button></span></div>
+      <div class="switch"><div><b>A serving bug</b><div class="sub">The bidder's code for connection_type changes:
+        finer cellular types than training expects. The daily parity check finds it.</div></div>
+        <button id="drillparity">Deploy</button></div>
+      <div class="switch"><div><b>Bad install labels</b><div class="sub">From the simulator: the MMP credits false
+        installs for half a day. Run ADSIM_SCENARIO=bad-labels docker compose run --rm sim.</div></div></div>
+      <div id="drillnow" style="margin-top:8px"></div>
+      <div style="margin-top:10px"><b>Daily parity check</b> <button id="paritynow">Check yesterday now</button>
+        <div class="sub" id="dailyparity">Runs when the simulated day turns, on the day that just ended.</div></div>
+    </div>
+    <div class="card">
+      <h2>Quarantine</h2>
+      <div class="sub">Postbacks marked here are skipped by every dataset build, and by the device profiles once
+        recounted (Chapter 24). Inspect a day's install postbacks to find what marks a bad batch.</div>
+      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:8px">
+        Day <input type="number" id="qday" style="width:5em"> <select id="qfield"><option>match_type</option>
+        <option>touch_type</option><option>app_bundle</option><option>campaign_id</option></select>
+        <button id="qinspect">Inspect</button></div>
+      <table id="qinspectt" style="margin-top:6px"><thead></thead><tbody></tbody></table>
+      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:8px">
+        Where <input id="qwhere" placeholder="match_type=probabilistic" style="width:15em">
+        <input id="qreason" placeholder="reason" style="width:14em"> <button id="qadd">Quarantine the day</button></div>
+      <table id="qlist" style="margin-top:8px"><thead><tr><th>Entry</th><th style="text-align:left">Postbacks received</th>
+        <th style="text-align:left">Where</th><th style="text-align:left">Reason</th><th></th></tr></thead><tbody></tbody></table>
+      <div style="margin-top:8px"><button id="qrecount">Recount device profiles</button>
+        <span class="sub" id="qstate"></span></div>
+    </div>
   </div>
 
   <div class="grid2">
@@ -349,7 +706,8 @@ async function refresh() {
   catch (e) { $("simtime").textContent = "bidder not reachable"; return; }
   const s = d.stats, total = s.total || 0, bids = (s.actions.bid || 0);
   $("version").textContent = d.info.version; $("mode").textContent = d.info.mode;
-  $("modelv").textContent = d.model || "priors"; currentModel = d.model || "";
+  $("modelv").textContent = d.conversion || d.model || "priors"; currentModel = d.model || "";
+  $("convtag").hidden = d.info.stage === "crawl"; $("convv").textContent = d.conversion || "off";
   $("stage").textContent = d.info.stage;
   $("simtime").textContent = total ? simTime(s.sim_time_ms) : "waiting for traffic";
   $("total").textContent = fmt(total); $("rps").textContent = fmt(Math.round(s.wall_rps));
@@ -428,12 +786,19 @@ boot(); setInterval(refresh, 1000);
 
 // ---------------------------------------------------------------- tabs
 function route() {
-  const tab = {"#models": "models", "#controls": "controls"}[location.hash] || "live";
-  for (const t of ["live", "models", "controls"]) {
+  const tab = {"#models": "models", "#labels": "labels", "#conversions": "conversions",
+    "#evaluate": "evaluate", "#experiments": "experiments", "#pricing": "pricing", "#serving": "serving",
+    "#controls": "controls"}[location.hash] || "live";
+  for (const t of ["live", "models", "labels", "conversions", "evaluate", "experiments", "pricing", "serving", "controls"]) {
     $("tab-" + t).hidden = tab !== t; $("nav-" + t).className = tab === t ? "on" : "";
   }
   if (tab === "models") loadModels();
   if (tab === "controls") loadOps();
+  if (tab === "conversions") loadConversions();
+  if (tab === "evaluate") loadEvaluate();
+  if (tab === "experiments") loadExperiments();
+  if (tab === "pricing") loadPricing();
+  if (tab === "serving") loadServing();
 }
 window.addEventListener("hashchange", route);
 route();
@@ -535,6 +900,603 @@ $("paritybtn").onclick = async () => {
   $("paritybtn").disabled = false;
 };
 api("api/parity").then(showParity).catch(() => {});
+// ----------------------------------------------------------- conversions
+const m3 = m => m ? f3(m.auc) : "–";
+const c2 = m => m && m.calibration != null ? m.calibration.toFixed(2) : "–";
+async function loadConversions() {
+  const ds = await api("api/datasets").catch(() => []);
+  rows("datasets", ds.map(m => {
+    const bad = (m.checks || []).filter(c => !c.passed);
+    return `<tr><td>${esc(m.version)}</td><td>${fmt(m.counts.impressions)}</td><td>${fmt(m.counts.install_postbacks)}</td>
+      <td>${m.settings.leak ? "yes" : "no"}</td>
+      <td><span class="badge ${bad.length ? "bad" : "ok"}">${bad.length ? bad.length + " failed" : "all pass"}</span>
+        ${bad.map(c => `<div class="sub warn">${esc(c.name)}: ${esc(c.detail)}${c.name === "install label rate"
+          ? ' <a href="playbook.html?alert=bad_labels" target="_blank">Playbook</a>' : ""}</div>`).join("")}
+        ${(m.quarantine || []).map(q => `<div class="sub">quarantine ${esc(q.id)}: ${fmt(q.skipped || 0)} postbacks skipped</div>`).join("")}</td>
+      <td><button onclick="trainGBM('${esc(m.version)}')">Train LightGBM</button></td></tr>`;
+  }).join(""));
+  const b = (await api("api/conversion").catch(() => ({bundles: []}))).bundles || [];
+  rows("bundles", b.map(x => {
+    const r = x.report || {}, md = r.models || {};
+    const failed = ((x.validation || {}).checks || []).filter(c => !c.passed).map(c => c.name);
+    const flags = (r.leaky_device_history ? ["leaky"] : []).concat(r.dataset_passed === false ? ["dataset failed checks"] : [])
+      .concat(failed.map(n => "failed: " + n));
+    return `<tr><td>${esc(x.version)}</td><td>${esc(r.dataset_version || "–")}</td>
+      <td>${m3(md.click)}</td><td>${c2(md.click)}</td><td>${m3(md.install_click)}</td><td>${c2(md.install_click)}</td>
+      <td>${m3(md.install_view)}</td>
+      <td>${x.deployed ? '<span class="badge ok">champion</span>' : ""}
+        ${x.challenger ? '<span class="badge ok">challenger</span>' : ""}
+        ${flags.map(f => `<span class="badge bad">${f}</span>`).join(" ")}</td>
+      <td>${x.deployed ? `<button onclick="convAction('rollback')">Roll back</button> <button onclick="convUndeploy()">Switch off</button>` :
+        x.challenger ? `<button onclick="convAction('promote')">Promote</button>` :
+        flags.length ? `<button onclick="convDeploy('${esc(x.version)}', true)">Force deploy</button>` :
+        `<button onclick="convDeploy('${esc(x.version)}', false)">Deploy</button>`}</td></tr>`;
+  }).join(""));
+  const runs = await api("api/conversion/pipeline").catch(() => []);
+  rows("pipeline", runs.map(r => `<tr><td>${esc(r.run)}</td><td>${esc(r.dataset || "–")}</td><td>${esc(r.bundle || "–")}</td>
+    <td>${r.stages.map(st => `<span class="badge ${st.status === "ok" ? "ok" : "bad"}" title="${esc(st.detail)}">${esc(st.name)}</span>`).join(" ")}
+      ${r.stages.filter(st => st.status !== "ok").map(st => `<div class="sub warn">${esc(st.detail)}</div>`).join("")}</td>
+    <td>${r.passed ? `challenger ${esc(r.challenger)}` : "stopped"}</td></tr>`).join(""));
+  const h = await api("api/conversion/history").catch(() => []);
+  rows("deployhist", (h || []).map(e => `<tr><td>${esc(e.at.replace("T", " ").replace("Z", " UTC"))}</td><td>${esc(e.action || "deploy")}</td>
+    <td>${esc(e.version || "off")}</td><td>${esc(e.previous || "–")}</td><td>${e.forced ? "yes" : ""}</td></tr>`).join(""));
+}
+async function runPipeline(body) {
+  busy(true); $("pipestate").textContent = "Running: dataset, checks, training, model checks… a few minutes.";
+  try { const r = await api("api/conversion/pipeline", body);
+    $("pipestate").textContent = r.error ? r.error : `${r.run}: ` + (r.passed ? `${r.challenger} is the challenger.` :
+      "stopped at " + r.stages.find(st => st.status !== "ok").name + "."); }
+  catch (e) { $("pipestate").textContent = e.message; }
+  busy(false); loadConversions();
+}
+$("pipebtn").onclick = () => runPipeline({});
+$("pipeleakbtn").onclick = () => runPipeline({leak: true});
+$("pipenofeatbtn").onclick = () => runPipeline({inject: "no-features"});
+async function convAction(name) {
+  busy(true, name === "promote" ? "Checking the challenger's golden examples…" : "Rolling back…");
+  try { const r = await api("api/conversion/" + name, {});
+    $("convmsg").innerHTML = `<span class="${r.ok ? "" : "warn"}">${esc(r.message)}</span>`; }
+  catch (e) { $("convmsg").textContent = e.message; }
+  busy(false); loadConversions();
+}
+async function busy(on, msg) {
+  for (const id of ["dsbtn", "dsleakbtn", "pipebtn", "pipeleakbtn", "pipenofeatbtn"]) $(id).disabled = on;
+  document.querySelectorAll("#datasets button, #bundles button").forEach(b => b.disabled = on);
+  if (msg !== undefined) $("convmsg").textContent = msg;
+}
+async function buildDataset(leak) {
+  busy(true); $("dsstate").textContent = "Building from the ledger…";
+  try { const r = await api("api/datasets", {leak});
+    $("dsstate").textContent = `${r.version}: ` + (r.passed ? "all checks pass." : "some checks failed."); }
+  catch (e) { $("dsstate").textContent = e.message; }
+  busy(false); loadConversions();
+}
+$("dsbtn").onclick = () => buildDataset(false);
+$("dsleakbtn").onclick = () => buildDataset(true);
+async function trainGBM(v) {
+  busy(true, `Training on ${v}… this takes a minute or two.`);
+  try { const r = await api("api/conversion/train", {dataset: v}); $("convmsg").textContent = `Trained ${r.version}.`; }
+  catch (e) { $("convmsg").textContent = e.message; }
+  busy(false); loadConversions();
+}
+async function convDeploy(v, force) {
+  if (force && !confirm(`${v} was trained on a dataset that failed its checks. Deploy it anyway?`)) return;
+  busy(true, `Checking ${v}'s golden examples…`);
+  try { const r = await api("api/conversion/deploy", {version: v, force});
+    $("convmsg").innerHTML = `<span class="${r.ok ? "" : "warn"}">${esc(r.message)}</span>`; }
+  catch (e) { $("convmsg").textContent = e.message; }
+  busy(false); loadConversions();
+}
+async function convUndeploy() {
+  await api("api/conversion/undeploy", {}); $("convmsg").textContent = "Switched off: bids use the click model and priors.";
+  loadConversions();
+}
+// ------------------------------------------------------------- evaluate
+const money = x => x == null ? "–" : "$" + x.toFixed(2);
+async function loadEvaluate() {
+  const b = (await api("api/conversion").catch(() => ({bundles: []}))).bundles || [];
+  const opts = b.map(x => `<option>${esc(x.version)}</option>`).join("");
+  if (!$("rpb").options.length) {
+    $("rpa").innerHTML = "<option>logged</option>" + opts; $("rpb").innerHTML = opts;
+  }
+  if ($("rpday").value === "") {
+    // the newest day in the ledger: the day before the next one to play
+    const l = await api("api/ledger").catch(() => null);
+    if (l && l.next_day > 0) $("rpday").value = l.next_day - 1;
+  }
+  const sel = await api("api/policy/selection").catch(() => null);
+  if (sel) {
+    $("selnow").textContent = sel.current;
+    if (!$("selpick").options.length) $("selpick").innerHTML = sel.choices.map(c => `<option>${c}</option>`).join("");
+  }
+}
+function evBusy(on) { for (const id of ["rpbtn", "opebtn", "perbtn", "selbtn"]) $(id).disabled = on; }
+$("rpbtn").onclick = async () => {
+  evBusy(true); $("rpstate").textContent = "Replaying…";
+  try {
+    const r = await api("api/eval/replay", {day: Number($("rpday").value), a: $("rpa").value, b: $("rpb").value});
+    if (r.error) throw new Error(r.error);
+    $("rpstate").textContent = `Day ${r.day}: ${fmt(r.rows)} priced bids; served that day: ${r.served}.`;
+    const c = r.reproduce_check, t = r.truth_check;
+    $("rpchecks").innerHTML = [
+      c ? `Rescoring with ${esc(c.version)} reproduces ${fmt(c.reproduced)} of ${fmt(c.rows)} logged bids.` : "",
+      t ? `The simulator's highest other bid explains ${fmt(t.agree)} of ${fmt(t.rows)} logged wins and losses.` : "",
+      ...Object.entries(r.not_replayable).map(([k, v]) => `Not replayable: ${fmt(v)} requests ${esc(k)}.`)
+    ].filter(Boolean).join(" ");
+    rows("replay", r.segments.map(sg => `<tr><td>${esc(sg.segment)}</td><td>${fmt(sg.a.bids)}</td><td>${fmt(sg.b.bids)}</td>
+      <td>$${sg.a.mean_bid.toFixed(2)}</td><td>$${sg.b.mean_bid.toFixed(2)}</td>
+      <td>${fmt(Math.round(sg.a.est_wins))}</td><td>${fmt(Math.round(sg.b.est_wins))}</td>
+      <td>${sg.a.true_wins == null ? "–" : fmt(sg.a.true_wins)}</td><td>${sg.b.true_wins == null ? "–" : fmt(sg.b.true_wins)}</td>
+      <td>${money(sg.a.true_spend ?? sg.a.est_spend)}</td><td>${money(sg.b.true_spend ?? sg.b.est_spend)}</td></tr>`).join(""));
+    const all = r.segments[0], q = all.bid_ratio_quantiles, ch = all.changing_hands;
+    $("rpratio").textContent = (q ? `B's bid over A's: median ${q[50]}, 10th to 90th percentile ${q[10]} to ${q[90]}. ` : "") +
+      (ch ? `Changing hands: B alone would win ${fmt(ch.won_by_b_only)}, A alone ${fmt(ch.won_by_a_only)}; on B's new wins, ` +
+        `B values them ${ch.b_over_a_value_on_b_only}x what A does, and no outcome there has been observed.` : "");
+  } catch (e) { $("rpstate").textContent = e.message; }
+  evBusy(false);
+};
+$("selbtn").onclick = async () => {
+  await api("api/policy/selection", {name: $("selpick").value}).catch(e => { $("opestate").textContent = e.message; });
+  loadEvaluate();
+};
+$("opebtn").onclick = async () => {
+  evBusy(true);
+  try {
+    const o = await api("api/eval/ope", {policy: $("opepol").value, reward: $("operew").value});
+    if (o.error) throw new Error(o.error);
+    const f5 = x => x == null ? "–" : x.toFixed(5);
+    o.by_logging_policy.sort((x, y) => y.is_target - x.is_target);
+    rows("ope", o.by_logging_policy.map(g => `<tr><td>${esc(g.logging_policy)}${g.is_target ? " (ran live)" : ""}</td>
+      <td>${g.days[0]}–${g.days[g.days.length - 1]}</td><td>${fmt(g.decisions)}</td><td><b>${f5(g.logged_value)}</b></td>
+      <td>${g.is_target ? "" : f5(g.ips)}</td><td>${g.is_target ? "" : f5(g.ips_ci[0]) + "–" + f5(g.ips_ci[1])}</td>
+      <td>${g.is_target ? "" : "<b>" + f5(g.snips) + "</b>"}</td><td>${g.is_target ? "" : f5(g.snips_ci[0]) + "–" + f5(g.snips_ci[1])}</td>
+      <td>${g.is_target ? "" : fmt(g.effective_sample_size)}</td><td>${g.is_target ? "" : g.max_weight}</td></tr>`).join(""));
+    $("opestate").textContent = `Policy "${o.policy}", ${o.reward === "click" ? "clicks" : "installs"} per decision, labels from ${o.dataset}.` +
+      (o.by_logging_policy.some(g => g.is_target) ? " Compare the estimates with the row where it ran live." :
+        " It hasn't run live yet: switch to it and play a few days to check the estimate.");
+  } catch (e) { $("opestate").textContent = e.message; }
+  evBusy(false);
+};
+$("liftbtn").onclick = async () => {
+  evBusy(true); $("liftbtn").disabled = true; $("liftstate").textContent = "Reading the ledger and the advertisers' install data…";
+  try {
+    const share = $("liftshare").value;
+    const r = await api("api/eval/lift", share ? {holdout_share: Number(share)} : {});
+    if (r.error) throw new Error(r.error);
+    const row = e => `<tr><td>${esc(e.app)}</td><td>${fmt(e.treated_devices)}</td><td>${fmt(e.holdout_devices)}</td>
+      <td>${e.rate_treated == null ? "–" : pct(e.rate_treated)}</td><td>${e.rate_holdout == null ? "–" : pct(e.rate_holdout)}</td>
+      <td>${fmt(e.attributed_installs)}</td><td><b>${e.incremental_installs == null ? "–" : e.incremental_installs.toFixed(0)}</b></td>
+      <td>${e.incremental_ci ? e.incremental_ci[0].toFixed(0) + " to " + e.incremental_ci[1].toFixed(0) : "–"}</td>
+      <td>${e.incrementality == null ? "–" : e.incrementality.toFixed(2)}</td><td>${e.icpi == null ? "–" : "$" + e.icpi.toFixed(2)}</td>
+      <td>${e.true_caused_installs == null ? "–" : fmt(e.true_caused_installs)}</td></tr>`;
+    rows("lifts", r.apps.map(row).join("") + row({...r.all, app: "All measured apps"}));
+    $("liftstate").textContent = `Days ${r.days[0]}–${r.days[1]}, a ${(100 * r.holdout_share).toFixed(0)}% holdout. ` +
+      (r.not_measurable.length ? `${r.not_measurable.length} apps can't be measured: their advertisers don't share their install data.` : "");
+  } catch (e) { $("liftstate").textContent = e.message; }
+  evBusy(false); $("liftbtn").disabled = false;
+};
+$("perbtn").onclick = async () => {
+  evBusy(true);
+  try {
+    const p = await api("api/eval/periods", {});
+    if (p.error) throw new Error(p.error);
+    $("perstate").textContent = `From ${p.dataset}.`;
+    rows("periods", p.periods.map(r => `<tr><td>${r.first}–${r.last}</td><td>${esc(r.serving)}</td><td>${fmt(r.impressions)}</td>
+      <td>${money(r.spend)}</td><td>${fmt(r.clicks)}</td><td>${fmt(r.installs)}</td><td>${money(r.payouts)}</td>
+      <td>${money(r.margin)}</td><td>${r.installs ? money(r.spend / r.installs) : "–"}</td>
+      <td class="sub">${r.installs_final ? "" : "installs still arriving"}</td></tr>`).join(""));
+  } catch (e) { $("perstate").textContent = e.message; }
+  evBusy(false);
+};
+// ----------------------------------------------------------- experiments
+const simt = ms => { const d = Math.floor(ms / 86400000), m = Math.floor(ms % 86400000 / 60000);
+  return `day ${d}, ${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
+let lastPast = null;
+async function loadExperiments() {
+  loadWins();
+  const b = (await api("api/conversion").catch(() => ({bundles: []}))).bundles || [];
+  const keep = $("xchal").value;
+  $("xchal").innerHTML = b.filter(x => !x.deployed).map(x => `<option>${esc(x.version)}</option>`).join("");
+  if (keep) $("xchal").value = keep;
+  const r = await api("api/experiment").catch(() => null);
+  if (!r) return;
+  const e = r.current, run = e && e.status === "running";
+  $("xid").textContent = run ? `${e.id}, ${e.config.kind} of ${e.config.challenger}` : "none";
+  $("xstop").disabled = $("xinject").disabled = !run;
+  $("xstatus").textContent = !e ? "" : run ? (e.config.kind === "canary" ?
+      `stage ${e.stage + 1} of ${e.config.stages.length}: ${Math.round(100 * e.treatment_share)}% of devices` :
+      e.config.kind === "ab" || e.config.kind === "shading" ? `${Math.round(100 * e.treatment_share)}% of devices in treatment` :
+      `scoring ${Math.round(100 * e.config.share)}% of requests`) + (e.fault ? "; challenger broken on purpose" : "")
+    : `${e.id} ${e.status}: ${e.reason}`;
+  const arm = (n, a) => a && a.all ? `<tr><td>${n}</td><td>${fmt(a.requests)}</td><td>${fmt(a.all.decisions)}</td><td>${fmt(a.bids)}</td>
+    <td>$${a.spend.toFixed(2)}</td><td>${a.all.decisions ? (a.all.sum_p_click / a.all.decisions).toFixed(4) : "–"}</td>
+    <td>${a.all.install_decisions ? (a.all.sum_p_install_click / a.all.install_decisions).toFixed(4) : "–"}</td>
+    <td>${a.all.decisions ? pct(a.all.fallbacks / a.all.decisions) : "–"}</td></tr>` : "";
+  rows("xarms", e && e.config.kind !== "shadow" ? arm(e.config.kind === "shading" ? "control (fixed shade)" : "control (champion)", e.arms[0]) +
+    arm("treatment (" + esc(e.config.challenger) + ")", e.arms[1]) : "");
+  rows("xchecks", (e && e.checks || []).map(c => `<tr><td>${esc(c.name)}</td><td>${c.value.toFixed(3)}</td><td>${c.limit}</td>
+    <td><span class="badge ${c.passed ? "ok" : "bad"}">${c.passed ? "pass" : "fail"}</span></td><td class="sub">${esc(c.detail)}</td></tr>`).join(""));
+  const sh = e && e.shadow;
+  rows("xshadowt", sh ? Object.keys(sh.champion_mean_p_install_by_placement || {}).sort().map(p => `<tr><td>${esc(p)}</td>
+    <td>${sh.champion_mean_p_install_by_placement[p].toFixed(4)}</td><td>${sh.challenger_mean_p_install_by_placement[p].toFixed(4)}</td>
+    <td>${(sh.click_ratio_by_placement[p] || 0).toFixed(3)}</td></tr>`).join("") : "");
+  $("xshadowlat").textContent = sh ? `${fmt(sh.scored)} requests scored by the challenger, ` +
+    `${sh.latency_p50_us.toFixed(0)} µs at the median and ${sh.latency_p99_us.toFixed(0)} µs at p99.` : "";
+  // hide the tables an experiment of this kind doesn't fill
+  for (const id of ["xarms", "xchecks", "xshadowt", "xevents"])
+    $(id).hidden = !document.querySelector(`#${id} tbody`).children.length;
+  rows("xevents", (e ? e.events.slice().reverse() : []).map(v => `<tr><td>${simt(v.ts_ms)}</td><td>${esc(v.what)}</td></tr>`).join(""));
+  $("xevents").hidden = !(e && e.events.length);
+  const pastHTML = r.past.map(p => `<tr><td>${esc(p.id)}</td><td>${esc(p.config.kind)}</td><td>${esc(p.config.challenger)}</td>
+    <td>${esc(p.status)}</td><td class="sub">${esc(p.reason || "")}</td>
+    <td>${p.config.kind === "ab" ? `<button onclick="readAB('${esc(p.id)}')">Read out</button>` :
+      p.config.kind === "shadow" ? `<button onclick="readShadow('${esc(p.id)}')">Check parity</button>` :
+      p.config.kind === "shading" ? `<button onclick="readShading('${esc(p.id)}')">Read out</button>` : ""}</td></tr>`).join("");
+  if (pastHTML !== lastPast) { rows("xpast", pastHTML); lastPast = pastHTML; }
+}
+async function loadWins() {
+  const w = (await api("api/win").catch(() => ({models: []}))).models || [];
+  const html = w.map(m => { const r = m.report || {}, half = (r.at_other_bids || []).find(b => b.bid_multiplier === 0.5) || {};
+    return `<tr><td>${esc(m.version)}</td><td>${r.days ? r.days[0] + "–" + r.days[1] : "–"}</td><td>${r.use_mtw ? "yes" : "no"}</td>
+      <td>${f3(r.auc)}</td><td>${r.calibration == null ? "–" : r.calibration.toFixed(3)}</td>
+      <td>${half.true == null ? "–" : half.true.toFixed(3)}</td><td>${half.predicted == null ? "–" : half.predicted.toFixed(3)}</td>
+      <td>${m.deployed ? '<span class="badge ok">shading every bid</span>' : ""}</td>
+      <td>${m.deployed ? `<button onclick="winAct('undeploy')">Switch off</button>` :
+        `<button onclick="xstartShading('${esc(m.version)}')">Shading A/B 50/50</button> <button onclick="winAct('deploy', '${esc(m.version)}')">Deploy</button>`}</td></tr>`; }).join("");
+  if (html !== lastWins) { rows("winmodels", html); lastWins = html; }
+}
+let lastWins = null;
+$("wtrain").onclick = async () => {
+  $("wtrain").disabled = true; $("wstate").textContent = "Training… a minute or two.";
+  try { const r = await api("api/win/train", {use_mtw: $("wmtw").checked}); if (r.error) throw new Error(r.error);
+    $("wstate").textContent = `${r.version}: AUC ${r.auc}, ${r.calibration} predicted wins per actual win on day ${r.eval_day}.`; }
+  catch (e) { $("wstate").textContent = e.message; }
+  $("wtrain").disabled = false; lastWins = null; loadWins();
+};
+async function winAct(what, version) {
+  const r = await api("api/win/" + what, {version}).catch(e => ({message: e.message}));
+  $("wstate").textContent = r.message || (what === "undeploy" ? "Switched off: the fixed shade." : "");
+  lastWins = null; loadWins();
+}
+async function xstartShading(version) {
+  try { await api("api/experiment/start", {kind: "shading", challenger: version, share: 0.5, budget_split: $("xsplit").checked});
+    $("wstate").textContent = `Started a shading A/B test of ${version}.`; }
+  catch (e) { $("wstate").textContent = e.message; }
+  loadExperiments();
+}
+async function readShading(id) {
+  $("xreadt").hidden = true;
+  $("xread").textContent = `Reading ${id} from the ledger…`;
+  try {
+    const r = await api("api/eval/shadetest", {experiment: id});
+    if (r.error) throw new Error(r.error);
+    const a = r.arms, c = a.control, t = a.treatment;
+    const line = (n, x) => x ? `${n}: ${fmt(x.bids)} bids, win rate ${(100 * x.win_rate).toFixed(1)}%` +
+      (x.predicted_win_rate ? ` (predicted ${(100 * x.predicted_win_rate).toFixed(1)}%)` : "") +
+      `, mean shade ${x.mean_shade}, spend $${x.spend.toFixed(2)}, media value $${x.media_value.toFixed(2)}, surplus $${x.surplus.toFixed(2)}.` : "";
+    $("xread").textContent = `${id}, days ${r.days[0]}–${r.days[r.days.length - 1]}. ` + line("Fixed shade", c) + " " + line("Model shading", t) +
+      " For installs and CPI by arm, build a dataset once they arrive and run adtrain abtest " + id + ".";
+  } catch (e) { $("xread").textContent = e.message; }
+}
+async function xstart(kind) {
+  const cfg = {kind, challenger: $("xchal").value, force: $("xforce").checked};
+  if (kind === "shadow") cfg.share = 0.1;
+  if (kind === "ab") { cfg.share = 0.5; cfg.budget_split = $("xsplit").checked; }
+  try { await api("api/experiment/start", cfg); $("xstate").textContent = "Started."; }
+  catch (e) { $("xstate").textContent = e.message; }
+  loadExperiments();
+}
+$("xshadow").onclick = () => xstart("shadow");
+$("xcanary").onclick = () => xstart("canary");
+$("xab").onclick = () => xstart("ab");
+$("xstop").onclick = async () => { await api("api/experiment/stop", {}).catch(() => {}); loadExperiments(); };
+$("xinject").onclick = async () => { await api("api/experiment/inject", {fault: "scale"}).catch(() => {}); loadExperiments(); };
+async function readAB(id) {
+  $("xreadt").hidden = true;
+  $("xread").textContent = `Reading ${id} from the newest dataset…`;
+  try {
+    const r = await api("api/eval/abtest", {experiment: id});
+    if (r.error) throw new Error(r.error);
+    $("xreadt").hidden = false;
+    rows("xreadt", ["control", "treatment"].filter(a => r.arms[a]).map(a => { const x = r.arms[a];
+      return `<tr><td>${a}</td><td>${fmt(x.devices)}</td><td>${fmt(x.impressions)}</td><td>$${x.spend.toFixed(2)}</td>
+        <td>${fmt(x.installs)}</td><td>${x.cpi == null ? "–" : "$" + x.cpi.toFixed(2)}</td>
+        <td>${x.expected_installs == null ? "–" : x.expected_installs.toFixed(1)}</td>
+        <td>${x.true_cpi == null ? "–" : "$" + x.true_cpi.toFixed(2)}</td></tr>`; }).join(""));
+    const m = r.measured, t = r.true;
+    $("xread").textContent = `${id}, ${r.goal} campaigns, from ${r.dataset}; ${Math.round(100 * r.share_final)}% of its impressions have final installs, and only those count. ` +
+      (m ? `Treatment CPI over control: ${m.cpi_ratio} (95% CI ${m.ci[0]} to ${m.ci[1]}) measured from installs` : "") +
+      (t ? `; ${t.cpi_ratio} (${t.ci[0]} to ${t.ci[1]}) from the simulator's true install rates.` : ".");
+  } catch (e) { $("xread").textContent = e.message; }
+}
+async function readShadow(id) {
+  $("xreadt").hidden = true;
+  $("xread").textContent = `Rescoring ${id}'s shadow requests offline…`;
+  try {
+    const r = await api("api/eval/shadow", {experiment: id});
+    if (r.error) throw new Error(r.error);
+    $("xreadt").hidden = true;
+    $("xread").textContent = `${id}: ${fmt(r.scored)} shadow scores from ${r.model}. Rescored offline from the logged FeatureVectors, ` +
+      `${fmt(r.click_match)} of ${fmt(r.click_rows)} click predictions match to 1e-9 (largest difference ${r.click_max_diff.toExponential(1)}), and ` +
+      `${fmt(r.install_match)} of ${fmt(r.install_rows)} install predictions (${r.install_max_diff.toExponential(1)}).` +
+      (r.click_out_of_bounds ? ` ${fmt(r.click_out_of_bounds)} click predictions were outside the bidder's bounds (0.01% to 50%), ` +
+        "so the bidder logged the fallback it priced with instead (Chapter 12)." : "");
+  } catch (e) { $("xread").textContent = e.message; }
+}
+setInterval(() => { if (location.hash === "#experiments") loadExperiments(); }, 2000);
+// ---------------------------------------------------------------- pacing
+let paceSel = null;
+function paceChart(svg, pts, series, ymax, fmtY) {
+  const W = 520, H = 180, L = 44, R = 22, T = 8, B = 22;
+  const x = t => L + (W - L - R) * ((t % 86400000) / 86400000);
+  const y = v => T + (H - T - B) * (1 - v / ymax);
+  let g = "";
+  for (let i = 0; i <= 4; i++) {
+    const v = ymax * i / 4;
+    g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#e5e7eb"/>` +
+      `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="#6b7280">${fmtY(v)}</text>`;
+  }
+  for (const h of [0, 6, 12, 18, 24])
+    g += `<text x="${L + (W - L - R) * h / 24}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#6b7280">${String(h).padStart(2, "0")}:00</text>`;
+  for (const s of series) {
+    if (!pts.length) break;
+    const d = pts.map((p, i) => `${i ? "L" : "M"}${x(p.ts_ms).toFixed(1)},${y(s.get(p)).toFixed(1)}`).join("");
+    g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" ${s.dash ? 'stroke-dasharray="5 4"' : ""}/>`;
+  }
+  svg.innerHTML = g;
+}
+async function loadPacing() {
+  const r = await api("api/pacing").catch(() => null);
+  if (!r) return;
+  $("pacenow").textContent = r.on ? "PI controller" : "throttling";
+  const book = {}; (r.book || []).forEach(b => book[b.campaign_id] = b);
+  // after a restart, the campaign book is empty until the simulator pushes
+  // it: fall back to the controller's saved state
+  const ids = [...new Set([...Object.keys(book), ...Object.keys(r.campaigns || {})].map(Number))].sort((a, b) => a - b);
+  for (const id of ids) if (!book[id]) { const t = ((r.campaigns || {})[id] || {}).today || [], l = t[t.length - 1];
+    book[id] = {goal: "", daily_budget: l ? l.plan / Math.max(1e-9, 1) : 0, spend_today: l ? l.spend : 0, unknown: true}; }
+  if (paceSel === null && ids.length) paceSel = ids[0];
+  rows("pacet", ids.map(id => { const b = book[id], s = (r.campaigns || {})[id] || {}, t = s.today || [], last = t[t.length - 1];
+    return `<tr${id === paceSel ? ' style="background:#fff7ed"' : ""}><td>${id}</td><td>${esc(b.goal)}</td><td>${b.unknown ? "–" : "$" + b.daily_budget.toFixed(2)}</td>
+      <td>$${b.spend_today.toFixed(2)}</td><td>${last ? "$" + last.plan.toFixed(2) : "–"}</td>
+      <td><b>${s.gamma ? s.gamma.toFixed(2) : "1.00"}</b></td><td>${s.gamma0 ? s.gamma0.toFixed(2) + " (" + esc(s.gamma0_from) + ")" : "–"}</td>
+      <td><input type="number" step="0.1" min="0.1" max="5" value="${(s.overbid || 1).toFixed(1)}" style="width:4.5em"
+        onchange="setOverbid(${id}, this.value)"></td>
+      <td><button onclick="paceSel=${id}; loadPacing()">Chart</button></td></tr>`; }).join(""));
+  const s = (r.campaigns || {})[paceSel], pts = s ? s.today || [] : [], b = book[paceSel];
+  $("pacechart1t").textContent = b ? `Campaign ${paceSel}: spend so far today (solid) against plan (dashed)` +
+    (b.unknown ? "" : `, budget $${b.daily_budget.toFixed(2)}`) : "";
+  const ymax = Math.max(b ? b.daily_budget : 1, ...pts.map(p => Math.max(p.plan, p.spend))) * 1.05;
+  paceChart($("pacechart1"), pts, [{get: p => p.plan, color: "#9ca3af", dash: true, label: "plan"},
+    {get: p => p.spend, color: "#2a78d6", label: "spend"}], ymax, v => "$" + v.toFixed(0));
+  paceChart($("pacechart2"), pts, [{get: p => p.gamma, color: "#eb6834", label: "gamma"}], 2.1, v => v.toFixed(1));
+}
+async function setOverbid(id, v) { await api("api/pacing/overbid", {campaign: id, overbid: Number(v)}); loadPacing(); }
+$("paceon").onclick = async () => { await api("api/pacing", {on: true}); loadPacing(); };
+$("paceoff").onclick = async () => { await api("api/pacing", {on: false}); loadPacing(); };
+$("pacefc").onclick = async () => { $("pacestate").textContent = "Replaying the newest day…";
+  try { const f = await api("api/pacing/forecast", {}); if (f.error) throw new Error(f.error);
+    const n = Object.keys(f.by_campaign).length, pinned = Object.values(f.by_campaign).filter(x => x.gamma0 >= 2).length;
+    $("pacestate").textContent = `Forecast for day ${f.day} from day ${f.from_day}: ${n} campaigns` +
+      (pinned ? `; ${pinned} can't spend their budget even at gamma 2, and need a person to look at them.` : "."); }
+  catch (e) { $("pacestate").textContent = e.message; } loadPacing(); };
+// --------------------------------------------------------------- pricing
+async function loadPricing() {
+  loadPacing();
+  const sel = await api("api/policy/selection").catch(() => null);
+  if (sel) $("psel").textContent = sel.current;
+  const k = await api("api/calibration").catch(() => null);
+  const det = k && k.detail ? k.detail.detail || [] : [];
+  $("kstate").textContent = k && k.current ? `${k.current.version}: overall ${k.current.overall}, from days ` +
+    `${k.detail.days[0]}–${k.detail.days[1]}.` : "Off: every campaign's kappa is 1.";
+  rows("kappas", det.map(x => `<tr><td>${x.campaign_id}</td><td>${esc(x.goal.toUpperCase())}</td><td>${x.installs.toFixed(1)}</td>
+    <td>${x.predicted.toFixed(1)}</td><td>${x.raw_ratio == null ? "–" : x.raw_ratio.toFixed(2)}</td>
+    <td><b>${x.kappa.toFixed(2)}</b>${x.bounded ? " (bounded)" : ""}</td></tr>`).join(""));
+  const c = await api("api/creatives").catch(() => null);
+  if (!c) return;
+  $("tsnow").textContent = c.thompson ? "Thompson sampling" : "random rotation";
+  const rowsHtml = [];
+  for (const camp of Object.keys(c.campaigns).sort((a, b) => a - b)) {
+    const ps = c.campaigns[camp];
+    const best = Math.max(...ps.map(p => p.share));
+    ps.forEach((p, i) => rowsHtml.push(`<tr><td>${i ? "" : camp}</td><td>${p.creative_id}</td><td>${fmt(p.impressions)}</td>
+      <td>${fmt(p.installs)}</td><td>${p.impressions ? (1000 * p.installs / p.impressions).toFixed(2) : "–"}</td>
+      <td>${(1000 * p.alpha / (p.alpha + p.beta)).toFixed(2)}</td><td>${pct(p.share)}</td>
+      <td><div style="background:var(--accent);height:8px;width:${Math.round(120 * p.share)}px;opacity:${p.share === best ? 1 : .45}"></div></td></tr>`));
+  }
+  rows("creatives", rowsHtml.join(""));
+}
+$("pauction").onclick = async () => { await api("api/policy/selection", {name: "auction"}); loadPricing(); };
+$("pbudget").onclick = async () => { await api("api/policy/selection", {name: "budget"}); loadPricing(); };
+$("kbtn").onclick = async () => { $("kstate").textContent = "Computing from the ledger…";
+  try { await api("api/calibration", {}); } catch (e) { $("kstate").textContent = e.message; return; } loadPricing(); };
+$("koff").onclick = async () => { await api("api/calibration", {off: true}); loadPricing(); };
+$("tson").onclick = async () => { await api("api/creatives", {thompson: true}); loadPricing(); };
+$("tsoff").onclick = async () => { await api("api/creatives", {thompson: false}); loadPricing(); };
+$("tsreset").onclick = async () => { const c = await api("api/creatives");
+  await api("api/creatives", {thompson: c.thompson, reset: true}); loadPricing(); };
+setInterval(() => { if (location.hash === "#pricing") loadPricing(); }, 5000);
+// --------------------------------------------------------------- serving
+const SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"];
+const ms = us => us >= 10000 ? (us / 1000).toFixed(0) + " ms" : us >= 1000 ? (us / 1000).toFixed(2) + " ms" : us.toFixed(0) + " µs";
+let capTouched = false;
+function ltChart(runs) {
+  const W = 560, H = 240, L = 52, R = 16, T = 10, B = 30, svg = $("ltchart");
+  const pts = runs.flatMap(r => r.steps);
+  if (!pts.length) { svg.innerHTML = ""; return; }
+  const rmax = Math.max(...pts.map(p => p.rate)), lo = 0.1, hi = 1000;
+  const x = v => L + (W - L - R) * (Math.log(v) - Math.log(Math.min(...pts.map(p => p.rate)) / 1.5)) /
+    (Math.log(rmax * 1.5) - Math.log(Math.min(...pts.map(p => p.rate)) / 1.5));
+  const y = v => T + (H - T - B) * (1 - (Math.log10(Math.max(lo, Math.min(hi, v))) + 1) / 4);
+  let g = "";
+  for (const v of [0.1, 1, 10, 100, 1000])
+    g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#e5e7eb"/>` +
+      `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="#6b7280">${v} ms</text>`;
+  g += `<line x1="${L}" x2="${W - R}" y1="${y(100)}" y2="${y(100)}" stroke="#6b7280" stroke-dasharray="5 4"/>`;
+  for (const r of [...new Set(pts.map(p => p.rate))])
+    g += `<text x="${x(r)}" y="${H - 10}" text-anchor="middle" font-size="11" fill="#6b7280">${fmt(r)}/s</text>`;
+  runs.forEach((run, i) => {
+    const c = SERIES[i % SERIES.length];
+    g += `<path d="${run.steps.map((p, j) => `${j ? "L" : "M"}${x(p.rate).toFixed(1)},${y(p.p99_ms).toFixed(1)}`).join("")}"
+      fill="none" stroke="${c}" stroke-width="2"/>`;
+    for (const p of run.steps)
+      g += `<circle cx="${x(p.rate)}" cy="${y(p.p99_ms)}" r="5" fill="${c}" stroke="#fff" stroke-width="2">
+        <title>${esc(run.label || "run")}: ${fmt(p.rate)}/s, p99 ${p.p99_ms.toFixed(1)} ms, ${pct(p.late_share)} late or dropped</title></circle>`;
+  });
+  svg.innerHTML = g;
+  $("ltlegend").innerHTML = runs.map((r, i) => `<div><span style="display:inline-block;width:14px;height:3px;` +
+    `background:${SERIES[i % SERIES.length]};vertical-align:middle;margin-right:6px"></span>${esc(r.label || "run")}` +
+    ` <span style="color:#6b7280">· cap ${r.auction_cap || "none"}</span></div>`).join("");
+}
+async function loadServing() {
+  const r = await api("api/latency").catch(() => null);
+  if (!r) return;
+  const live = r.live.stages || [], load = r.load.stages || [];
+  const bar = sh => `<div style="background:var(--accent);height:8px;width:${Math.round(140 * sh)}px"></div>`;
+  rows("latt", live.map((a, i) => { const b = load[i] || {}, tot = a.stage === "total";
+    const cell = (s, w) => w ? `<td>${ms(s.p50_us)}</td><td>${ms(s.p99_us)}</td><td>${ms(s.mean_us)}</td><td>${tot ? "" : bar(s.share)}</td>`
+      : "<td>–</td><td>–</td><td>–</td><td></td>";
+    return `<tr${tot ? ' style="font-weight:600"' : ""}><td>${a.stage}</td>${cell(a, r.live.kept)}${cell(b, r.load.kept)}</tr>`; }).join(""));
+  $("latnote").dataset.base = $("latnote").dataset.base || $("latnote").textContent;
+  $("latnote").textContent = `Live: ${fmt(r.live.requests)} requests, ${r.live.mean_candidates.toFixed(1)} campaigns priced ` +
+    `on average. Load test: ${fmt(r.load.requests)} requests, ${r.load.mean_candidates.toFixed(1)} priced. ` + $("latnote").dataset.base;
+  const runs = (r.runs || []).slice(-4);
+  ltChart(runs);
+  rows("ltt", runs.slice().reverse().flatMap(run => run.steps.map((p, j) => {
+    const sv = p.server, st = sv ? sv.stages : [];
+    const top = st.slice(0, -1).reduce((a, b) => (b.mean_us > (a ? a.mean_us : -1) ? b : a), null);
+    return `<tr${j ? ' class="sub"' : ""}><td>${j ? "" : esc(run.label || "run") + " <span style='color:#6b7280'>(" +
+      esc(run.bidder_version || "") + ")</span>"}</td><td>${j ? "" : run.auction_cap || "none"}</td><td>${fmt(p.rate)}/s</td>
+      <td>${fmt(Math.round(p.achieved))}/s</td><td>${fmt(p.bids)}</td>
+      <td>${p.late_share ? `<span class="warn">${p.late_share < 0.001 ? "<0.1%" : pct(p.late_share)}</span>` : "0"}</td>
+      <td>${p.p50_ms.toFixed(2)} ms</td><td>${p.p99_ms.toFixed(1)} ms</td>
+      <td>${st.length ? ms(st[st.length - 1].p50_us) : "–"}</td><td>${st.length ? ms(st[st.length - 1].p99_us) : "–"}</td>
+      <td>${sv ? sv.mean_candidates.toFixed(1) : "–"}</td><td>${top ? `${top.stage} ${pct(top.share)}` : "–"}</td></tr>`; })).join(""));
+  $("capnow").textContent = r.auction_cap ? `${r.auction_cap} campaigns` : "no cap";
+  if (!capTouched) $("capin").value = r.auction_cap;
+  const a = r.cap_audit;
+  $("capaudit").innerHTML = r.auction_cap && a && a.audits ? `Of <b>${fmt(a.audits)}</b> audited auctions, the capped ` +
+    `auction found the full auction's best campaign in <b>${pct(a.same_share)}</b>, and gave up <b>${pct(a.score_lost_share)}</b> ` +
+    `of the best expected surplus.` : r.auction_cap ? "No audited auctions yet: run a load test." : "";
+}
+$("capin").oninput = () => { capTouched = true; };
+$("capset").onclick = async () => { await api("api/policy/auction-cap", {cap: Number($("capin").value)});
+  capTouched = false; loadServing(); };
+$("latreset").onclick = async () => { await api("api/latency/reset", {which: "live"}); loadServing(); };
+setInterval(() => { if (location.hash === "#serving") loadServing(); }, 3000);
+// ---------------------------------------------------------------- drills
+function monChart(svg, pts, marks) {
+  const W = 540, H = 190, L = 52, R = 12, T = 8, B = 22;
+  if (!pts.length) { svg.innerHTML = `<text x="${L}" y="${H / 2}" font-size="12" fill="#6b7280">No predictions yet.</text>`; return; }
+  const t0 = pts[0].ts_ms, t1 = Math.max(pts[pts.length - 1].ts_ms, t0 + 1);
+  const vals = pts.flatMap(p => [p.mean, p.base_hi || p.mean, p.base_lo || p.mean]).filter(v => v > 0);
+  const lo = Math.min(...vals) * 0.9, hi = Math.max(...vals) * 1.1;
+  const x = t => L + (W - L - R) * (t - t0) / (t1 - t0), y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
+  let g = "";
+  for (let i = 0; i <= 3; i++) { const v = lo + (hi - lo) * i / 3;
+    g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#e5e7eb"/>` +
+      `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="#6b7280">${(100 * v).toFixed(2)}%</text>`; }
+  for (let d = Math.ceil(t0 / 86400000) * 86400000; d <= t1; d += 21600000)
+    g += `<text x="${x(d)}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#6b7280">${d % 86400000 ? String((d % 86400000) / 3600000).padStart(2, "0") + ":00" : "day " + d / 86400000}</text>`;
+  const band = pts.filter(p => p.base_days >= 2);
+  if (band.length) g += `<path d="${band.map((p, i) => `${i ? "L" : "M"}${x(p.ts_ms).toFixed(1)},${y(p.base_hi).toFixed(1)}`).join("")}` +
+    band.slice().reverse().map(p => `L${x(p.ts_ms).toFixed(1)},${y(p.base_lo).toFixed(1)}`).join("") + `Z" fill="#e5e7eb"/>` +
+    `<path d="${band.map((p, i) => `${i ? "L" : "M"}${x(p.ts_ms).toFixed(1)},${y(p.base).toFixed(1)}`).join("")}" fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  for (const m of marks) if (m.sim_ms >= t0 && m.sim_ms <= t1)
+    g += `<line x1="${x(m.sim_ms)}" x2="${x(m.sim_ms)}" y1="${T}" y2="${H - B}" stroke="#eb6834" stroke-width="1.5"><title>${esc(m.what)}</title></line>`;
+  g += `<path d="${pts.map((p, i) => `${i ? "L" : "M"}${x(p.ts_ms).toFixed(1)},${y(p.mean).toFixed(1)}`).join("")}" fill="none" stroke="#2a78d6" stroke-width="2"/>`;
+  for (const p of pts.filter(p => p.over))
+    g += `<circle cx="${x(p.ts_ms)}" cy="${y(p.mean)}" r="3" fill="#b42318"><title>z ${p.z}, ${(100 * (Math.exp(p.delta) - 1)).toFixed(0)}% from the baseline</title></circle>`;
+  svg.innerHTML = g;
+}
+async function loadDrills(audit) {
+  const r = await api("api/drills").catch(() => null);
+  if (!r) return;
+  const marks = (audit || []).filter(e => e.sim_ms && /deploy|roll|promot|drill/i.test(e.what));
+  for (const [i, t] of [[1, "click"], [2, "install"]]) {
+    const pts = (r.shift || []).filter(p => p.target === t), last = pts[pts.length - 1];
+    monChart($("mon" + i), pts, marks);
+    $(`mon${i}t`).textContent = (t === "click" ? "Click model" : "Install-after-click model") + (last && last.base_days >= 2
+      ? `: now ${pct2(last.mean)}, ${last.delta >= 0 ? "+" : ""}${(100 * (Math.exp(last.delta) - 1)).toFixed(1)}% vs the baseline, z ${last.z}, PSI ${last.psi.toFixed(3)}`
+      : last ? `: now ${pct2(last.mean)}; the baseline needs two earlier days` : "");
+  }
+  $("monlegend").innerHTML = `<span style="color:#2a78d6">━</span> mean over the last hour &nbsp; <span style="color:#9ca3af">┅</span> baseline median ` +
+    `&nbsp; <span style="background:#e5e7eb">&nbsp;&nbsp;&nbsp;</span> baseline range &nbsp; <span style="color:#eb6834">│</span> deploys and drills &nbsp; <span style="color:#b42318">●</span> beyond the thresholds`;
+  $("drillnow").innerHTML = (r.drills || []).length ? r.drills.map(d => `<div><span class="badge live">running</span> ` +
+    (d.kind === "shift" ? `click predictions ×${d.factor} on ${esc(d.version)}` +
+      (d.version === r.serving ? " (serving)" : ` (not serving: ${esc(r.serving || "none")} is)`) : `serving code for ${esc(d.feature)} changed`) +
+    ` since ${simTime(d.started_ms)} <button onclick="stopDrill('${d.kind}')">End</button></div>`).join("")
+    : `<span class="sub">No drill running. Serving: ${esc(r.serving || "no conversion bundle")}.</span>`;
+  const p = r.parity;
+  $("dailyparity").innerHTML = p ? `Day ${p.day}: ${fmt(p.rows)} rows; worst feature ${esc(p.feature || "none")} at ` +
+    `<span class="${p.rate > 0.001 ? "warn" : ""}">${pct2(p.rate)}</span> mismatched` + (p.examples ? ` (${esc(p.examples)})` : "") + "."
+    : "Runs when the simulated day turns, on the day that just ended.";
+  const q = await api("api/quarantine").catch(() => null);
+  if (q && q.entries) rows("qlist", q.entries.map(e => `<tr><td>${esc(e.id)}</td><td style="text-align:left">${simTime(e.from_ms)} to ${simTime(e.to_ms)}</td>
+    <td style="text-align:left">${esc(Object.entries(e.where || {}).map(([k, v]) => k + "=" + v).join(", ") || "all")}</td>
+    <td style="text-align:left" class="sub">${esc(e.reason || "")}</td><td><button onclick="unquarantine('${e.id}')">Remove</button></td></tr>`).join(""));
+}
+async function stopDrill(kind) { await api("api/drills/stop", {kind}); loadOps(); }
+async function unquarantine(id) { await api("api/quarantine/remove", {id}); loadOps(); }
+$("drillshift").onclick = async () => { try { await api("api/drills/start", {kind: "shift", factor: Number($("drillfac").value)}); }
+  catch (e) { $("drillnow").textContent = e.message; return; } loadOps(); };
+$("drillparity").onclick = async () => { await api("api/drills/start", {kind: "parity"}); loadOps(); };
+$("paritynow").onclick = async () => { $("dailyparity").textContent = "Checking…";
+  try { await api("api/parity/day", {}); } catch (e) { $("dailyparity").textContent = e.message; return; } loadOps(); };
+$("qinspect").onclick = async () => {
+  const day = Number($("qday").value), field = $("qfield").value;
+  const r = await api("api/quarantine/inspect", {day, field}).catch(e => ({error: e.message}));
+  const t = document.querySelector("#qinspectt");
+  if (r.error) { t.querySelector("tbody").innerHTML = `<tr><td>${esc(r.error)}</td></tr>`; return; }
+  const vals = [...new Set(Object.values(r.by_day).flatMap(c => Object.keys(c)))].sort();
+  t.querySelector("thead").innerHTML = `<tr><th>Install postbacks received</th>${vals.map(v => `<th>${esc(v)}</th>`).join("")}</tr>`;
+  t.querySelector("tbody").innerHTML = Object.entries(r.by_day).map(([d, c]) =>
+    `<tr${Number(d) === day ? ' style="font-weight:600"' : ""}><td>day ${d}</td>${vals.map(v => `<td>${fmt(c[v] || 0)}</td>`).join("")}</tr>`).join("");
+};
+$("qadd").onclick = async () => {
+  const day = Number($("qday").value), w = $("qwhere").value.trim(), where = {};
+  if (w) { const [k, v] = w.split("="); where[k.trim()] = (v || "").trim(); }
+  try { await api("api/quarantine/add", {from_ms: day * 86400000, to_ms: (day + 1) * 86400000, where, reason: $("qreason").value}); }
+  catch (e) { $("qstate").textContent = e.message; return; }
+  $("qstate").textContent = "Added. Rebuild the datasets (run the pipeline), and recount the device profiles."; loadOps();
+};
+$("qrecount").onclick = async () => { $("qstate").textContent = "Recounting from the postbacks…";
+  try { const r = await api("api/profiles/recount", {});
+    $("qstate").textContent = `${fmt(r.changed)} of ${fmt(r.devices)} devices changed; skipped ` +
+      (Object.entries(r.skipped || {}).map(([k, v]) => `${fmt(v)} postbacks for ${k}`).join(", ") || "nothing") + "."; }
+  catch (e) { $("qstate").textContent = e.message; } };
+// ---------------------------------------------------------------- labels
+function showLabels(r) {
+  if (!r) return;
+  $("labelsstate").innerHTML = `${fmt(r.impressions)} impressions, ${fmt(r.installs)} attributed installs,
+    ${fmt(r.purchases)} purchases ($${r.purchase_revenue.toFixed(2)} revenue).`;
+  const d = r.delays;
+  document.querySelector("#labeldelays thead").innerHTML =
+    "<tr><th></th><th>Installs</th><th>Median</th>" + d.hours.map(h => `<th>${h}h</th>`).join("") + "</tr>";
+  rows("labeldelays", ["click", "view", "all"].filter(k => d[k] && d[k].n).map(k =>
+    `<tr><td>${k === "all" ? "All" : k === "click" ? "Click-through" : "View-through"}</td><td>${fmt(d[k].n)}</td>
+     <td>${d[k].median_hours}h</td>${d[k].share_by_hour.map(x => `<td>${pct(x)}</td>`).join("")}</tr>`).join(""));
+  const k = r.maturity.length ? r.maturity[0].share_by_end_of_day.length : 0;
+  document.querySelector("#labelmaturity thead").innerHTML = "<tr><th>Day</th><th>Impressions</th><th>Installs so far</th>" +
+    Array.from({length: k}, (_, i) => `<th>${i === 0 ? "Same day" : "+" + i}</th>`).join("") + "</tr>";
+  rows("labelmaturity", r.maturity.map(m => `<tr><td>${m.day}</td><td>${fmt(m.impressions)}</td><td>${fmt(m.installs_so_far)}</td>
+    ${m.share_by_end_of_day.map(x => `<td>${x === null ? "–" : pct(x)}</td>`).join("")}</tr>`).join(""));
+  const truth = r.by_placement.some(p => "caused" in p);
+  document.querySelector("#labelplacements thead").innerHTML = "<tr><th>Placement</th><th>Impressions</th>" +
+    "<th>Attributed</th><th>Click</th><th>View</th>" + (truth ? "<th>Caused by our ads</th><th>Credited and caused</th>" +
+    "<th>Click: caused</th><th>View: caused</th><th>Caused, credited elsewhere</th>" : "") + "</tr>";
+  const p_ = x => x === null || x === undefined ? "–" : pct(x);
+  rows("labelplacements", r.by_placement.map(p => `<tr><td>${esc(p.placement)}</td><td>${fmt(p.impressions)}</td>
+    <td>${fmt(p.attributed)}</td><td>${fmt(p.attributed_click)}</td><td>${fmt(p.attributed_view)}</td>` +
+    (truth ? `<td>${fmt(p.caused)}</td><td>${p_(p.credited_caused_share)}</td><td>${p_(p.click_caused_share)}</td>
+    <td>${p_(p.view_caused_share)}</td><td>${fmt(p.caused_not_credited)}</td>` : "") + "</tr>").join(""));
+}
+$("labelsbtn").onclick = async () => {
+  $("labelsbtn").disabled = true; $("labelsstate").textContent = "Reading the ledger…";
+  try { showLabels(await api("api/labels", {})); } catch (e) { $("labelsstate").textContent = e.message; }
+  $("labelsbtn").disabled = false;
+};
+api("api/labels").then(showLabels).catch(() => {});
 $("constbtn").onclick = async () => {
   try { await api("api/train", {deploy: false, constant: 0.25}); }
   catch (e) { $("trainstate").textContent = e.message; return; }
@@ -681,7 +1643,9 @@ async function loadOps() {
     <td style="text-align:left"><b>${a.name.replace(/_/g, " ")}</b><div class="sub">${esc(a.scope)}</div></td>
     <td style="text-align:left">${simTime(a.since_ms)}${a.resolved_ms ? "<div class='sub'>to " + simTime(a.resolved_ms) + "</div>" : ""}</td>
     <td style="text-align:left">${esc(a.detail)}<div class="sub">Check first: ${esc(a.check)}</div></td>
-    <td style="text-align:left" class="sub">${esc(a.owner)}</td></tr>`).join(""));
+    <td style="text-align:left" class="sub">${esc(a.owner)}</td>
+    <td>${a.playbook ? `<a href="${a.playbook}" target="_blank">Playbook</a>` : ""}</td></tr>`).join(""));
+  loadDrills(o.audit);
   $("noalerts").textContent = o.alerts.length ? "" : "No alerts so far.";
   const s = o.switches;
   toggle("sw-global", s.global, ["Stop all bidding", "Resume bidding"], "global", "");

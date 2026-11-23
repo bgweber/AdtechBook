@@ -22,9 +22,9 @@ type Trainer struct {
 	URL    string // such as http://trainer:8090; empty = no training service
 	Models *model.Registry
 
-	mu     sync.Mutex
-	job    TrainJob
-	parity json.RawMessage
+	mu      sync.Mutex
+	job     TrainJob
+	reports map[string]json.RawMessage // latest report from the trainer, by name
 }
 
 // TrainRequest is what the console sends to start a run.
@@ -125,14 +125,26 @@ func (t *Trainer) run(req TrainRequest) {
 	t.job.Message = "trained " + out.Version
 }
 
-// Parity runs the feature parity check on the training service (Chapter
-// 8) and keeps the latest report for the console.
-func (t *Trainer) Parity() (json.RawMessage, error) {
+// Report runs one of the training service's reports, such as "parity"
+// (Chapter 8) or "labels" (Chapter 13), and keeps the latest copy for the
+// console.
+func (t *Trainer) Report(name string) (json.RawMessage, error) {
+	return t.ReportWith(name, nil)
+}
+
+// ReportWith runs a report with a JSON body, such as the parity check of
+// one day, and keeps it as the latest copy.
+func (t *Trainer) ReportWith(name string, body any) (json.RawMessage, error) {
 	if t.URL == "" {
 		return nil, fmt.Errorf("no training service: start the bidder with -trainer-url")
 	}
+	var rd io.Reader
+	if body != nil {
+		buf, _ := json.Marshal(body)
+		rd = bytes.NewReader(buf)
+	}
 	client := &http.Client{Timeout: 10 * time.Minute}
-	resp, err := client.Post(t.URL+"/parity", "application/json", nil)
+	resp, err := client.Post(t.URL+"/"+name, "application/json", rd)
 	if err != nil {
 		return nil, err
 	}
@@ -145,14 +157,40 @@ func (t *Trainer) Parity() (json.RawMessage, error) {
 		return nil, fmt.Errorf("HTTP %d from the trainer: %s", resp.StatusCode, bytes.TrimSpace(raw))
 	}
 	t.mu.Lock()
-	t.parity = raw
+	if t.reports == nil {
+		t.reports = map[string]json.RawMessage{}
+	}
+	t.reports[name] = raw
 	t.mu.Unlock()
 	return raw, nil
 }
 
-// LastParity is the latest parity report, or nil.
-func (t *Trainer) LastParity() json.RawMessage {
+// Call posts a JSON body to one of the training service's endpoints, such
+// as "dataset" or "gbm", and returns its reply. These can take minutes.
+func (t *Trainer) Call(name string, body any) (json.RawMessage, error) {
+	if t.URL == "" {
+		return nil, fmt.Errorf("no training service: start the bidder with -trainer-url")
+	}
+	buf, _ := json.Marshal(body)
+	client := &http.Client{Timeout: 20 * time.Minute}
+	resp, err := client.Post(t.URL+"/"+name, "application/json", bytes.NewReader(buf))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d from the trainer: %s", resp.StatusCode, bytes.TrimSpace(raw))
+	}
+	return raw, nil
+}
+
+// LastReport is the latest copy of a report, or nil.
+func (t *Trainer) LastReport(name string) json.RawMessage {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.parity
+	return t.reports[name]
 }

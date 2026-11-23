@@ -168,7 +168,7 @@ The defaults form the pricing side of the fallback ladder in @sec-operating-a-co
 ::: {.callout-tip title="Try it on the simulator"}
 Price a CPI campaign and a D7 ROAS campaign on the same requests, and trace each bid term by term. Run the internal auction, and check which campaign wins as the request's publisher and device change. Then add three creatives to a campaign, one much better than the others, and watch Thompson sampling shift traffic toward it as installs arrive.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). The Pricing tab switches on the internal auction, calibration multipliers, and Thompson sampling; `adtrain trace` shows every term of a bid and every campaign's score; `ADSIM_SCENARIO=creative-test` gives one campaign a much better creative. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::

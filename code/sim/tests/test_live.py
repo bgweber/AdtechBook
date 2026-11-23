@@ -4,6 +4,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import pandas as pd
 import pytest
 
 from adsim.config import preset
@@ -34,8 +35,12 @@ class Bidder(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    postback_times = []
+
     def do_GET(self):
         Bidder.notices.append(self.path)
+        if self.path.startswith("/postback"):
+            Bidder.postback_times.append(int(self.headers[TIME_HEADER]))
         if self.path.startswith("/postback"):
             Bidder.tokens.add(self.headers.get("X-MMP-Token"))
         self.send_response(204)
@@ -196,3 +201,32 @@ def test_scenarios_and_invoices(bidder_url):
     assert Bidder.invoices and len(Bidder.invoices) == len(inv)
     assert ((inv.exchange == "beta_exchange")
             & (inv.placement == "rewarded_video")).any()
+
+
+def test_postbacks_wait_for_their_time(bidder_url, tmp_path):
+    """Across runs, the MMP never sends a postback before its time: the
+    ones due after a run ends wait in a file and go out in the next run."""
+    import dataclasses
+    Bidder.slow_native = False
+    pending = tmp_path / "state" / "pending_postbacks.parquet"
+    sent = []
+    for start in (0, 1):
+        Bidder.postback_times.clear()
+        cfg = dataclasses.replace(preset("crawl", "tiny", seed=5, days=1),
+                                  requests_per_device=4.0, start_day=start)
+        pol = HttpPolicy(bidder_url, workers=8, admin_url=bidder_url,
+                         notice_retry=0, pending_path=str(pending))
+        res = simulate(cfg, policy=pol)
+        pol.close()
+        end = (start + 1) * 86_400_000
+        assert Bidder.postback_times and max(Bidder.postback_times) <= end
+        pb = res.logs["postbacks"]
+        if start == 0:
+            assert pending.exists()
+            later = pd.read_parquet(pending)
+            assert (later.received_ts_ms > end).all()
+            assert len(later) == (pb.received_ts_ms > end).sum()
+        sent.append(len(Bidder.postback_times))
+    # the second run sent its own postbacks and some of the first run's
+    assert sent[1] > 0
+

@@ -110,7 +110,7 @@ The number that ties it together is **cost per million requests**: the compute c
 ::: {.callout-tip title="Try it on the simulator"}
 Profile the walk bidder under load with replayed simulated traffic. Find the slowest stage at p99, then cap the candidates per request and batch the model calls, and measure the change. Compare LightGBM served through ONNX Runtime with a native Go implementation on the same model.
 
-*Status: planned. This exercise needs the companion Go bidder and a replay harness, which isn't built yet.*
+*Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). The bidder times every stage of the bid path (the Serving tab), the load generator replays logged requests at rising rates (`docker compose run --rm loadgen`), Go's profiler is on the admin port, and the auction's candidate cap comes with an audit of what it gives up. `code/onnxbench` compares ONNX Runtime from Go, without cgo, with the native evaluator on the same model. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 <!-- Tracker: private/implementation-tracker.md -->
 :::
