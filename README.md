@@ -10,7 +10,11 @@ Python pipelines that train, validate, and publish its models.
 
 **Read it:** [free online edition](https://bgweber.github.io/AdtechBook/) ·
 [free EPUB](https://github.com/bgweber/AdtechBook/releases/latest) ·
-[paperback](https://www.amazon.com/s?k=9798144378116)
+paperback coming soon
+
+The EPUB's equations need a reader with math (MathML) support, such as Apple
+Books, Thorium Reader, or Calibre. Kindle doesn't support it and shows the
+equations garbled, so on Kindle, read the chapters with equations online.
 
 > **Run the simulator:** start a simulated ad market, a Go bidder, and its console with one command,
 > then follow the book chapter by chapter. The **[walkthrough](WALKTHROUGH.md)** has the commands for
@@ -22,8 +26,18 @@ Python pipelines that train, validate, and publish its models.
 > ```
 
 <p align="center">
-  <img src="images/ch22-console-pacing.png" alt="The bidder's console, pacing panel: each campaign's budget, spend today, plan so far, and pacing multiplier, with charts of one campaign's spend against its plan and its multiplier over a simulated day" width="800">
-  <br><em>The bidder's console pacing a campaign's spend against its daily plan in the simulated market (Chapter 22).</em>
+  <img src="images/ch05-console-live.png" alt="The bidder's live console: requests, bids, wins, impressions, clicks, latency, and a table of campaigns with spend, win rate, and predicted against actual click rates" width="800">
+  <br><em>The bidder's live console: requests, bids, wins, and spend for every campaign in the simulated market (Chapter 5).</em>
+</p>
+
+<p align="center">
+  <img src="images/ch09-console-model-curves.png" alt="Model evaluation in the console: AUC, PR AUC, log loss, and calibration tiles, with ROC, precision-recall, and calibration-by-decile charts that compare the click model with the simulator's true rates" width="800">
+  <br><em>Evaluating a click model: ROC and precision-recall curves, and calibration checked against the simulator's true rates (Chapter 9).</em>
+</p>
+
+<p align="center">
+  <img src="images/ch24-console-monitor.png" alt="The prediction monitor: each model's hourly mean prediction against a baseline band, with deploy markers and alert points" width="800">
+  <br><em>Monitoring models in production: hourly mean predictions against their baselines, with deploys and alerts marked (Chapter 24).</em>
 </p>
 
 ## The companion code
@@ -270,7 +284,8 @@ git push origin v1.0.0
 The workflow attaches the PDF and EPUB to the GitHub release for that tag.
 Upload the PDF as the KDP paperback interior. The EPUB is not sold on
 KDP: it stays on the GitHub release as a free download, which the web
-edition links to, and readers can send it to Kindle, Kobo, or Apple Books.
+edition links to. Kindle shows its equations garbled (no MathML support),
+so the README and the home page point Kindle readers to the web edition.
 The EPUB's cover is added by `scripts/polish_epub.py`, not Quarto's
 `epub-cover-image`, whose SVG cover page made Kindle Previewer's conversion
 fail. You can also run the workflow manually from the
@@ -292,7 +307,9 @@ fail. You can also run the workflow manually from the
   equations, figures, and long code lines. Kindle Previewer's conversion is
   CPU-heavy for this book, so don't rebuild the EPUB for every change.
 
-## Before the first release
+## Before the print release
 
-- Once the paperback is live, optionally swap the Amazon ISBN search links
-  (`https://www.amazon.com/s?k=9798144378116`) for the product page URL.
+- Once the paperback is live on Amazon, add its product page link back in
+  four places: the "Read it" line at the top of this README, the "Read it
+  free" box in `index.qmd`, and the sidebar and footer in
+  `_quarto.yml`. Until then they say the paperback is coming soon.

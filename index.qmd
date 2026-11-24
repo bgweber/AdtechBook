@@ -16,12 +16,14 @@ operate them. A free online edition is available at:
 
 ::: {.content-visible when-format="html:js"}
 ::: {.callout-tip}
-## Read free, or buy a copy
+## Read it free
 
 You can read the whole book here at no cost, or
-[download the free EPUB](https://github.com/bgweber/AdtechBook/releases/latest) for your e-reader, including Kindle. If you'd
-like a printed copy, the **paperback** is available on
-[Amazon](https://www.amazon.com/s?k=9798144378116).
+[download the free EPUB](https://github.com/bgweber/AdtechBook/releases/latest) for your e-reader. The EPUB's equations need a
+reader with math (MathML) support, such as Apple Books, Thorium Reader, or
+Calibre. Kindle doesn't support it and shows the equations garbled, so on
+Kindle, read the chapters with equations here instead. A **paperback**
+edition is coming soon on Amazon.
 :::
 :::
 
