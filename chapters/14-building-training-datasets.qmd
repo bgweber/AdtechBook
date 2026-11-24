@@ -187,7 +187,6 @@ Build an install training dataset with as-of joins and the label cutoffs above. 
 
 *Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). Build the as-of and the leaky dataset from the Conversions tab, or with `adtrain dataset` and `adtrain dataset --leak`; the leaky one fails the check that compares its device history with what the bidder logged. Training and serving both of them is the next chapter's exercise. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

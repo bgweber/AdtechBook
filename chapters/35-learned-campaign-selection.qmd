@@ -113,9 +113,8 @@ The estimate is only reliable where the logging policy explored. The crawl DSP's
 ::: {.callout-tip title="Try it on the simulator"}
 Score every eligible campaign with the full pipeline on a 1% sample of simulated requests, and train a two-tower bid predictor on those scores. Plot recall at $k$ against the full ranking's winner, and value recall, for $k$ from 5 to 50, overall and for new campaigns. Then compare the predictor with the walk candidate cap and with install-affinity retrieval, offline with logged propensities and online on the simulator.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

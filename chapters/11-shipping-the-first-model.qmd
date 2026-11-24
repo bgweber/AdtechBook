@@ -247,7 +247,6 @@ Train a new click model and publish it as a bundle. Move the champion pointer, a
 
 *Status: runs with the companion bidder (dsp 0.5). Train and deploy from the console's Models tab. Each model is published with golden examples; the bidder refuses to deploy one whose predictions it can't reproduce, or one that failed its checks (including the cosine stability check) unless the deploy is forced, and rolls back by deploying an earlier version or going back to the priors. The bidder warms each model up before the swap, and the Models tab shows bids by model version for each simulated hour. The golden-file test runs in `go test` and `pytest`; for the constant model, use the Chapter 12 button on the Models tab.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

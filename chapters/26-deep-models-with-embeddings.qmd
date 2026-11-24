@@ -177,9 +177,8 @@ Content embeddings matter beyond cold start. Meta's LLaTTE work found that conte
 ::: {.callout-tip title="Try it on the simulator"}
 Train a multi-task DCNv2 model with click, install-after-click, and install-after-view heads on simulated impressions. Find the embedding rows that never changed during training, and compare the model's calibration with and without zeroing them. Then compare its calibration with the LightGBM models from Part III, against the true rates.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

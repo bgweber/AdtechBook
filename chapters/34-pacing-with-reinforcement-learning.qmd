@@ -139,9 +139,8 @@ RL is worth its complexity when there's structure the PI controller can't use: s
 ::: {.callout-tip title="Try it on the simulator"}
 Build a logged-auction simulator from a simulated week of one campaign's bid logs and its win model, and check it by replaying the PI controller that ran. Add a traffic surge to one day, then compare the PI controller, MPC with the forecast, and a policy trained with Q-learning in the simulator, on the companion simulator. Compare value won per dollar, spend against plan, and the multiplier over the day.
 
-*Status: planned. This exercise needs traffic surge scenarios, which adsim 0.1 doesn't support yet.*
+*Status: planned. This exercise needs traffic surge scenarios, which adsim 0.3 doesn't support yet.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

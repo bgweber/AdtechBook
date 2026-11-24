@@ -96,7 +96,6 @@ Run the crawl bidder in listen-only mode for a simulated week. Build the volume 
 
 *Status: runs with the companion bidder (dsp 0.5): start it with `-mode listen`, then with `-mode bid -bid-share 0.01`. The console shows volume and floors by exchange, placement, and country, and wins, impressions, and spend by campaign. The bidder receives clicks through the click tracker in each bid's ad markup and logs them next to its notices.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

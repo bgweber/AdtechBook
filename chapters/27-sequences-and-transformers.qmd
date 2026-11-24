@@ -313,9 +313,8 @@ The design is simple to draw, but most of the work is in three areas where it ca
 ::: {.callout-tip title="Try it on the simulator"}
 Pretrain a small transformer on the simulator's non-attributed install and purchase events. Compute affinity scores and head outputs, add them to the LightGBM install and value models, and measure the gain against the true install rates and values. Then build Design B with tower dot products and a LightGBM calibration layer, and compare the two designs on the same traffic.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

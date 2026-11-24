@@ -289,7 +289,6 @@ Follow one request from its FeatureVector in the bid ledger, through its win and
 
 *Status: runs with the companion bidder (dsp 0.5) and training code. `python -m adtrain trace <request_id>` follows one request from its FeatureVector through its notices and click to its training row. The bidder logs raw context for 5% of bids, and the parity check on the console's Models tab recomputes their FeatureVectors with a second implementation. Start the bidder with `-skew bundle` or `-skew conn` (`BIDDER_SKEW` in Docker Compose) to change how it normalizes one feature.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

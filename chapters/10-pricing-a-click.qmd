@@ -184,7 +184,6 @@ Trace the pricing ledger for one CPC bid and one CPI bid: the prediction, the ad
 
 *Status: runs with the companion bidder (dsp 0.5). Every bid record in the ledger has the decision's terms: the predicted click rate and the model version that made it, the advertiser value, the media value after margin, the exploration multiplier, the bid, and for no-bids, the reason, such as `below_floor`. For CPI campaigns, it also has the install rate after a click and where it came from: a segment, the campaign, all campaigns, or the 3% prior. The shade is the crawl policy's fixed 0.7. See `code/dsp/README.md` for reading the ledger.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

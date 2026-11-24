@@ -207,7 +207,6 @@ Price a CPI campaign and a D7 ROAS campaign on the same requests, and trace each
 
 *Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). The Pricing tab switches on the internal auction, calibration multipliers, and Thompson sampling; `adtrain trace` shows every term of a bid and every campaign's score; `ADSIM_SCENARIO=creative-test` gives one campaign a much better creative. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

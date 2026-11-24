@@ -119,9 +119,8 @@ Turn on ATT-style missing device IDs for a share of traffic. Compare a model tra
 
 <!-- TODO: the simulator doesn't have an iOS or ATT mode yet. -->
 
-*Status: planned. This exercise needs iOS traffic with ATT-style missing device IDs, which adsim 0.1 doesn't support yet.*
+*Status: planned. This exercise needs iOS traffic with ATT-style missing device IDs, which adsim 0.3 doesn't support yet.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
