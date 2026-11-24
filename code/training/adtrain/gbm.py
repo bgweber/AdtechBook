@@ -66,6 +66,22 @@ PARAMS = {"objective": "binary", "learning_rate": 0.05, "num_leaves": 15,
 ROUNDS = 200
 
 
+# Inputs computed from others, appended after NUMERIC for the value model
+# only, so the click and install models keep exactly their Part III
+# inputs. A device's request rate is how much it plays, which is what its
+# ad revenue depends on; the raw count and age drift as the market ages.
+DERIVED = ("device_requests_per_day",)
+VALUE_EXCLUDE = AGE_FEATURES
+
+
+def derived(requests, seconds_known):
+    """device_requests_per_day, from the count and how long the DSP has
+    known the device (at least an hour, so a first request isn't a rate)."""
+    r = np.asarray(requests, float)
+    s = np.maximum(np.asarray(seconds_known, float), 3600.0)
+    return (r / s * 86400.0)[..., None]
+
+
 def raw_values(fv: dict, ad: dict) -> dict:
     """The model's inputs from one FeatureVector and ad, before encoding."""
     s = fv.get("strings") or {}
@@ -233,6 +249,9 @@ def train(dataset_dir, models_dir, sim_out=None, eval_day=None,
         log(f"{name}: trained on {len(tr):,} rows ({int(y[tr].sum())} positives), "
             f"days {ev_day}-{last_ev}: {len(ev):,} rows, {int(y[ev].sum())} positives, "
             f"AUC {rep['auc']}, calibration {rep['calibration']}, true {rep.get('true_calibration')}")
+    vrep = _train_value(df, X, sim_out, trained, log)
+    if vrep:
+        report["models"]["value"] = vrep
     n_purch = int((df.d7_revenue > 0).sum())
     report["purchase_model"] = (f"skipped: {n_purch} installs with a purchase, "
                                 f"fewer than {min_purchases}")
@@ -243,10 +262,13 @@ def train(dataset_dir, models_dir, sim_out=None, eval_day=None,
 
 def _evaluate(name, rows, y, p, truth, ev_day, n_train, pos_train) -> dict:
     base = {"click": "logged_p_click", "install_click": "logged_p_install_click"}.get(name)
+    # a sampled dataset (--sample-rate) weights its kept negatives: the
+    # calibration counts them that many times
+    w = rows.sample_weight.to_numpy(float) if "sample_weight" in rows else np.ones(len(y))
     out = {"eval_days": ev_day, "train_rows": n_train, "train_positives": pos_train,
            "eval_rows": int(len(y)), "eval_positives": int(y.sum()),
            "auc": _r(metrics.roc(y, p)[1]), "log_loss": _r(metrics.log_loss(y, p)),
-           "calibration": _r(p.sum() / max(y.sum(), 1e-9), 3)}
+           "calibration": _r((w * p).sum() / max((w * y).sum(), 1e-9), 3)}
     if base is not None:
         lp = rows[base].astype(float).fillna(0).to_numpy()
         lp = np.clip(lp, 1e-6, 1 - 1e-6)
@@ -278,6 +300,143 @@ def _evaluate(name, rows, y, p, truth, ev_day, n_train, pos_train) -> dict:
     return out
 
 
+VALUE_MIN_INSTALLS = 100
+# Ad revenue is positive and right-skewed: a Tweedie loss predicts its mean
+# directly (log link), so the bidder can multiply it into a bid as is
+# (Chapter 30). Smaller trees: there are far fewer installs than clicks.
+VALUE_PARAMS = {"objective": "tweedie", "tweedie_variance_power": 1.2,
+                "num_leaves": 7, "min_data_in_leaf": 40}
+VALUE_EVAL_DAYS = 2
+
+
+def ad_apps(df) -> tuple[np.ndarray, set]:
+    """Each row's advertiser app, and the apps with AD_ROAS campaigns."""
+    parsed = df.ad.map(json.loads)
+    adv = parsed.map(lambda a: a.get("adv_app") or "")
+    goal_ad = parsed.map(lambda a: (a.get("goal") or "").upper() == "AD_ROAS")
+    return adv.to_numpy(), set(adv[goal_ad])
+
+
+def _train_value(df, X, sim_out, trained, log) -> dict | None:
+    """A value model for Ad ROAS (Chapter 30): D3 ad revenue per install
+    of a hypercasual app, from the same inputs as the install models.
+
+    Every install of an app with an AD_ROAS campaign counts, whichever
+    campaign brought it. It's evaluated on the newest days with final D3
+    labels against the per-app average the bidder uses without it
+    (Chapter 21), and against the simulator's true expected revenue."""
+    import lightgbm as lgb
+
+    if "d3_revenue" not in df:
+        return None
+    adv, apps = ad_apps(df)
+    if not apps:
+        return None
+    m = ((df.install == 1).to_numpy() & np.isin(adv, list(apps))
+         & df.d3_final.to_numpy())
+    idx = np.flatnonzero(m)
+    if len(idx) < VALUE_MIN_INSTALLS:
+        log(f"value: {len(idx)} hypercasual installs with final D3 revenue, "
+            f"fewer than {VALUE_MIN_INSTALLS}: skipped")
+        return {"skipped": f"{len(idx)} installs with final D3 revenue, "
+                           f"fewer than {VALUE_MIN_INSTALLS}"}
+    dd = df.day.to_numpy()
+    days = sorted(set(dd[idx].tolist()))
+    ev_days = days[-VALUE_EVAL_DAYS:] if len(days) > VALUE_EVAL_DAYS else days[-1:]
+    ev = idx[np.isin(dd[idx], ev_days)]
+    tr = idx[~np.isin(dd[idx], ev_days)]
+    if len(tr) < VALUE_MIN_INSTALLS // 2:
+        log(f"value: only {len(tr)} training installs before day {ev_days[0]}: skipped")
+        return {"skipped": f"{len(tr)} training installs"}
+    y = df.d3_revenue.to_numpy(float)
+    names = list(CATEGORICAL) + list(NUMERIC) + list(DERIVED)
+    nc = len(CATEGORICAL)
+    X = np.hstack([X, derived(X[:, nc + NUMERIC.index("device_requests")],
+                              X[:, nc + NUMERIC.index("seconds_since_first_seen")])])
+    X = X.copy()
+    for f in VALUE_EXCLUDE:
+        X[:, names.index(f)] = np.nan  # drifts with the market's age
+    w = df.sample_weight.to_numpy()
+    ds = lgb.Dataset(X[tr], y[tr], weight=w[tr], feature_name=names,
+                     categorical_feature=list(CATEGORICAL), free_raw_data=False)
+    booster = lgb.train({**PARAMS, **VALUE_PARAMS}, ds, num_boost_round=ROUNDS)
+    p = booster.predict(X[ev])
+    # the comparison a reader can make: least squares on log revenue,
+    # back-transformed with a smearing factor (Duan) so its mean is right
+    ds_log = lgb.Dataset(X[tr], np.log1p(y[tr]), weight=w[tr], feature_name=names,
+                         categorical_feature=list(CATEGORICAL), free_raw_data=False)
+    blog = lgb.train({**PARAMS, **VALUE_PARAMS, "objective": "regression"},
+                     ds_log, num_boost_round=ROUNDS)
+    resid = np.log1p(y[tr]) - blog.predict(X[tr])
+    smear = float(np.mean(np.exp(resid)))
+    p_log = np.maximum(np.exp(blog.predict(X[ev])) * smear - 1, 0)
+    # the baseline: each app's average on the training days, shrunk
+    yt, at = y[tr], adv[tr]
+    prior = float(yt.mean())
+    table = {a: (yt[at == a].sum() + VALUE_K * prior) / ((at == a).sum() + VALUE_K)
+             for a in set(at)}
+    base = np.array([table.get(a, prior) for a in adv[ev]])
+    tt = simout.table(sim_out, "truth", "impressions",
+                      ["impression_id", "expected_d3_ad_revenue"])
+    tv = None
+    if tt is not None and "expected_d3_ad_revenue" in tt:
+        tv = tt.set_index("impression_id").expected_d3_ad_revenue.reindex(
+            "i" + df.request_id.iloc[ev]).to_numpy(float)
+    rows = df.iloc[ev]
+    out = {"label": "d3_revenue", "eval_days": [int(ev_days[0]), int(ev_days[-1])],
+           "train_rows": int(len(tr)), "eval_rows": int(len(ev)),
+           "train_mean": _r(float(yt.mean()), 4), "eval_mean": _r(float(y[ev].mean()), 4),
+           "objective": "tweedie"}
+    out["models"] = {k: _value_scores(v, y[ev], tv) for k, v in
+                     (("tweedie", p), ("log_regression", p_log), ("per_app_average", base))}
+    out["by_country"] = []
+    for c in sorted(rows.country.fillna("?").unique()):
+        k = (rows.country.fillna("?") == c).to_numpy()
+        if k.sum() >= 10:
+            r = {"country": c, "installs": int(k.sum()),
+                 "actual": _r(float(y[ev][k].mean()), 4),
+                 "predicted": _r(float(p[k].mean()), 4),
+                 "per_app_average": _r(float(base[k].mean()), 4)}
+            if tv is not None:
+                r["true"] = _r(float(np.nanmean(tv[k])), 4)
+            out["by_country"].append(r)
+    order = np.argsort(p, kind="stable")
+    out["by_prediction"] = []
+    for ix in np.array_split(order, 5):
+        if len(ix):
+            r = {"rows": int(len(ix)), "predicted": _r(float(p[ix].mean()), 4),
+                 "actual": _r(float(y[ev][ix].mean()), 4)}
+            if tv is not None:
+                r["true"] = _r(float(np.nanmean(tv[ix])), 4)
+            out["by_prediction"].append(r)
+    out["importance"] = _importance(booster)
+    trained["value"] = (booster, X)
+    t = out["models"]
+    log(f"value: trained on {len(tr):,} installs, days {ev_days[0]}-{ev_days[-1]}: "
+        f"{len(ev):,} installs; correlation with the true value: tweedie "
+        f"{t['tweedie'].get('true_corr')}, per-app average {t['per_app_average'].get('true_corr')}")
+    return out
+
+
+def _value_scores(p, y, tv) -> dict:
+    """How well predicted values match the outcomes, and the truth."""
+    out = {"calibration": _r(float(p.sum() / max(y.sum(), 1e-9)), 3),
+           "corr": _r(float(np.corrcoef(p, y)[0, 1]) if p.std() > 0 else 0.0, 3)}
+    # gain: the share of revenue in the fifth of installs the model ranks
+    # highest; a random ranking gets 0.2
+    top = np.argsort(-p, kind="stable")[: max(1, len(p) // 5)]
+    out["top_fifth_share"] = _r(float(y[top].sum() / max(y.sum(), 1e-9)), 3)
+    if tv is not None:
+        ok = ~np.isnan(tv)
+        if ok.sum() > 2:
+            out["true_calibration"] = _r(float(p[ok].sum() / max(tv[ok].sum(), 1e-9)), 3)
+            out["true_corr"] = (_r(float(np.corrcoef(p[ok], tv[ok])[0, 1]), 3)
+                                if p[ok].std() > 0 else 0.0)
+            out["top_fifth_true_share"] = _r(float(tv[ok][np.argsort(-p[ok])[: max(1, ok.sum() // 5)]].sum()
+                                                   / max(tv[ok].sum(), 1e-9)), 3)
+    return out
+
+
 def _importance(booster) -> list:
     g = booster.feature_importance("gain")
     names = booster.feature_name()
@@ -298,6 +457,8 @@ def _publish(models_dir, trained, vocab, report, df, log):
             "categorical": list(CATEGORICAL), "numeric": list(NUMERIC),
             "zero_if_missing": list(ZERO_IF_MISSING), "other": OTHER,
             "vocab": vocab, "targets": sorted(trained),
+            # inputs only the value model uses, after the numbers (Chapter 30)
+            "derived": list(DERIVED) if "value" in trained else [],
             "dataset_version": report["dataset_version"]}
     (d / "model.json").write_text(json.dumps(spec))
     for name, (booster, _) in trained.items():
@@ -323,7 +484,9 @@ def _publish(models_dir, trained, vocab, report, df, log):
                 else:
                     num.pop(k, None)
             x = np.array([encode(raw, vocab)], float)
-            preds = {name: float(b.predict(x)[0]) for name, (b, _) in trained.items()}
+            xv = np.hstack([x, derived([raw["device_requests"]], [raw["seconds_since_first_seen"]])])
+            preds = {name: float(b.predict(xv if name == "value" else x)[0])
+                     for name, (b, _) in trained.items()}
             f.write(json.dumps({"features": fv, "ad": ad, "predictions": preds}) + "\n")
     values = _values(df)
     if values:
@@ -344,16 +507,33 @@ def _values(df) -> dict | None:
     value (Chapter 21). ROAS pricing uses it: a purchase model needs far
     more purchases than a small market makes, but an average per app
     needs only installs."""
-    m = (df.install == 1) & df.d7_final
+    # Apps with AD_ROAS campaigns (Chapter 30) are judged on D3 ad revenue,
+    # the rest on D7 revenue. Every install of such an app counts, whichever
+    # campaign brought it.
+    parsed = df.ad.map(json.loads)
+    adv = parsed.map(lambda a: a.get("adv_app") or "")
+    ad_apps = set(adv[parsed.map(lambda a: (a.get("goal") or "").upper()
+                                 == "AD_ROAS")])
+    is_ad = adv.isin(ad_apps).to_numpy()
+    d3 = df.d3_final.to_numpy() if "d3_final" in df else np.zeros(len(df), bool)
+    m = (df.install == 1).to_numpy() & np.where(is_ad, d3, df.d7_final.to_numpy())
     if m.sum() == 0:
         return None
-    apps = [json.loads(a).get("adv_app") or "" for a in df.ad[m]]
-    rev = df.d7_revenue[m].to_numpy(float)
+    ads = [json.loads(a) for a in df.ad[m]]
+    apps = [a.get("adv_app") or "" for a in ads]
+    # ad revenue (AD_ROAS apps) and purchase revenue differ by an order of
+    # magnitude, so each app shrinks toward its own kind's average
+    kind = is_ad[m]
+    rev = np.where(kind, df.d3_revenue[m].to_numpy(float) if "d3_revenue" in df
+                   else 0.0, df.d7_revenue[m].to_numpy(float))
     overall = float(rev.mean())
+    prior = {k: float(rev[kind == k].mean()) if (kind == k).any() else overall
+             for k in (False, True)}
     by = {}
     for app in sorted(set(apps)):
-        r = rev[[a == app for a in apps]]
-        by[app] = round((r.sum() + VALUE_K * overall) / (len(r) + VALUE_K), 4)
+        sel = np.array([a == app for a in apps])
+        r, p = rev[sel], prior[bool(kind[sel][0])]
+        by[app] = round((r.sum() + VALUE_K * p) / (len(r) + VALUE_K), 4)
     return {"overall": round(overall, 4), "by_adv_app": by, "installs": int(m.sum()), "k": VALUE_K}
 
 

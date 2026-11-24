@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .config import GENRES, STYLES
+from .config import GENRES, GEOS, STYLES
 from .world import World
 
 CLICK_BASE = {"rewarded_video": -3.2, "interstitial": -3.6,
@@ -76,6 +76,12 @@ def response(world: World, dev, pub_app, placement, adv_app, creative,
     p_iv = sigmoid(vbase + 0.9 * taste + np.log(inst_prop + 1e-9)
                    + 0.8 * appeal + 0.4 * style_fit + 0.3 * quality
                    - 0.3 * fatigue)
+    if world.cfg.ad_revenue:
+        # hypercasual games convert far better than the rest: simple,
+        # instantly playable, and free (Chapter 30)
+        hc = apps.monetization.to_numpy()[adv_app] == "ads"
+        p_ic = np.where(hc, sigmoid(logit(p_ic) + HC_INSTALL_LIFT), p_ic)
+        p_iv = np.where(hc, sigmoid(logit(p_iv) + HC_INSTALL_LIFT), p_iv)
     bot = d.is_bot.to_numpy()[dev]
     p_click = np.where(bot, BOT_CTR, p_click)
     p_ic = np.where(bot, 0.0, p_ic)
@@ -110,6 +116,52 @@ def payer_prob(world: World, dev, adv_app) -> np.ndarray:
 FIRST_PURCHASE_MEAN_DAYS = 1.5
 REPEAT_PURCHASES_30D = 2.0
 AMOUNT_SIGMA = 0.8
+
+
+# Ad revenue for ad-monetized (hypercasual) apps (Chapter 30). A player who
+# installs sees ads on the install day and on every later day they're
+# still playing. Day 1 follows the app's D1 retention; after that a player
+# keeps playing each day with a chance that rises with their taste for the
+# genre. A day's revenue is the device's ad impressions (its activity, as
+# the DSP sees it in requests) times the eCPM of its country, with noise.
+AD_IMPS_PER_DAY = 40  # interstitials and rewarded videos, for a device of average activity
+AD_ECPM_USD = 15.0  # in a country with cpm_scale 1.0 (the US)
+AD_DAY_SIGMA = 0.5  # lognormal noise on each day's revenue
+AD_DAY0_SHARE = 0.5  # the install day is a partial day
+HC_INSTALL_LIFT = 2.6  # log-odds lift of a hypercasual install, with ad revenue on: an IPM of tens, not single digits
+
+
+def logit(p):
+    p = np.clip(p, 1e-9, 1 - 1e-9)
+    return np.log(p / (1 - p))
+
+
+def ad_stickiness(world: World, dev, adv_app) -> np.ndarray:
+    """Chance a player still playing on day d plays on day d + 1 (d >= 1)."""
+    return np.clip(0.55 + 0.1 * np.minimum(_taste(world, dev, adv_app), 3),
+                   0, 0.9)
+
+
+def ad_revenue_per_day(world: World, dev) -> np.ndarray:
+    """Mean ad revenue on a full day of play, before the day's noise."""
+    d = world.devices
+    cpm = np.array([GEOS[g].cpm_scale for g in d.geo.to_numpy()[dev]])
+    act = d.activity.to_numpy()[dev] / world.cfg.requests_per_device
+    return act * AD_IMPS_PER_DAY * AD_ECPM_USD * cpm / 1000
+
+
+def expected_ad_revenue(world: World, dev, adv_app,
+                        days: int = 7) -> np.ndarray:
+    """True expected ad revenue per install within `days` of the install."""
+    apps, d = world.apps, world.devices
+    ads = apps.monetization.to_numpy()[adv_app] == "ads"
+    r1 = (apps.retention.to_numpy()[adv_app]
+          * np.where(d.is_bot.to_numpy()[dev], 0, 1))
+    q = ad_stickiness(world, dev, adv_app)
+    later = sum(q ** (k - 1) for k in range(1, days))  # days 1 .. days-1
+    mean = ad_revenue_per_day(world, dev) * np.exp(AD_DAY_SIGMA ** 2 / 2)
+    ev = mean * (AD_DAY0_SHARE + r1 * later)
+    return np.where(ads & ~d.is_bot.to_numpy()[dev], ev, 0.0)
 
 
 def expected_revenue(world: World, dev, adv_app,

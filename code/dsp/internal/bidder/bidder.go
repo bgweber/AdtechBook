@@ -296,7 +296,29 @@ func (b *Bidder) bid(w http.ResponseWriter, r *http.Request) {
 				tm.Candidates++
 				ad = features.Ad(c, cr)
 				ads[[2]int{c.ID, cr.ID}] = ad
+				if arm == campaigns.ArmControl && live.Kind == experiment.Value {
+					// a value test's control: the champion, with each app's
+					// average value for Ad ROAS, even if it has a value model
+					pr, ok := b.predict(fv, ad, exchange, sw)
+					if strings.ToUpper(ad["goal"]) == "AD_ROAS" {
+						pr.ValuePerInstall, pr.ValueFrom = 0, ""
+						if cb := b.Conversion.Current(); cb != nil {
+							if v, vok := cb.ValuePerInstall(ad["adv_app"]); vok {
+								pr.ValuePerInstall, pr.ValueFrom = v, "bundle"
+							}
+						}
+					}
+					return pr, ok
+				}
 				if arm == campaigns.ArmTreatment && live.Bundle != nil {
+					if live.Kind == experiment.Value {
+						// the champion's predictions, the challenger's value
+						pr, ok := b.predict(fv, ad, exchange, sw)
+						if v, vok := valueFromModel(live.Bundle, fv, ad); vok {
+							pr.ValuePerInstall, pr.ValueFrom = v, "model"
+						}
+						return pr, ok
+					}
 					return b.predictWith(fv, ad, exchange, sw, live.Bundle, live.Fault)
 				}
 				return b.predict(fv, ad, exchange, sw)
@@ -323,9 +345,36 @@ func (b *Bidder) bid(w http.ResponseWriter, r *http.Request) {
 					return bid, p, bid > 0
 				}
 			}
-			d = b.Policy.Decide(cands, n.Placement, n.IFA, n.Floor, rng, predict, shade)
+			// the winner's curse correction (Chapter 31): the deployed win
+			// bundle's table, or in a curse test the challenger's in the
+			// treatment arm and none in the control
+			cm := wm
+			if live != nil && live.Kind == experiment.Curse {
+				cm = nil
+				if arm == campaigns.ArmTreatment {
+					cm = live.Win
+				}
+			}
+			var curse policy.Curse
+			if cm != nil && cm.Curve() && cm.Curse != nil {
+				var cx []float64
+				price := -1.0
+				curse = func(media float64) float64 {
+					if price < 0 {
+						if cx == nil {
+							cx = cm.Inputs(fv, nil)
+						}
+						price = cm.MarketPrice(cx)
+					}
+					if price <= 0 {
+						return 1
+					}
+					return cm.Curse.Kappa(media / price)
+				}
+			}
+			d = b.Policy.DecideWith(cands, n.Placement, n.IFA, n.Floor, rng, predict, shade, curse)
 			if loadTest && d.Capped > 0 && rng.Float64() < CapAuditSample {
-				audit = func() { b.Policy.AuditCap(cands, n.Placement, n.Floor, rng, predict, shade) }
+				audit = func() { b.Policy.AuditCap(cands, n.Placement, n.Floor, rng, predict, shade, curse) }
 			}
 			if a, ok := ads[[2]int{d.CampaignID, d.CreativeID}]; ok {
 				ad = a
@@ -481,6 +530,26 @@ func (b *Bidder) predict(fv *features.FeatureVector, ad map[string]string, excha
 	return b.predictWith(fv, ad, exchange, sw, b.Conversion.Current(), "")
 }
 
+// MaxValuePerInstall bounds a value model's prediction: past it, the
+// bidder falls back to the app's average.
+const MaxValuePerInstall = 100.0
+
+// valueFromModel is the bundle's value model's D3 ad revenue per install
+// for an Ad ROAS ad (Chapter 30), if it has one and the prediction is sane.
+func valueFromModel(cb *gbm.Bundle, fv *features.FeatureVector, ad map[string]string) (float64, bool) {
+	if cb == nil || strings.ToUpper(ad["goal"]) != "AD_ROAS" {
+		return 0, false
+	}
+	if _, ok := cb.Models["value"]; !ok {
+		return 0, false
+	}
+	v, _ := cb.Predict("value", cb.Inputs(fv, ad))
+	if v <= 0 || v > MaxValuePerInstall || v != v {
+		return 0, false
+	}
+	return v, true
+}
+
 // predictWith predicts with a given conversion bundle: the champion's, or
 // an experiment's challenger. fault "scale" triples the bundle's click and
 // install predictions, the broken model of the Chapter 19 exercise.
@@ -535,9 +604,12 @@ func (b *Bidder) predictWith(fv *features.FeatureVector, ad map[string]string, e
 		if v, ok := cb.Predict("install_view", x); ok && v > 0 && v < 1 {
 			pr.PInstallView = v
 		}
-		if ad["goal"] == "roas" || ad["goal"] == "ROAS" {
+		if g := strings.ToUpper(ad["goal"]); g == "ROAS" || g == "AD_ROAS" {
 			if v, ok := cb.ValuePerInstall(ad["adv_app"]); ok {
 				pr.ValuePerInstall, pr.ValueFrom = v, "bundle"
+			}
+			if v, ok := valueFromModel(cb, in, adIn); ok {
+				pr.ValuePerInstall, pr.ValueFrom = v, "model"
 			}
 		}
 		if v, ok := cb.Predict("click", x); ok {

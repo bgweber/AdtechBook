@@ -359,9 +359,12 @@
     <h2>LightGBM conversion models</h2>
     <div class="sub" id="convstate">Train click, install-after-click, and install-after-view models on a
       dataset (Chapter 15). Deploying a bundle checks its golden examples against the Go evaluator first;
-      CPI bids then use its install rates.</div>
+      CPI bids then use its install rates. On a market with Ad ROAS campaigns, the bundle also has a value model
+      for their D3 ad revenue per install (Chapter 30): its correlation with the simulator's true value, against
+      the per-app average's.</div>
     <table id="bundles"><thead><tr><th>Version</th><th>Dataset</th><th>Click AUC</th><th>Click calib.</th>
-      <th>Install (click) AUC</th><th>Install (click) calib.</th><th>Install (view) AUC</th><th>Status</th><th></th>
+      <th>Install (click) AUC</th><th>Install (click) calib.</th><th>Install (view) AUC</th>
+      <th title="Ad ROAS value model (Chapter 30): correlation of predicted D3 ad revenue with the simulator's true value, against the per-app average's">Value: true corr.</th><th>Status</th><th></th>
       </tr></thead><tbody></tbody></table>
     <p class="sub" id="convmsg"></p>
   </div>
@@ -444,24 +447,30 @@
       <button id="xshadow">Shadow 10%</button>
       <button id="xcanary">Canary 5% → 25% → 50%</button>
       <button id="xab">A/B test 50/50</button>
+      <button id="xvalue" title="Ad ROAS campaigns priced with the challenger's value model in the treatment arm; everything else uses the champion (Chapter 30)">Value A/B 50/50</button>
       <label><input type="checkbox" id="xsplit" checked> split budgets</label>
     </div>
     <p class="sub" id="xstate">The champion is the conversion bundle deployed now. Shadow scores a sample of
       requests with the challenger and logs it, without bidding. A canary bids with it on a growing share of
       devices, checks guardrails every simulated quarter hour, rolls back on a failure, and promotes it after the
-      last stage. An A/B test runs until you stop it; read it out once installs arrive (Chapter 19).</p>
+      last stage. An A/B test runs until you stop it; read it out once installs arrive (Chapter 19). A value
+      A/B test prices only the Ad ROAS campaigns with the challenger's value model, so the arms differ in value
+      alone; read it out once D3 ad revenue arrives (Chapter 30).</p>
   </div>
   <div class="card wide">
     <h2>Win rate models and bid shading</h2>
     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
       <button id="wtrain">Train on the last 7 days</button>
       <label><input type="checkbox" id="wmtw" checked> use minimum-bid-to-win reports</label>
+      <label><input type="checkbox" id="wcurve"> with a win curve and a winner's curse table</label>
       <span class="sub" id="wstate">The win model predicts whether a bid wins, from the request and the bid (Chapter 20).
         Shading then bids the share of the media value with the most expected surplus, instead of a fixed 0.7.
-        Test it against the fixed shade with an A/B test before deploying it.</span>
+        Test it against the fixed shade with an A/B test before deploying it. A win curve (Chapter 31) predicts the
+        price to beat from the request alone, so one pass gives the win rate at every bid; its curse table marks values
+        down where we bid far above that price, and the curse A/B test tries it on half the devices.</span>
     </div>
     <table id="winmodels"><thead><tr><th>Version</th><th>Days</th><th>Reports used</th><th>AUC</th><th>Calibration</th>
-      <th>At half the bid: true</th><th>predicted</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
+      <th>At half the bid: true</th><th>predicted</th><th>Curve AUC</th><th>Curse: below 1x → above 3x</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
   </div>
   <div class="card wide">
     <h2>Running: <span id="xid">none</span></h2>
@@ -736,7 +745,7 @@ async function refresh() {
   const cs = s.campaigns || {};
   rows("campaigns", (d.campaigns || []).map(c => {
     const st = cs[c.campaign_id] || {}, used = Math.min(1, c.spend_today / c.daily_budget);
-    const t = c.goal === "ROAS" ? pct(c.target) : `$${c.target.toFixed(2)}`;
+    const t = (c.goal === "ROAS" || c.goal === "AD_ROAS") ? pct(c.target) : `$${c.target.toFixed(2)}`;
     return `<tr><td>${c.campaign_id}</td><td>${c.goal}</td><td>${t}</td><td>${c.geos}</td>
       <td>$${c.daily_budget.toFixed(2)}</td><td>$${c.spend_today.toFixed(2)}</td>
       <td><div class="budget" title="${pct(used)} of today's budget"><div style="width:${100 * used}%"></div></div></td>
@@ -903,6 +912,10 @@ api("api/parity").then(showParity).catch(() => {});
 // ----------------------------------------------------------- conversions
 const m3 = m => m ? f3(m.auc) : "–";
 const c2 = m => m && m.calibration != null ? m.calibration.toFixed(2) : "–";
+// the value model's correlation with the true value, against the per-app
+// average's on the same installs (Chapter 30)
+const vcell = v => !v ? "–" : v.skipped ? `<span class="sub" title="${esc(v.skipped)}">skipped</span>` :
+  `${f3(v.models.tweedie.true_corr ?? v.models.tweedie.corr)} <span class="sub">vs ${f3(v.models.per_app_average.true_corr ?? v.models.per_app_average.corr)}</span>`;
 async function loadConversions() {
   const ds = await api("api/datasets").catch(() => []);
   rows("datasets", ds.map(m => {
@@ -924,6 +937,7 @@ async function loadConversions() {
     return `<tr><td>${esc(x.version)}</td><td>${esc(r.dataset_version || "–")}</td>
       <td>${m3(md.click)}</td><td>${c2(md.click)}</td><td>${m3(md.install_click)}</td><td>${c2(md.install_click)}</td>
       <td>${m3(md.install_view)}</td>
+      <td>${vcell(md.value)}</td>
       <td>${x.deployed ? '<span class="badge ok">champion</span>' : ""}
         ${x.challenger ? '<span class="badge ok">challenger</span>' : ""}
         ${flags.map(f => `<span class="badge bad">${f}</span>`).join(" ")}</td>
@@ -1105,7 +1119,7 @@ async function loadExperiments() {
   $("xstop").disabled = $("xinject").disabled = !run;
   $("xstatus").textContent = !e ? "" : run ? (e.config.kind === "canary" ?
       `stage ${e.stage + 1} of ${e.config.stages.length}: ${Math.round(100 * e.treatment_share)}% of devices` :
-      e.config.kind === "ab" || e.config.kind === "shading" ? `${Math.round(100 * e.treatment_share)}% of devices in treatment` :
+      e.config.kind === "ab" || e.config.kind === "shading" || e.config.kind === "value" ? `${Math.round(100 * e.treatment_share)}% of devices in treatment` :
       `scoring ${Math.round(100 * e.config.share)}% of requests`) + (e.fault ? "; challenger broken on purpose" : "")
     : `${e.id} ${e.status}: ${e.reason}`;
   const arm = (n, a) => a && a.all ? `<tr><td>${n}</td><td>${fmt(a.requests)}</td><td>${fmt(a.all.decisions)}</td><td>${fmt(a.bids)}</td>
@@ -1130,25 +1144,31 @@ async function loadExperiments() {
   const pastHTML = r.past.map(p => `<tr><td>${esc(p.id)}</td><td>${esc(p.config.kind)}</td><td>${esc(p.config.challenger)}</td>
     <td>${esc(p.status)}</td><td class="sub">${esc(p.reason || "")}</td>
     <td>${p.config.kind === "ab" ? `<button onclick="readAB('${esc(p.id)}')">Read out</button>` :
+      p.config.kind === "value" ? `<button onclick="readAB('${esc(p.id)}', 'AD_ROAS')">Read out</button>` :
+      p.config.kind === "curse" ? `<button onclick="readAB('${esc(p.id)}')">Read out</button>` :
       p.config.kind === "shadow" ? `<button onclick="readShadow('${esc(p.id)}')">Check parity</button>` :
       p.config.kind === "shading" ? `<button onclick="readShading('${esc(p.id)}')">Read out</button>` : ""}</td></tr>`).join("");
   if (pastHTML !== lastPast) { rows("xpast", pastHTML); lastPast = pastHTML; }
 }
 async function loadWins() {
   const w = (await api("api/win").catch(() => ({models: []}))).models || [];
-  const html = w.map(m => { const r = m.report || {}, half = (r.at_other_bids || []).find(b => b.bid_multiplier === 0.5) || {};
+  const html = w.map(m => { const r = m.report || {}, half = (r.at_other_bids || []).find(b => b.bid_multiplier === 0.5) || {},
+    cu = (r.curse || {}).buckets || [];
     return `<tr><td>${esc(m.version)}</td><td>${r.days ? r.days[0] + "–" + r.days[1] : "–"}</td><td>${r.use_mtw ? "yes" : "no"}</td>
       <td>${f3(r.auc)}</td><td>${r.calibration == null ? "–" : r.calibration.toFixed(3)}</td>
       <td>${half.true == null ? "–" : half.true.toFixed(3)}</td><td>${half.predicted == null ? "–" : half.predicted.toFixed(3)}</td>
+      <td>${f3((r.curve || {}).auc)}</td>
+      <td>${cu.length ? cu.map(b => b.kappa_used.toFixed(2)).join(" ") + ` <span class="sub">(${fmt(r.curse.installs)} installs)</span>` : "–"}</td>
       <td>${m.deployed ? '<span class="badge ok">shading every bid</span>' : ""}</td>
-      <td>${m.deployed ? `<button onclick="winAct('undeploy')">Switch off</button>` :
+      <td>${cu.length ? `<button onclick="xstartCurse('${esc(m.version)}')">Curse A/B 50/50</button> ` : ""}${m.deployed ? `<button onclick="winAct('undeploy')">Switch off</button>` :
         `<button onclick="xstartShading('${esc(m.version)}')">Shading A/B 50/50</button> <button onclick="winAct('deploy', '${esc(m.version)}')">Deploy</button>`}</td></tr>`; }).join("");
   if (html !== lastWins) { rows("winmodels", html); lastWins = html; }
 }
 let lastWins = null;
 $("wtrain").onclick = async () => {
-  $("wtrain").disabled = true; $("wstate").textContent = "Training… a minute or two.";
-  try { const r = await api("api/win/train", {use_mtw: $("wmtw").checked}); if (r.error) throw new Error(r.error);
+  $("wtrain").disabled = true; $("wstate").textContent = "Training… a minute or two, a few with a curve.";
+  const curve = $("wcurve").checked;
+  try { const r = await api("api/win/train", {use_mtw: $("wmtw").checked, curve, curse: curve}); if (r.error) throw new Error(r.error);
     $("wstate").textContent = `${r.version}: AUC ${r.auc}, ${r.calibration} predicted wins per actual win on day ${r.eval_day}.`; }
   catch (e) { $("wstate").textContent = e.message; }
   $("wtrain").disabled = false; lastWins = null; loadWins();
@@ -1161,6 +1181,12 @@ async function winAct(what, version) {
 async function xstartShading(version) {
   try { await api("api/experiment/start", {kind: "shading", challenger: version, share: 0.5, budget_split: $("xsplit").checked});
     $("wstate").textContent = `Started a shading A/B test of ${version}.`; }
+  catch (e) { $("wstate").textContent = e.message; }
+  loadExperiments();
+}
+async function xstartCurse(version) {
+  try { await api("api/experiment/start", {kind: "curse", challenger: version, share: 0.5, budget_split: true});
+    $("wstate").textContent = `Started a winner's curse A/B test with ${version}'s table, each arm on half of each budget.`; }
   catch (e) { $("wstate").textContent = e.message; }
   loadExperiments();
 }
@@ -1181,7 +1207,7 @@ async function readShading(id) {
 async function xstart(kind) {
   const cfg = {kind, challenger: $("xchal").value, force: $("xforce").checked};
   if (kind === "shadow") cfg.share = 0.1;
-  if (kind === "ab") { cfg.share = 0.5; cfg.budget_split = $("xsplit").checked; }
+  if (kind === "ab" || kind === "value") { cfg.share = 0.5; cfg.budget_split = $("xsplit").checked; }
   try { await api("api/experiment/start", cfg); $("xstate").textContent = "Started."; }
   catch (e) { $("xstate").textContent = e.message; }
   loadExperiments();
@@ -1189,14 +1215,25 @@ async function xstart(kind) {
 $("xshadow").onclick = () => xstart("shadow");
 $("xcanary").onclick = () => xstart("canary");
 $("xab").onclick = () => xstart("ab");
+$("xvalue").onclick = () => xstart("value");
 $("xstop").onclick = async () => { await api("api/experiment/stop", {}).catch(() => {}); loadExperiments(); };
 $("xinject").onclick = async () => { await api("api/experiment/inject", {fault: "scale"}).catch(() => {}); loadExperiments(); };
-async function readAB(id) {
+async function readAB(id, goal) {
   $("xreadt").hidden = true;
   $("xread").textContent = `Reading ${id} from the newest dataset…`;
   try {
-    const r = await api("api/eval/abtest", {experiment: id});
+    const r = await api("api/eval/abtest", {experiment: id, goal: goal || "CPI"});
     if (r.error) throw new Error(r.error);
+    if (r.goal === "AD_ROAS") {
+      const line = (n, x) => x ? `${n}: spend $${x.spend.toFixed(2)}, ${fmt(x.installs)} installs, D3 ad revenue $${x.d3_revenue.toFixed(2)}, ROAS ${x.roas}` +
+        (x.true_roas != null ? ` (true ${x.true_roas})` : "") + "." : "";
+      const m = r.measured, t = r.true;
+      $("xread").textContent = `${id}, Ad ROAS campaigns, from ${r.dataset}; ${Math.round(100 * r.share_final)}% of its impressions have final D3 revenue, and only those count. ` +
+        line("Per-app average", r.arms.control) + " " + line("Value model", r.arms.treatment) + " " +
+        (m ? `Treatment ROAS over control: ${m.roas_ratio} (95% CI ${m.ci[0]} to ${m.ci[1]}) measured from postbacks` : "") +
+        (t ? `; ${t.roas_ratio} (${t.ci[0]} to ${t.ci[1]}) from the simulator's true rates and values.` : ".");
+      return;
+    }
     $("xreadt").hidden = false;
     rows("xreadt", ["control", "treatment"].filter(a => r.arms[a]).map(a => { const x = r.arms[a];
       return `<tr><td>${a}</td><td>${fmt(x.devices)}</td><td>${fmt(x.impressions)}</td><td>$${x.spend.toFixed(2)}</td>
@@ -1670,7 +1707,7 @@ async function loadOps() {
   rows("pacing", (st.campaigns || []).map(c => {
     const plan = c.daily_budget * share, vs = plan > 0 ? c.spend_today / plan - 1 : null;
     const over = Math.max(0, c.spend_today - c.daily_budget), paused = !!s.campaigns[c.campaign_id];
-    const t = c.goal === "ROAS" ? pct(c.target) : `$${c.target.toFixed(2)}`;
+    const t = (c.goal === "ROAS" || c.goal === "AD_ROAS") ? pct(c.target) : `$${c.target.toFixed(2)}`;
     return `<tr><td>${c.campaign_id}</td><td>${c.goal}</td><td>${t}</td><td>$${c.daily_budget.toFixed(2)}</td>
       <td>$${plan.toFixed(2)}</td><td>$${c.spend_today.toFixed(2)}</td>
       <td class="${vs != null && vs > 0.1 ? "neg" : ""}">${vs == null ? "–" : (vs >= 0 ? "+" : "") + pct(vs)}</td>

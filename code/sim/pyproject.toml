@@ -1,6 +1,6 @@
 [project]
 name = "adsim"
-version = "0.3.0"
+version = "0.4.0"
 license = {text = "MIT"}
 description = "The simulated mobile ad market behind Machine Learning in Mobile AdTech"
 requires-python = ">=3.12"

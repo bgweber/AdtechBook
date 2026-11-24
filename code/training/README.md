@@ -36,7 +36,25 @@ python -m adtrain quarantine add --day 74 --where match_type=probabilistic --rea
 python -m adtrain quarantine list  # and: quarantine remove q-0001
 python -m adtrain onnx --bundle out/models/conversion/gbm-0012  # export to ONNX, time ONNX Runtime; needs onnx, onnxruntime, onnxmltools (Ch 17)
 python -m adtrain pipeline --ledger out/ledger --models out/models  # dataset to challenger, with checks (Ch 18); --leak or --inject no-features to see it stop
+python -m adtrain abtest exp-0002 --goal AD_ROAS --sim-out out/sim  # a value A/B test: D3 ad ROAS by arm (Ch 30)
+python -m adtrain win --curve --curse --sim-out out/sim  # also a win curve and a winner's curse table (Ch 31)
+python -m adtrain abtest exp-0002 --sim-out out/sim  # a curse A/B test: CPI by arm (Ch 31)
 ```
+
+**Value models (Chapter 30).** On a market run with `--scenario ad-roas`,
+datasets carry each install's D3 revenue (`d3_revenue`, final 3.5 days
+after the install) next to D7, and `adtrain gbm` adds a `value` model to
+the bundle: LightGBM with a Tweedie loss on the D3 ad revenue of installs
+of hypercasual apps (every install of an app with an Ad ROAS campaign,
+whichever campaign brought it), from the same inputs as the install
+models. The report compares it on the newest two days with final labels
+against the per-app average the bidder uses without it, and against a
+least-squares model on log revenue, by correlation with the outcomes and
+with the simulator's true value, calibration, the share of revenue in the
+top fifth of predictions, and by country. The bidder serves it natively,
+like the other trees, with an exp link. Value models for purchase revenue
+(two-part, Tweedie, ZILN on sparse D7 purchases) are left to the reader:
+they need far more days of data.
 
 The parity check recomputes the FeatureVector of every bid whose raw
 context the bidder logged (5% of bids), with a second implementation of
@@ -64,6 +82,7 @@ on the same cases, from `code/dsp/internal/features/testdata`.
 | Off-policy evaluation: IPS and self-normalized IPS with 95% intervals, effective sample size, for the uniform and CPI-first selection policies from any logged policy | `evaluate.py` | 16 |
 | A/B readout: cost per install by arm from final installs, the treatment/control ratio with a 95% interval from resampling devices, and the same ratio from the simulator's true install probabilities; shadow parity | `evaluate.py` | 19 |
 | Win rate model: LightGBM on the win notice, the bid as ln(bid) and ln(bid/floor) with a monotone constraint, request features only (no campaign or ad), the minimum-bid-to-win reports as weighted rows above and below each reported price; calibration by bid level, exploration multiplier, and exchange, and against the simulator's truth at other bids | `win.py` | 20 |
+| Win curve: LightGBM on the request alone (no bid) for the location of the log price to beat, logistic with a scale chosen by grid, trained with a custom censored loss (won bids: the price was at most the bid; lost: above; reported minimum bids to win: the price); the winner's curse table, installs per predicted install on won install-campaign impressions priced with the conversion model, by the media value over the curve's market price, shrunk toward 1 | `win.py` | 31 |
 | Calibration multipliers: realized over predicted installs on billed impressions at least 3 days old, the last 10 days, each day weighted 0.8 per day of age, shrunk toward the overall with k = 20 predicted installs, bounded to 0.5-2; D7 revenue per install by app in each bundle, shrunk with k = 20 installs | `kappa.py`, `gbm.py` | 21 |
 | Pacing forecast: the newest day's bids per campaign, without that day's gamma, repriced over a grid of gammas with the observed win rates by exchange and bid level and the billed share of wins; requests skipped for budget counted at the average; the gamma whose forecast spend meets the budget | `pacing.py` | 22 |
 | Incrementality: per advertiser app, devices with a real bid against holdout devices with a ghost bid; installs from any source (our postbacks plus the advertiser's shared non-attributed installs) after the first bid; ITT, exposure share, lift per exposed device, incremental installs, incrementality, iCPI, with Agresti-Caffo intervals; the simulator's caused installs on the same devices; a smaller holdout by a second hash | `lift.py` | 23 |

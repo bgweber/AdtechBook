@@ -201,6 +201,10 @@ def make_campaigns(cfg: SimConfig, apps: pd.DataFrame,
         late = r2.random(len(campaigns)) < cfg.late_launch_share
         lo, hi = cfg.late_launch_days
         campaigns.loc[late, "start_day"] = r2.integers(lo, hi + 1, late.sum())
+    if cfg.ad_revenue:
+        campaigns = pd.concat([campaigns, _ad_roas_campaigns(cfg, apps,
+                                                             len(campaigns))],
+                              ignore_index=True)
     crows = []
     cid = 0
     for c in campaigns.itertuples():
@@ -229,6 +233,43 @@ def make_campaigns(cfg: SimConfig, apps: pd.DataFrame,
         creatives.loc[ids, "quality"] = -0.5
         creatives.loc[ids[0], "quality"] = 3.0
     return campaigns, creatives
+
+
+def _ad_roas_campaigns(cfg: SimConfig, apps: pd.DataFrame,
+                       first_id: int) -> pd.DataFrame:
+    """Ad ROAS campaigns for hypercasual apps (Chapter 30).
+
+    Added after the market's other campaigns, from their own random stream,
+    so the other campaigns are the same with or without them. If the
+    catalog has too few hypercasual advertisers, some hypercasual apps
+    become advertisers.
+    """
+    rng = np.random.default_rng([cfg.seed, 41])
+    hc = apps.genre.to_numpy() == "hypercasual"
+    adv = np.flatnonzero(hc & apps.is_advertiser.to_numpy())
+    need = cfg.ad_roas_campaigns - len(adv)
+    if need > 0:
+        more = np.flatnonzero(hc & ~apps.is_advertiser.to_numpy()
+                              & (apps.app_id.to_numpy() > 1))[:need]
+        apps.loc[more, "is_advertiser"] = True
+        adv = np.concatenate([adv, more])
+    geo_codes = list(cfg.geos)
+    rows = []
+    for i in range(cfg.ad_roas_campaigns):
+        k = rng.integers(2, len(geo_codes) + 1)
+        geos = sorted(rng.choice(geo_codes, size=k, replace=False))
+        mean_cpm = float(np.mean([GEOS[g].cpm_scale for g in geos]))
+        rows.append({
+            "campaign_id": first_id + i,
+            "app_id": int(adv[i % len(adv)]),
+            "goal": "AD_ROAS",  # the target is D3 ad revenue / spend
+            "target": round(float(rng.uniform(0.1, 0.2)), 2),
+            "daily_budget": round(float(rng.uniform(40, 160) * mean_cpm
+                                        * 5 * cfg.n_devices / 20_000), 2),
+            "geos": ",".join(geos),
+            "start_day": 0,
+        })
+    return pd.DataFrame(rows)
 
 
 def make_world(cfg: SimConfig) -> World:

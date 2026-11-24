@@ -96,6 +96,9 @@ def main() -> None:
     ab.add_argument("--ledger", default="out/ledger")
     ab.add_argument("--sim-out", default="out/sim")
     ab.add_argument("--dataset", default=None)
+    ab.add_argument("--goal", default="CPI", help="the campaigns to read: CPI "
+                    "(cost per install), or AD_ROAS (D3 ad revenue per dollar, "
+                    "for a value A/B test, Chapter 30)")
     wn = sub.add_parser("win", help="train a win rate model for bid "
                         "shading on the newest days (Chapter 20)")
     wn.add_argument("--ledger", default="out/ledger")
@@ -104,6 +107,14 @@ def main() -> None:
     wn.add_argument("--days", type=int, default=7, help="the newest days to use")
     wn.add_argument("--no-mtw", action="store_true",
                     help="ignore the exchanges' minimum-bid-to-win reports")
+    wn.add_argument("--sample-rate", type=float, default=1.0,
+                    help="keep this share of bids; a laptop-scale market needs about 0.1")
+    wn.add_argument("--curve", action="store_true",
+                    help="also train a win curve: the whole curve from one pass "
+                         "through the trees (Chapter 31)")
+    wn.add_argument("--curse", action="store_true",
+                    help="with --curve, measure the winner's curse by margin over "
+                         "the market price, for the bidder to correct (Chapter 31)")
     kc = sub.add_parser("kappa", help="calibration multipliers by campaign, "
                         "from matured installs against predicted (Chapter 21)")
     kc.add_argument("--ledger", default="out/ledger")
@@ -191,12 +202,14 @@ def main() -> None:
         return
     if a.cmd == "abtest":
         from . import evaluate as ev
-        ev.print_abtest(ev.abtest(a.ledger, a.experiment, a.sim_out, a.dataset))
+        ev.print_abtest(ev.abtest(a.ledger, a.experiment, a.sim_out, a.dataset,
+                                  goal=a.goal.upper()))
         return
     if a.cmd == "win":
         from . import win
         _, rep = win.train(a.ledger, a.models, use_mtw=not a.no_mtw, last_days=a.days,
-                           sim_out=a.sim_out)
+                           sim_out=a.sim_out, curve=a.curve or a.curse, curse=a.curse,
+                           sample_rate=a.sample_rate)
         win.print_report(rep)
         return
     if a.cmd == "kappa":

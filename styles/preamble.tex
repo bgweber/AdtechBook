@@ -2,7 +2,8 @@
 % KDP 7" x 10" black-and-white print styling (included in the PDF header)
 % Keep these values in sync with _quarto.yml. Layout follows O'Reilly
 % conventions: "Chapter N." labels, unnumbered sections, roman-numbered
-% front matter, chapters opening on right-hand pages.
+% front matter, chapters starting on the next page, left or right
+% (open=any: no blank pages, for a thinner book).
 % =====================================================================
 \newcommand{\BookTitle}{Machine Learning in Mobile AdTech}
 \newcommand{\BookAuthor}{Ben G Weber}
@@ -45,6 +46,8 @@
 % Let pages end a line or two short instead of stretching the space around
 % headings to fill every page to the same depth.
 \raggedbottom
+\usepackage{needspace}% keep headings with what follows (see \AtBeginDocument)
+\usepackage{etoolbox}
 % Keep cross-reference words whole (e.g. "Chapter 2" not "Chap-ter 2").
 \hyphenation{Chapter Chapters Appendix Figure Table}
 % Let a tall figure take up to 85% of a page, so figures stay near the
@@ -115,7 +118,15 @@
   \pagestyle{scrheadings}%
   \hypersetup{hidelinks}%
   \definecolor{shadecolor}{gray}{0.88}%
-  \setlength{\parskip}{3pt plus 1pt minus 1pt}% small gap between paragraphs
+  \setlength{\parskip}{0pt plus 0.5pt}% no gap between paragraphs; first-line indent instead
+  \setlength{\parindent}{1em}%
+  \setlength{\emergencystretch}{3em}\tolerance=1000 % let tight lines loosen instead of overflowing
+  % No single lines stranded at the top or bottom of a page (widows and
+  % orphans), and no heading left at the bottom of a page: a section or
+  % subsection starts on the next page unless about five lines fit after it.
+  \widowpenalty=10000 \clubpenalty=10000 \displaywidowpenalty=10000
+  \pretocmd{\section}{\Needspace{6\baselineskip}}{}{}%
+  \pretocmd{\subsection}{\Needspace{5\baselineskip}}{}{}%
   % Long code lines wrap instead of running into the margin (KDP rejects
   % text outside the margins). fvextra is loaded near the top of this file.
   % Highlighted code can only break at spaces between tokens, so keep

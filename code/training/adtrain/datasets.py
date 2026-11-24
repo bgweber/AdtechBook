@@ -35,6 +35,7 @@ from __future__ import annotations
 import bisect
 import json
 import time
+import zlib
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -53,6 +54,9 @@ class Settings:
     install_cutoff_s: int = 3 * 86400  # install labels are final after this
     revenue_window_s: int = 7 * 86400  # purchases counted after the install
     revenue_cutoff_s: int = 10 * 86400  # D7 revenue labels are final after this
+    # Ad ROAS (Chapter 30) uses D3 revenue: final 3.5 days after the install
+    short_revenue_window_s: int = 3 * 86400
+    short_revenue_cutoff_s: int = int(3.5 * 86400)
     leak: bool = False  # device history as of the build, not the bid
     sample_rate: float = 1.0  # share of rows kept; weights are 1 / rate
     # the newest days of impressions to use; device history still comes
@@ -144,8 +148,10 @@ def build(ledger_dir, settings: Settings | None = None, log=print, quarantine=No
                 continue
             installs.setdefault(rid, (f.get("touch_type") or "?",
                                       _int(f.get("event_ts_ms")), recv))
-        elif name == "af_purchase":
-            if ifa:
+        elif name in ("af_purchase", "af_ad_revenue"):
+            # D7 revenue is purchases plus, for hypercasual apps, the ad
+            # revenue their players earn (Chapter 30)
+            if ifa and name == "af_purchase":
                 device_purchases[ifa].append(avail)
             if rid in imps:
                 purchases[rid].append((_int(f.get("event_ts_ms")), recv,
@@ -172,11 +178,24 @@ def build(ledger_dir, settings: Settings | None = None, log=print, quarantine=No
         ct = clicks.get(rid)
         click = int(ct is not None and t - 1000 <= ct <= t + s.click_window_s * 1000)
         inst = installs.get(rid)
-        rev = 0.0
+        weight = 1.0
+        if s.sample_rate < 1.0 and not click and inst is None:
+            # keep every positive; downsample the rest as they're read, by a
+            # hash of the request ID, and weight what's kept. Sampling here,
+            # not after, bounds the build's memory on big markets.
+            if zlib.crc32(rid.encode()) / 2**32 >= s.sample_rate:
+                continue
+            weight = 1.0 / s.sample_rate
+        rev = rev3 = 0.0
+        d3_final = False
         if inst is not None and inst[1] is not None:
             end = inst[1] + s.revenue_window_s * 1000
             rev = sum(v for (et, _, v) in purchases.get(rid, ())
                       if et is not None and et <= end)
+            end3 = inst[1] + s.short_revenue_window_s * 1000
+            rev3 = sum(v for (et, _, v) in purchases.get(rid, ())
+                       if et is not None and et <= end3)
+            d3_final = inst[1] + s.short_revenue_cutoff_s * 1000 <= now
         as_of = now if s.leak else t
         row = {
             "request_id": rid, "day": int(b.get("day", t // DAY_MS)),
@@ -200,10 +219,12 @@ def build(ledger_dir, settings: Settings | None = None, log=print, quarantine=No
             "install_click": int(inst is not None and inst[0] == "click"),
             "install_view": int(inst is not None and inst[0] == "view"),
             "d7_revenue": round(rev, 2),
+            "d3_revenue": round(rev3, 4),
             "click_final": t + s.click_window_s * 1000 <= now,
             "install_final": t + s.install_cutoff_s * 1000 <= now,
             "d7_final": t + s.revenue_cutoff_s * 1000 <= now,
-            "sample_weight": 1.0 / s.sample_rate,
+            "d3_final": d3_final,
+            "sample_weight": weight,
             # experiments (Chapter 19): the test, the arm, and the device,
             # for confidence intervals that resample devices
             "experiment": d.get("experiment") or "",
@@ -226,14 +247,6 @@ def build(ledger_dir, settings: Settings | None = None, log=print, quarantine=No
         del v
     df = pd.DataFrame(data, copy=False)
     del data
-    if s.sample_rate < 1.0 and len(df):
-        # keep every positive; downsample the rest, and weight what's kept
-        import numpy as np
-        rng = np.random.default_rng(0)
-        neg = (df.install == 0) & (df.click == 0)
-        keep = ~neg | (rng.random(len(df)) < s.sample_rate)
-        df.loc[~neg, "sample_weight"] = 1.0
-        df = df[keep].reset_index(drop=True)
     counts = {
         "impressions": len(df), "duplicate_notices": dup_notices,
         "shown_bids_without_features": no_features,

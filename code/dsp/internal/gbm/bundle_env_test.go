@@ -89,3 +89,45 @@ func BenchmarkBundleFromEnv(b *testing.B) {
 		})
 	}
 }
+
+// GBM_WIN_BUNDLE=out/models/win/win-0003 go test ./internal/gbm -run x -bench WinShadeFromEnv
+// times shading one bid on a real win bundle with a curve (Chapter 31): the
+// grid of bids through the bid-input model's trees, against one pass
+// through the curve's trees.
+func BenchmarkWinShadeFromEnv(b *testing.B) {
+	dir := os.Getenv("GBM_WIN_BUNDLE")
+	if dir == "" {
+		b.Skip("set GBM_WIN_BUNDLE to a win bundle directory with a curve")
+	}
+	bun, err := Load(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	curve, err := NewWinModel(bun)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if !curve.Curve() {
+		b.Skip(dir + " has no curve")
+	}
+	grid := *curve
+	grid.curve = false
+	rows, err := goldenRows(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	xs := make([][]float64, len(rows))
+	for i, r := range rows {
+		xs[i] = bun.Inputs(&r.Features, r.Ad)
+	}
+	for _, m := range []struct {
+		name string
+		w    *WinModel
+	}{{"grid", &grid}, {"curve", curve}} {
+		b.Run(m.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				m.w.ShadeInputs(xs[i%len(xs)], 5.0, 0.5)
+			}
+		})
+	}
+}

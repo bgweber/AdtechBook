@@ -70,3 +70,31 @@ def test_values_per_install_shrink_toward_overall():
     # two installs barely move app 2 off the overall; forty move app 1 most of the way
     assert v["by_adv_app"]["2"] < overall + 0.2 * (20 - overall)
     assert abs(v["by_adv_app"]["1"] - (80 + 20 * overall) / 60) < 1e-3
+
+
+def test_value_model_for_ad_roas(tmp_path):
+    # Ad ROAS (Chapter 30): installs of app "9" earn D3 ad revenue that
+    # depends on the country, which the per-app average can't see
+    df, m = synthetic()
+    rng = np.random.default_rng(1)
+    hc = rng.random(len(df)) < 0.5
+    df.loc[hc, "ad"] = '{"campaign": "5", "goal": "AD_ROAS", "adv_app": "9"}'
+    df.loc[~hc, "ad"] = '{"campaign": "1", "goal": "cpi", "adv_app": "3"}'
+    df.loc[hc, "install"] = (rng.random(hc.sum()) < 0.05).astype(int)
+    usa = (df.country == "usa").to_numpy()
+    rev = np.where(usa, 0.30, 0.03) * rng.lognormal(0, 0.5, len(df))
+    df["d3_revenue"] = np.where(hc & (df.install == 1).to_numpy(), rev, 0.0)
+    df["d3_final"] = df.install == 1
+    d = datasets.write(df, m, tmp_path / "datasets")
+    out, rep = gbm.train(d, tmp_path / "models", log=lambda *_: None)
+    v = rep["models"]["value"]
+    assert "skipped" not in v, v
+    t, base = v["models"]["tweedie"], v["models"]["per_app_average"]
+    assert t["corr"] > base["corr"] + 0.3
+    assert 0.7 < t["calibration"] < 1.4
+    golden = [json.loads(x) for x in open(f"{out}/golden.jsonl")]
+    assert "value" in golden[0]["predictions"]
+    assert all(g["predictions"]["value"] > 0 for g in golden)  # a log link
+    # the per-app table keeps the ad revenue app apart from the purchase app
+    vals = json.loads(open(f"{out}/values.json").read())
+    assert vals["by_adv_app"]["9"] < 1.0

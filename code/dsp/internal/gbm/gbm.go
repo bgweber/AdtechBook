@@ -37,6 +37,13 @@ type Spec struct {
 	Other         string                    `json:"other"`
 	Vocab         map[string]map[string]int `json:"vocab"`
 	Targets       []string                  `json:"targets"`
+	// Derived inputs, computed from others and appended after the numbers,
+	// for the value model only (Chapter 30): device_requests_per_day.
+	Derived []string `json:"derived,omitempty"`
+	// A win curve (Chapter 31): the log price to beat is logistic, with
+	// location CurveOffset + the curve model's sum and scale CurveScale.
+	CurveOffset float64 `json:"curve_offset,omitempty"`
+	CurveScale  float64 `json:"curve_scale,omitempty"`
 }
 
 // Bundle is a loaded set of models that share one Spec.
@@ -44,7 +51,37 @@ type Bundle struct {
 	Spec   Spec
 	Models map[string]*Ensemble // by target: click, install_click, ...
 	Values *Values              // D7 revenue per install, if the bundle has it
+	Curse  *Curse               // the winner's curse by margin, if a win bundle has it (Chapter 31)
 	zero   map[string]bool
+}
+
+// Curse is the calibration of value on won impressions by margin over the
+// predicted market price (Chapter 31): wins far above the market return
+// less than predicted. Buckets of value / market price, each with its
+// kappa, measured on the bundle's training days.
+type Curse struct {
+	Buckets []CurseBucket `json:"buckets"`
+}
+
+// CurseBucket is one margin bucket: value / market price in [Lo, Hi).
+type CurseBucket struct {
+	Lo    float64 `json:"lo"`
+	Hi    float64 `json:"hi"`
+	Kappa float64 `json:"kappa"`
+}
+
+// Kappa is the multiplier for a value at this margin over the market
+// price; 1 outside the buckets.
+func (c *Curse) Kappa(margin float64) float64 {
+	if c == nil {
+		return 1
+	}
+	for _, b := range c.Buckets {
+		if margin >= b.Lo && (margin < b.Hi || b.Hi <= 0) && b.Kappa > 0 {
+			return b.Kappa
+		}
+	}
+	return 1
 }
 
 // Values is the expected D7 revenue per install, by advertiser app,
@@ -94,7 +131,25 @@ func (b *Bundle) Inputs(fv *features.FeatureVector, ad map[string]string) []floa
 			x = append(x, math.NaN())
 		}
 	}
+	for _, k := range b.Spec.Derived {
+		x = append(x, derived(k, fv))
+	}
 	return x
+}
+
+// derived computes an input from others, as adtrain's gbm.derived does:
+// device_requests_per_day is the request count over how long the DSP has
+// known the device, at least an hour. Missing inputs make it NaN.
+func derived(name string, fv *features.FeatureVector) float64 {
+	if name != "device_requests_per_day" {
+		return math.NaN()
+	}
+	r, ok1 := fv.Numeric["device_requests"]
+	s, ok2 := fv.Numeric["seconds_since_first_seen"]
+	if !ok1 || !ok2 {
+		return math.NaN()
+	}
+	return r / math.Max(s, 3600) * 86400
 }
 
 // Predict returns one model's probability, and false if the bundle has no
@@ -135,6 +190,13 @@ func Load(dir string) (*Bundle, error) {
 			return nil, fmt.Errorf("model.json: no %q code for %s", b.Spec.Other, k)
 		}
 	}
+	if raw, err := os.ReadFile(filepath.Join(dir, "curse.json")); err == nil {
+		var c Curse
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return nil, fmt.Errorf("curse.json: %w", err)
+		}
+		b.Curse = &c
+	}
 	if raw, err := os.ReadFile(filepath.Join(dir, "values.json")); err == nil {
 		var v Values
 		if err := json.Unmarshal(raw, &v); err != nil {
@@ -147,9 +209,13 @@ func Load(dir string) (*Bundle, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", t, err)
 		}
-		if e.NumFeatures != len(b.Spec.Categorical)+len(b.Spec.Numeric) {
-			return nil, fmt.Errorf("%s: %d features, spec has %d", t,
-				e.NumFeatures, len(b.Spec.Categorical)+len(b.Spec.Numeric))
+		// the value model also reads the derived inputs; the others don't
+		n := len(b.Spec.Categorical) + len(b.Spec.Numeric)
+		if t == "value" {
+			n += len(b.Spec.Derived)
+		}
+		if e.NumFeatures != n {
+			return nil, fmt.Errorf("%s: %d features, spec has %d", t, e.NumFeatures, n)
 		}
 		b.Models[t] = e
 	}
@@ -203,12 +269,25 @@ func goldenRows(dir string) ([]goldenRow, error) {
 	return rows, sc.Err()
 }
 
-// Ensemble is one LightGBM binary model: the sum of its trees, through a
-// sigmoid.
+// Ensemble is one LightGBM model: the sum of its trees, through the
+// objective's link. Binary models (clicks, installs, wins) go through a
+// sigmoid; Tweedie value models (ad revenue, Chapter 30) through exp.
 type Ensemble struct {
 	NumFeatures int
 	Sigmoid     float64
+	Exp         bool // a log link: the prediction is exp(sum)
+	Raw         bool // no link: the sum itself (a win curve's log price, Chapter 31)
 	Trees       []Tree
+}
+
+func (e *Ensemble) link(s float64) float64 {
+	if e.Raw {
+		return s
+	}
+	if e.Exp {
+		return math.Exp(s)
+	}
+	return 1 / (1 + math.Exp(-e.Sigmoid*s))
 }
 
 // Tree is one tree, flattened: node i's children are Left[i] and Right[i],
@@ -229,7 +308,7 @@ func (e *Ensemble) Predict(x []float64) float64 {
 	for i := range e.Trees {
 		s += e.Trees[i].value(x)
 	}
-	return 1 / (1 + math.Exp(-e.Sigmoid*s))
+	return e.link(s)
 }
 
 // PredictBatch fills out[r] with the probability for xs[r]. It walks
@@ -246,7 +325,7 @@ func (e *Ensemble) PredictBatch(xs [][]float64, out []float64) {
 		}
 	}
 	for r := range xs {
-		out[r] = 1 / (1 + math.Exp(-e.Sigmoid*out[r]))
+		out[r] = e.link(out[r])
 	}
 }
 
@@ -318,10 +397,12 @@ func LoadEnsemble(path string) (*Ensemble, error) {
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return nil, err
 	}
-	if d.NumClass != 1 || !strings.HasPrefix(d.Objective, "binary") {
-		return nil, fmt.Errorf("only binary models are supported, not %q", d.Objective)
+	logLink := strings.HasPrefix(d.Objective, "tweedie") || strings.HasPrefix(d.Objective, "poisson")
+	noLink := d.Objective == "custom" || d.Objective == "none" // a hand-written loss: the raw sum
+	if d.NumClass != 1 || !(strings.HasPrefix(d.Objective, "binary") || logLink || noLink) {
+		return nil, fmt.Errorf("only binary, Tweedie, and custom-loss models are supported, not %q", d.Objective)
 	}
-	e := &Ensemble{NumFeatures: d.MaxFeatureIdx + 1, Sigmoid: 1}
+	e := &Ensemble{NumFeatures: d.MaxFeatureIdx + 1, Sigmoid: 1, Exp: logLink, Raw: noLink}
 	if i := strings.Index(d.Objective, "sigmoid:"); i >= 0 {
 		if s, err := strconv.ParseFloat(strings.Fields(d.Objective[i+8:])[0], 64); err == nil {
 			e.Sigmoid = s

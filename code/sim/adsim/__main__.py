@@ -47,7 +47,10 @@ def main() -> None:
                         "better creative, Chapter 21; keep it on for every "
                         "run of the same market), bad-labels (the MMP credits "
                         "false installs on the run's first day, 06:00-18:00, "
-                        "Chapter 24)")
+                        "Chapter 24), ad-roas (hypercasual apps earn ad "
+                        "revenue and the market gets Ad ROAS campaigns, "
+                        "Chapter 30; keep it on for every run of the same "
+                        "market)")
     p.add_argument("--workers", type=int, default=32,
                    help="concurrent connections to the bidder in live mode")
     a = p.parse_args()
@@ -57,7 +60,11 @@ def main() -> None:
     creative_test = "creative-test" in scen
     # bad-labels changes what the MMP sends on the run's first day
     bad_labels = "bad-labels" in scen
-    scen = tuple(x for x in scen if x not in ("creative-test", "bad-labels"))
+    # ad-roas changes the world too: hypercasual apps earn ad revenue, and
+    # the market gets Ad ROAS campaigns (Chapter 30)
+    ad_roas = "ad-roas" in scen
+    scen = tuple(x for x in scen
+                 if x not in ("creative-test", "bad-labels", "ad-roas"))
     if scen and not a.bidder:
         p.error("--scenario needs --bidder")
     policy = (HttpPolicy(a.bidder, workers=a.workers, admin_url=a.bidder_admin,
@@ -72,7 +79,7 @@ def main() -> None:
     else:
         start = int(a.start_day)
     cfg = preset(a.preset, a.scale, seed=a.seed, days=a.days).with_(
-        start_day=start, creative_test=creative_test)
+        start_day=start, creative_test=creative_test, ad_revenue=ad_roas)
     settle = a.settle or ("run" if a.preset == "crawl" else "day")
     if policy is not None and settle == "day" and a.days > 1:
         # one simulated day at a time: the MMP settles each day's installs

@@ -117,3 +117,43 @@ Recounting the device profiles:
 ```powershell
 Invoke-RestMethod -Method Post http://localhost:8081/api/profiles/recount
 ```
+
+## Chapter 30: Value Prediction
+
+Starting over on the market with ad revenue, and keeping the variables set for the rest of the chapter:
+
+```powershell
+docker compose down; Remove-Item -Recurse -Force out
+$env:ADSIM_PRESET="walk"; $env:BIDDER_STAGE="walk"; $env:ADSIM_SCENARIO="ad-roas"
+$env:ADSIM_DAYS=9; docker compose up --build
+```
+
+The value A/B test's three days, from a second window with the same variables set:
+
+```powershell
+$env:ADSIM_DAYS=3; docker compose run --rm sim
+```
+
+For the laptop scale, add `$env:ADSIM_SCALE="laptop"`. The `docker compose exec trainer ...` commands run as written.
+
+## Chapter 31: Win Rate Curves and the Winner's Curse
+
+With the Chapter 30 variables still set and its bundle deployed, the five days before training, from a second window:
+
+```powershell
+$env:ADSIM_DAYS=5; docker compose run --rm sim
+```
+
+The curse A/B test's three days, twice (once before **Stop**, once after):
+
+```powershell
+$env:ADSIM_DAYS=3; docker compose run --rm sim
+```
+
+The benchmark, with Go installed:
+
+```powershell
+cd code\dsp; $env:GBM_WIN_BUNDLE="..\..\out\models\win\win-0001"; go test ./internal/gbm -run x -bench WinShadeFromEnv; cd ..\..
+```
+
+The `docker compose exec trainer ...` commands run as written.

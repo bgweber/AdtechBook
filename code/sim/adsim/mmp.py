@@ -191,6 +191,57 @@ def purchases(world: World, installs: pd.DataFrame) -> pd.DataFrame:
         "ts_ms", kind="stable").reset_index(drop=True)
 
 
+# The MMP's names for in-app events.
+EVENT_NAMES = {"purchase": "af_purchase", "d1_open": "af_d1_open",
+               "ad_revenue": "af_ad_revenue"}
+
+
+def ad_revenue(world: World, installs: pd.DataFrame,
+               events: pd.DataFrame) -> pd.DataFrame:
+    """Daily ad revenue for installs of ad-monetized apps (Chapter 30).
+
+    One row per day a player plays, in the 30 days after the install, as
+    the advertiser's mediation platform reports it to the MMP: the day's
+    total, some hours after the day ends. Day 1 play is the install's D1
+    retention (its d1_open event); after that each day continues with the
+    player's stickiness. Only runs with ad_revenue on have these events, so
+    other markets don't change.
+    """
+    cfg = world.cfg
+    rng = np.random.default_rng([cfg.seed, 42, cfg.start_day])
+    app = installs.app_id.to_numpy()
+    ads = world.apps.monetization.to_numpy()[app] == "ads"
+    bot = world.devices.is_bot.to_numpy()[installs.device_idx.to_numpy()]
+    rows = np.flatnonzero(ads & ~bot)
+    if len(rows) == 0:
+        return events.iloc[:0]
+    dev = installs.device_idx.to_numpy()[rows]
+    t0 = installs.ts_ms.to_numpy()[rows].astype(np.int64)
+    d1 = set(events.install_row[events.event == "d1_open"].tolist())
+    q = truth.ad_stickiness(world, dev, app[rows])
+    per_day = truth.ad_revenue_per_day(world, dev)
+    active = np.ones(len(rows), dtype=bool)
+    out = []
+    for d in range(30):
+        if d == 1:
+            active = np.array([r in d1 for r in rows])
+        elif d > 1:
+            active &= rng.random(len(rows)) < q
+        idx = np.flatnonzero(active)
+        if len(idx) == 0:
+            break
+        share = truth.AD_DAY0_SHARE if d == 0 else 1.0
+        rev = (per_day[idx] * share
+               * rng.lognormal(0.0, truth.AD_DAY_SIGMA, len(idx)))
+        ts = t0[idx] + ((d + rng.uniform(0.5, 1.0, len(idx))) * DAY_MS
+                        ).astype(np.int64)
+        out.append(pd.DataFrame({
+            "install_row": rows[idx], "device_idx": dev[idx],
+            "app_id": app[rows[idx]], "event": "ad_revenue",
+            "ts_ms": ts, "revenue": np.round(rev, 4)}))
+    return pd.concat(out, ignore_index=True)
+
+
 def postbacks(world: World, installs: pd.DataFrame,
               events: pd.DataFrame) -> pd.DataFrame:
     """Postbacks the MMP sends us, in the MMP's own vocabulary."""
@@ -216,8 +267,7 @@ def postbacks(world: World, installs: pd.DataFrame,
                       on="install_row")
     ev_pb = pd.DataFrame({
         "install_row": ev.install_row,
-        "event_name": ev.event.map({"purchase": "af_purchase",
-                                    "d1_open": "af_d1_open"}),
+        "event_name": ev.event.map(EVENT_NAMES),
         "event_ts_ms": ev.ts_ms,
         "revenue_usd": ev.revenue,
         "touch_type": ev.touch_type,
@@ -272,8 +322,7 @@ def nonattributed(world: World, installs: pd.DataFrame,
     evs = pd.DataFrame({
         "advertising_id": ifa[ev.device_idx],
         "app_bundle": world.apps.bundle.to_numpy()[ev.app_id],
-        "event_name": ev.event.map({"purchase": "af_purchase",
-                                    "d1_open": "af_d1_open"}),
+        "event_name": ev.event.map(EVENT_NAMES),
         "event_ts_ms": ev.ts_ms, "revenue_usd": ev.revenue,
         "media_source": "unknown"})
     hist = history[history.app_id.isin(sharing)]

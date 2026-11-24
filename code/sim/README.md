@@ -97,6 +97,24 @@ first simulated day of a live run:
   that never installed. Every postback carries a `match_type` field:
   `id_matching`, or `probabilistic` for these.
 
+One scenario changes the market rather than a day of it, so keep it on for
+every run of the same market, in live or offline mode:
+
+- `--scenario ad-roas` (Chapter 30): hypercasual apps earn ad revenue, and
+  the market gets six Ad ROAS campaigns for hypercasual apps, judged on
+  D3 ad revenue per dollar. Hypercasual ads convert far better than the
+  rest (an install-rate lift of 2.6 in log-odds), as they do in the real
+  market, so even the tiny market has enough installs to learn from. A player earns on the install day and on every
+  later day they still play: day 1 follows the app's D1 retention, and
+  after that the chance of playing another day rises with the player's
+  taste for the genre. A day's revenue is the device's ad impressions (it
+  sees more when it's more active) times its country's eCPM, with noise.
+  The MMP sends one `af_ad_revenue` postback per player per day, and
+  advertisers who share non-attributed data share these too. The truth
+  table for impressions adds `expected_d3_ad_revenue` and
+  `expected_d7_ad_revenue`. The other campaigns are the same as without
+  the scenario.
+
 At the end of every live run, each simulated exchange also sends its
 invoice (`PUT /api/invoices`): what it billed, by day, exchange, and
 placement, also written to `logs/invoices`.
@@ -179,7 +197,7 @@ book plan.
 
 - Device state that updates during the run (new installs don't yet change
   which apps a device plays, and profiles aren't simulated).
-- Click injection and click spamming fraud; ad revenue for hypercasual
-  games; iOS and ATT; protocol buffer schemas for the logs.
+- Click injection and click spamming fraud; iOS and ATT; protocol buffer
+  schemas for the logs.
 - Performance work: the crawl policy loops in Python, so `medium` and
   `large` scales are slow.

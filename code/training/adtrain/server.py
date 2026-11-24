@@ -83,7 +83,8 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                         out = ev.ope(ledger_dir, str(req.get("policy") or "uniform"),
                                      str(req.get("reward") or "click"))
                     elif self.path == "/abtest":
-                        out = ev.abtest(ledger_dir, str(req["experiment"]), sim_out)
+                        out = ev.abtest(ledger_dir, str(req["experiment"]), sim_out,
+                                        goal=str(req.get("goal") or "CPI").upper())
                     elif self.path == "/lift":
                         from . import lift
                         hs = req.get("holdout_share")
@@ -147,7 +148,8 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                 with lock:
                     try:
                         df, m = datasets.build(ledger_dir, datasets.Settings(
-                            leak=bool(req.get("leak"))), log=log)
+                            leak=bool(req.get("leak")),
+                            sample_rate=float(req.get("sample_rate") or 1.0)), log=log)
                         d = datasets.write(df, m, datasets_dir)
                     except Exception as err:
                         traceback.print_exc()
@@ -161,7 +163,10 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                 with lock:
                     try:
                         _, rep = win.train(ledger_dir, models_dir, use_mtw=req.get("use_mtw", True),
-                                           sim_out=sim_out, log=log)
+                                           sim_out=sim_out, log=log,
+                                           curve=bool(req.get("curve") or req.get("curse")),
+                                           curse=bool(req.get("curse")),
+                                           sample_rate=float(req.get("sample_rate") or 1.0))
                     except Exception as err:
                         traceback.print_exc()
                         return self._json(500, {"error": str(err), "log": lines})
