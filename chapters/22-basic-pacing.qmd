@@ -149,7 +149,6 @@ Pace a campaign through a simulated day with the PI controller, starting from th
 
 *Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). The Pricing tab's pacing card forecasts each campaign's starting multiplier, switches on the PI controller, charts spend against plan and $\gamma$, and takes manual overbids. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

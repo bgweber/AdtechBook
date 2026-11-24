@@ -288,7 +288,6 @@ Serve Design B's online ranker on CPU, and profile the bid path under load with 
 
 *Status: planned. This exercise needs the companion Go bidder with the ONNX device tower, which isn't built yet.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

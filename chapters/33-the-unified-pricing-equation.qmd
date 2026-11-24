@@ -150,9 +150,8 @@ With the ledger, any bid can be explained term by term, any change in a campaign
 ::: {.callout-tip title="Try it on the simulator"}
 Trace one bid through every term of the unified equation, for a campaign with a CPI target and a D7 ROAS floor. Then set up a campaign whose budget and targets can't both be met, run the consistency check, and compare its forecast frontier with what the campaign actually does over a simulated week.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

@@ -4,16 +4,13 @@
   <img src="images/cover-front.jpg" alt="Cover of Machine Learning in Mobile AdTech: From Foundations to the Frontier of Demand Side Platforms, by Ben G Weber" width="320">
 </p>
 
-Source for the book *Machine Learning in Mobile AdTech*. One set of
-[Quarto](https://quarto.org) files builds three editions:
+Source for the book *Machine Learning in Mobile AdTech* and its companion
+code: a simulated mobile ad market, a Go bidder that trades in it, and the
+Python pipelines that train, validate, and publish its models.
 
-| Edition | Output | When it builds |
-|---|---|---|
-| Free web edition | HTML on GitHub Pages | Every push to `main` |
-| Paperback | KDP 7" x 10" black-and-white interior PDF | Version tags (`v*`) or a manual run |
-| Free ebook | Reflowable EPUB 3, a free download from each GitHub release | Version tags (`v*`) or a manual run |
-
-Read online: <https://bgweber.github.io/AdtechBook/>
+**Read it:** [free online edition](https://bgweber.github.io/AdtechBook/) ·
+[free EPUB](https://github.com/bgweber/AdtechBook/releases/latest) ·
+[paperback](https://www.amazon.com/s?k=9798144378116)
 
 > **Run the simulator:** start a simulated ad market, a Go bidder, and its console with one command,
 > then follow the book chapter by chapter. The **[walkthrough](WALKTHROUGH.md)** has the commands for
@@ -23,6 +20,11 @@ Read online: <https://bgweber.github.io/AdtechBook/>
 > ```bash
 > docker compose up --build    # then open http://localhost:8081
 > ```
+
+<p align="center">
+  <img src="images/ch22-console-pacing.png" alt="The bidder's console, pacing panel: each campaign's budget, spend today, plan so far, and pacing multiplier, with charts of one campaign's spend against its plan and its multiplier over a simulated day" width="800">
+  <br><em>The bidder's console pacing a campaign's spend against its daily plan in the simulated market (Chapter 22).</em>
+</p>
 
 ## The companion code
 
@@ -36,13 +38,15 @@ What exists today and what's planned:
 
 | Component | Status |
 |---|---|
-| `code/sim/`: adsim 0.1, the simulated market | **Works.** Crawl, walk, and run markets; OpenRTB requests with exchange quirks; first-price auctions with a winner's curse; clicks, installs, organic installs, MMP attribution, delayed postbacks, purchases; holdouts; truth tables |
-| `code/dsp/`: the Go reference bidder | **Part II complete: bidding, crawl stage, with a click model and operations.** Parsing and normalization of each exchange's quirks, device profiles, eligibility and weighted selection, crawl pricing, a 5% holdout, the bid ledger with FeatureVectors, win, loss, billing, and click notices, serving the click model with a parity check before every deploy, CPI pricing from MMP postbacks, kill switches, a fallback ladder, throttling, alerts, and reconciliation, and a live console with Models and Controls tabs. See [`code/dsp/README.md`](code/dsp/README.md) |
-| `code/training/`: training, validation, publishing | **Click model works.** Click examples from the ledger, hashed tokens with crosses, FTRL, out-of-time validation (ROC and PR curves, calibration, readouts, cosine stability), and model artifacts with golden examples. See [`code/training/README.md`](code/training/README.md) |
-| `compose.yaml`: Docker Compose | **Started.** The bidder, the training service, and the simulator; infrastructure services are planned |
+| `code/sim/`: adsim 0.3, the simulated market | **Works.** Crawl, walk, and run markets; OpenRTB requests with exchange quirks; first-price auctions with a winner's curse; clicks, installs, organic installs, MMP attribution, delayed postbacks, purchases, and non-attributed data; holdouts; truth tables. Runs offline with a Python policy, or live against a real bidder: OpenRTB over HTTP in simulated time, `tmax` enforced, notice URLs called, postbacks delivered, and failure scenarios for the incident chapters. See [`code/sim/README.md`](code/sim/README.md) |
+| `code/dsp/`: bidder 0.14, the Go reference DSP | **Parts II and III complete: the crawl and walk stages.** Parsing and normalization of each exchange's quirks, device profiles, eligibility and selection, the bid ledger with FeatureVectors, notices, holdouts, kill switches, a fallback ladder, alerts, and reconciliation. Then LightGBM click, install, and win models served natively in Go with parity checks before every deploy, bid shading, pricing for CPC, CPI, ROAS, and CPA goals, pacing, shadow mode, canaries and A/B tests, incrementality measurement, per-stage latency and a load generator, a prediction monitor with incident drills and playbooks, and a live console. See [`code/dsp/README.md`](code/dsp/README.md) |
+| `code/training/`: adtrain 0.8, training, validation, publishing | **Parts II and III complete.** Datasets from the bidder's ledger with automated checks, an FTRL click model with hashed tokens and crosses, LightGBM conversion and win models, out-of-time validation and readouts, publishing with golden examples, lift and pacing analysis, label quarantine, train/serve parity jobs, and ONNX export for the serving comparison. See [`code/training/README.md`](code/training/README.md) |
+| `compose.yaml`: Docker Compose | **Works.** The bidder, the training service, and the simulator, plus a `loadtest` profile for the load generator. Infrastructure services are planned |
 
-Each chapter's "Try it on the simulator" box says whether its exercise runs
-on adsim 0.1 today or what it still needs.
+Parts II and III run end to end: the **[walkthrough](WALKTHROUGH.md)** has
+every command. Part IV is in progress. Each chapter's "Try it on the
+simulator" box says whether its exercise runs on adsim 0.3 today or what it
+still needs.
 
 Quick start, no Docker needed:
 
@@ -83,32 +87,31 @@ Docker, see [`code/dsp/README.md`](code/dsp/README.md).
 
 ## Toward a full simulator
 
-adsim 0.1 simulates the market with a Python bidding policy, one run at a
-time. The full simulator turns it into a market that a real bidder can
-trade in, with the problems a real DSP has to survive. Planned, roughly in
-this order:
+adsim 0.3 already runs a live market for a real bidder: it sends OpenRTB
+bid requests over HTTP in simulated time, enforces each exchange's
+timeout so a slow bidder loses auctions, calls the win, loss, and billing
+notice URLs, delivers MMP postbacks, and injects failures for the incident
+chapters (a campaign target entered 100 times too high, lost billing
+notices, and bad attribution labels). The bidder
+also has the listen-only mode the "watch before you bid" chapter uses.
+Still planned, roughly in this order:
 
-**A live market for a real bidder (adsim 0.2)**
+**Devices that change during the run (adsim 0.4)**
 
-- The simulator sends OpenRTB bid requests over HTTP to a bidder in
-  simulated time and enforces the exchange's timeout, so a slow bidder
-  loses auctions just as it would in production.
-- A documented policy interface for Python bidders, and a listen-only mode
-  for the "watch before you bid" chapters.
-- Devices that change during the run: installs change what a device plays,
-  tastes drift, sessions have a rhythm, and ads cause fatigue. This is what
-  gives sequence models and transformers real signal to learn, and the
-  truth tables record how much lift that signal is worth.
+- Installs change what a device plays, tastes drift, sessions have a
+  rhythm, and ads cause fatigue. This is what gives sequence models and
+  transformers real signal to learn, and the truth tables record how much
+  lift that signal is worth.
 
-**A market that fights back (adsim 0.3)**
+**A market that fights back (adsim 0.5)**
 
 - Competing bidders that learn and adapt their shading.
 - Market shifts: seasonality, holiday CPM spikes, a big buyer entering or
   leaving, traffic surges.
-- Fault injection for incident labs: exchange outages, postback delays,
-  duplicate floods, schema changes, clock skew, a bad model push.
+- More fault injection for incident labs: exchange outages, postback
+  delays, duplicate floods, schema changes, clock skew.
 
-**The rest of the mobile ecosystem (adsim 0.4)**
+**The rest of the mobile ecosystem (adsim 0.6)**
 
 - iOS and ATT: devices without an IFA, SKAdNetwork-style postbacks with
   coarse values and delays, contextual-only signals.
@@ -124,10 +127,11 @@ this order:
 
 ## Docker
 
-Everything beyond the simulator will run with Docker Compose, so the bidder,
-the simulator, the pipelines, and their infrastructure start with one
-command on any machine. Planned services, grouped into Compose profiles so
-you start only what a chapter needs:
+The simulator, the bidder, and the training service already run with
+Docker Compose (`compose.yaml`), and the load generator runs with
+`--profile loadtest`. As the book grows, more services will join them,
+grouped into Compose profiles so you start only what a chapter needs.
+Planned profiles:
 
 | Profile | Services |
 |---|---|
@@ -136,7 +140,7 @@ you start only what a chapter needs:
 | `streaming` | An event stream and online feature store, for real-time learning |
 | `gpu` | Deep model training and serving on an NVIDIA GPU |
 
-The simulator alone will keep working without Docker (the quick start
+The simulator alone keeps working without Docker (the quick start
 above), and so will rendering the book.
 
 ### GPU training
@@ -241,6 +245,14 @@ CI has no GPU, so for any chapter with GPU code:
 2. Commit the updated `_freeze/` folder along with the chapter.
 
 ## Publishing
+
+One set of [Quarto](https://quarto.org) files builds three editions:
+
+| Edition | Output | When it builds |
+|---|---|---|
+| Free web edition | HTML on GitHub Pages | Every push to `main` |
+| Paperback | KDP 7" x 10" black-and-white interior PDF | Version tags (`v*`) or a manual run |
+| Free ebook | Reflowable EPUB 3, a free download from each GitHub release | Version tags (`v*`) or a manual run |
 
 **Web edition.** Enable GitHub Pages once: *Settings > Pages > Source:
 GitHub Actions*. After that, every push to `main` deploys the site.

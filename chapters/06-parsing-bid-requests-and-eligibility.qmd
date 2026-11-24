@@ -203,7 +203,6 @@ Trace a handful of requests through parsing and eligibility: one with a missing 
 
 *Status: runs with the companion bidder (dsp 0.5) in bid mode. Its bid ledger records each normalized request, the device's profile features, the campaigns each filter removed and why, the reason for every no-bid, and the selection probability, and the console's Live tab counts the filters by campaign; see `code/dsp/README.md` for the commands. The simulator's truth tables mark invalid traffic for the comparison.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

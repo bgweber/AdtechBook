@@ -147,9 +147,8 @@ Generated creatives change the picture. Studios can now produce many variants of
 ::: {.callout-tip title="Try it on the simulator"}
 Simulate creative engagement histories for devices with hidden creative preferences. Compare personalized creative selection, with content embeddings, a device's creative history, and neural-linear Thompson sampling, with per-campaign Thompson sampling, on installs, on true lift, and on how many impressions a new creative needs before it's served at its true rate.
 
-*Status: planned. This exercise needs creative content features and device state that persists across days, which adsim 0.1 doesn't support yet.*
+*Status: planned. This exercise needs creative content features and device state that persists across days, which adsim 0.3 doesn't support yet.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

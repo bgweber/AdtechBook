@@ -177,7 +177,6 @@ book plan.
 
 ## Not yet built
 
-- An interface for the Go bidder to bid live, rather than a Python policy.
 - Device state that updates during the run (new installs don't yet change
   which apps a device plays, and profiles aren't simulated).
 - Click injection and click spamming fraud; ad revenue for hypercasual

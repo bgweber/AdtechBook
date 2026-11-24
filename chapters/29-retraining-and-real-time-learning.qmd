@@ -70,9 +70,8 @@ Streaming jobs update these counters from impression, win, click, and postback e
 ::: {.callout-tip title="Try it on the simulator"}
 Shift the simulated market mid-day, for example by launching a new game that takes over a genre's audience. Compare a model retrained daily, the same model with a continuously updated $\kappa$, and an online-updated model, by their calibration against the true rates through the shift. Then retrain every few hours with naive labels and with a delayed feedback correction, and measure the bias each leaves.
 
-*Status: planned. This exercise needs market shift scenarios, which adsim 0.1 doesn't support yet.*
+*Status: planned. This exercise needs market shift scenarios, which adsim 0.3 doesn't support yet.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

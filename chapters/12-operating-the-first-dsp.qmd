@@ -156,7 +156,6 @@ Run a scenario where a campaign's target CPC is entered a hundred times too high
 
 *Status: runs with the companion bidder (dsp 0.5). Play a day with `ADSIM_SCENARIO=wrong-target,lost-billing docker compose run --rm sim`, and use the console's Controls tab for the alerts, kill switches, spend against plan, and reconciliation. Publish the constant model from the Models tab and force-deploy it for the second part. The invalid traffic filter is yours to build: the trainer has no filter yet, and the simulator's truth table of devices (`is_bot`) marks the bots for checking it. See `code/dsp/README.md`.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## What Breaks Next

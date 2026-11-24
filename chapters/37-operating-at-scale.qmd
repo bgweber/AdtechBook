@@ -140,7 +140,6 @@ Run a multi-model incident: publish a new version of the pretrained device model
 
 *Status: planned. This exercise needs the companion model registry's dependency graph, which isn't built yet.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

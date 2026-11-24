@@ -368,7 +368,6 @@ Build click examples from a simulated week, train the logistic regression model 
 
 *Status: runs with the companion bidder (dsp 0.5) and training code (adtrain 0.4). Play a week with `ADSIM_DAYS=7 docker compose up --build`, then click Train on the console's Models tab: it trains on every day but the last and evaluates on the last, with ROC and PR curves, calibration by decile against observed clicks and the true click rates, and tables by placement, exchange, and campaign. For the ablation, run `python -m adtrain train --no-crosses`; see `code/training/README.md`.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## What This Model Can't Do

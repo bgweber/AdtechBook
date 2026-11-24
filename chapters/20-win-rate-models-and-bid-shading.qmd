@@ -209,7 +209,6 @@ Train a LightGBM win model on the simulated bids, including the randomized multi
 
 *Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). Train win models with and without the minimum-bid-to-win reports, check them at bids the bidder didn't make against the simulator's true win rates, and run a shading A/B test against the fixed 0.7. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

@@ -85,9 +85,8 @@ A few operational realities come up quickly:
 ::: {.callout-tip title="Try it on the simulator"}
 Train the deep model from @sec-deep-models-with-embeddings on a GPU and on a CPU on the simulator's data, and compare training time, cost, and GPU utilization.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Technical Specs and Partnering with Bidder Engineering

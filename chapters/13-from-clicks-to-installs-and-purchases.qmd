@@ -131,7 +131,6 @@ Turn on postbacks and the tier-1 geo preset. Watch install labels arrive over th
 
 *Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3), on the walk market (`ADSIM_PRESET=walk BIDDER_STAGE=walk`). The console's Labels tab, or `adtrain labels`, shows install delays for each path, label maturity by day of impression, and attributed against caused installs by placement. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

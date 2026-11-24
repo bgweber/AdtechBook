@@ -212,7 +212,6 @@ Run the walk pipeline end to end: build the install dataset, validate it, train,
 
 *Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). Run the pipeline from the Conversions tab or with `adtrain pipeline`; break it with a leaky dataset or with features missing, and promote or roll back a challenger. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

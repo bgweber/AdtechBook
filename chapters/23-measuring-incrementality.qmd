@@ -192,7 +192,6 @@ Run ghost bids on a 5% device holdout for a simulated month. Estimate the lift, 
 
 *Status: runs with the companion code (dsp 0.14, adtrain 0.8, adsim 0.3). The Evaluate tab, or `adtrain lift`, estimates incremental installs, incrementality, and incremental CPI by app from the ghost-bid holdout, with intervals, next to the simulator's true caused installs; `--holdout-share` shrinks the holdout for one app. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion

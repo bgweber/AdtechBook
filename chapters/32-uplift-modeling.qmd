@@ -97,9 +97,8 @@ The pacing system in @sec-basic-pacing works the same way with either form, beca
 ::: {.callout-tip title="Try it on the simulator"}
 Train a T-learner and a shared-base uplift head on simulated impressions, using the randomness from the holdout and from bid exploration. Evaluate both with Qini curves on held-out randomized data, and against the true lift from the ground truth, which the simulator knows for every impression. Then price one campaign on incremental value, and compare its incremental CPI with attributed pricing.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.1). The companion code and exact commands are in progress.*
+*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
 
-<!-- Tracker: private/implementation-tracker.md -->
 :::
 
 ## Conclusion
