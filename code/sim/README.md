@@ -127,7 +127,7 @@ for every run of the same market, in live or offline mode (a third,
   from that day's own traffic, as a large promotion might bring. Run it
   for one day, then drop it.
 - `--scenario full-share`: every advertiser shares its install data,
-  for the Part IV dataset of Chapters 25 to 29. Keep it on for every run
+  for the Part IV datasets of Chapters 25 to 29, 35, and 36. Keep it on for every run
   of the market.
 - `--scenario new-game` (Chapter 29): at 12:00 UTC on the run's first
   day, a new hypercasual hit that isn't one of the bidder's advertisers
@@ -229,9 +229,10 @@ book plan.
 
 ## Not yet built
 
-- Device state that updates during the run (new installs don't yet change
-  which apps a device plays, and profiles aren't simulated).
-- Click injection and click spamming fraud; iOS and ATT; protocol buffer
-  schemas for the logs.
+- Device state that updates during the run (new installs don't change
+  which apps a device plays, and fatigue only builds within a day).
+- Click injection and click spamming fraud; iOS, ATT, and SKAdNetwork;
+  protocol buffer schemas for the logs.
+- Competing bidders that adapt their shading.
 - Performance work: the crawl policy loops in Python, so `medium` and
   `large` scales are slow.

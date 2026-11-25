@@ -14,7 +14,7 @@ dependencies = ["numpy>=1.24", "mmh3>=4.0", "pandas>=2.0", "pyarrow>=12", "light
 # kept for older install commands; pandas and pyarrow are now required
 truth = []
 test = ["pytest>=7"]
-# the deep models of Part IV (Chapters 25-29)
+# the deep models of Part IV (Chapters 25-29, 35)
 deep = ["torch>=2.2", "onnx>=1.15", "onnxruntime>=1.17"]
 
 [tool.setuptools.packages.find]

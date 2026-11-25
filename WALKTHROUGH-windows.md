@@ -120,7 +120,7 @@ Invoke-RestMethod -Method Post http://localhost:8081/api/profiles/recount
 
 ## The Part IV Dataset
 
-To download it, unzip `part4-dataset.zip` from the releases into `out\`. To build it instead:
+To download it, unzip [`part4-dataset.zip`](https://github.com/bgweber/AdtechBook/releases/download/part4-data/part4-dataset.zip), from the `part4-data` release, into `out\`. To build it instead:
 
 ```powershell
 docker compose down; Remove-Item -Recurse -Force out
@@ -140,7 +140,7 @@ The `docker compose exec trainer ...` and `docker compose run --rm --no-deps tra
 
 ## Chapter 29: Retraining and Real-Time Learning
 
-To download the shift dataset, unzip `part4-shift.zip` from the releases into `out\`. To build it instead, on the Part IV market with the bidder and trainer up:
+To download the shift dataset, unzip [`part4-shift.zip`](https://github.com/bgweber/AdtechBook/releases/download/part4-data/part4-shift.zip), from the `part4-data` release, into `out\`. To build it instead, on the Part IV market with the bidder and trainer up:
 
 ```powershell
 $env:ADSIM_SCENARIO="ad-roas,full-share,new-game"; $env:ADSIM_DAYS=4; docker compose run --rm sim

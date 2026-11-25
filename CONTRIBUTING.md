@@ -8,20 +8,21 @@ exercises, simulator features, and code are all welcome.
 - **Corrections.** Typos, broken links, wrong numbers, unclear passages: open
   an issue or send a pull request against the chapter's `.qmd` file in
   `chapters/`.
-- **Exercises.** Each chapter's "Try it on the simulator" box says whether its
-  exercise runs today or what it still needs. The planned ones are good
-  places to start.
-- **The simulator.** The README's "Toward a full simulator" section lists the
-  planned features. Open an issue to discuss the design before a large pull
-  request.
+- **Exercises.** Every "Try it on the simulator" box runs. Part IV's boxes
+  also say what scaling up would take: bigger markets, longer histories, and
+  wider models. Results from those, written up as a walkthrough section, are
+  welcome.
+- **The simulator.** The README's "What the simulator leaves out" section
+  lists features it doesn't have yet. Open an issue to discuss the design
+  before a large pull request.
 
 ## How to contribute
 
 1. Open an issue first for anything bigger than a small fix, so we can agree
    on the approach.
 2. Keep pull requests focused on one change.
-3. Run the tests for code changes: `pip install -e code/sim[test]` and
-   `pytest code`.
+3. Run the tests for code changes: `pip install -e code/sim[test] -e code/training[test]`,
+   `pytest code`, and `go test ./...` in `code/dsp`.
 4. For text changes, render the chapter you changed with `quarto preview` and
    check that it builds.
 

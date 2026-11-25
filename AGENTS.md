@@ -214,7 +214,8 @@ chapters say so.
   It needs the bidder and trainer up (`docker compose up -d bidder trainer`) and the datasets in `out/`.
   A job that fails shows its error on the tab; the trainer's log (`docker compose logs trainer`) has the
   traceback.
-- **The Part IV dataset.** Download `part4-dataset.zip` from the releases and
+- **The Part IV dataset.** Download `part4-dataset.zip` from the `part4-data`
+  release (<https://github.com/bgweber/AdtechBook/releases/download/part4-data/part4-dataset.zip>) and
   unzip it into `out/` (files in `out/snapshot/`), or build it (about twenty
   minutes). Chapters 25 to 28, 35, and 36 read it; Chapter 29 has its own,
   `part4-shift.zip`, in `out/snapshot-shift/`. Numbers from the downloads

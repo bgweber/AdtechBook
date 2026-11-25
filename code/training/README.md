@@ -1,9 +1,10 @@
-# adtrain: training the click model
+# adtrain: training, validation, and publishing
 
-The Python side of the click model in Chapters 9 and 11. It reads the
-bidder's ledger, builds click examples, trains logistic regression with
-FTRL on hashed tokens, validates the model out of time, and publishes an
-artifact the Go bidder loads.
+The Python side of the reference DSP. It reads the bidder's ledger, builds
+datasets with automated checks, trains the click, conversion, value, win, and
+uplift models, validates them out of time, and publishes bundles the Go
+bidder loads. For Part IV, it trains deep models on frozen datasets, on a
+laptop's CPU. The pipeline table below lists each module and its chapter.
 
 ```bash
 pip install -e code/training[truth,test]
@@ -12,7 +13,7 @@ python -m adtrain serve --port 8090    # what the console's Train button calls
 pytest code/training
 ```
 
-Two more commands for Chapter 8:
+Commands by chapter:
 
 ```bash
 python -m adtrain parity --ledger out/ledger           # feature parity check

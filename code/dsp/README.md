@@ -1,10 +1,9 @@
 # The reference DSP
 
 The bidder the book builds, in Go. It grows chapter by chapter, from a
-listening bidder in Part II to the full DSP in Part IV. Stages are
-configuration (`-stage crawl|walk|run`), and a git tag marks the end of each
-part (`part-2`, ...), so you can always see the code for the chapter you're
-reading.
+listening bidder in Part II to the full DSP in Part IV, as one program:
+stages are configuration (`-stage crawl` for Part II, `-stage walk` from
+Part III on), and each print edition's git tag has the code that matches it.
 
 ## Run it against the simulated market
 

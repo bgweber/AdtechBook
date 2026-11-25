@@ -561,7 +561,7 @@ Part IV is in progress. Its exercises run on the smallest market, so each run ta
 
 Chapters 25 to 28, 35, and 36 share one dataset (Chapter 29 has its own): a frozen snapshot of a simulated market, so each chapter's models train in minutes on the same rows. Get it one of two ways.
 
-**Download it** (fastest, and the book's numbers): from the [releases](https://github.com/bgweber/AdtechBook/releases), download `part4-dataset.zip` and unzip it into `out/`, so the files are in `out/snapshot/`.
+**Download it** (fastest, and the book's numbers): download [`part4-dataset.zip`](https://github.com/bgweber/AdtechBook/releases/download/part4-data/part4-dataset.zip) from the `part4-data` release and unzip it into `out/`, so the files are in `out/snapshot/`.
 
 **Or build it** (about twenty minutes): a fresh fourteen-day walk market with ad revenue, where every advertiser shares its install data, with the conversion models deployed after the first week.
 
@@ -624,7 +624,7 @@ The first reports the ONNX parity check against PyTorch (in ours, the largest lo
 
 This chapter has a dataset of its own, the Part IV market with a shift: four more days with the `new-game` scenario, where at 12:00 UTC on the first, a new hypercasual hit takes over the genre's audience, and the genre's games get 40% of their installs from then on. It also records when each install's postback arrived.
 
-**Download it:** from the releases, download `part4-shift.zip` and unzip it into `out/`, so the files are in `out/snapshot-shift/`.
+**Download it:** download [`part4-shift.zip`](https://github.com/bgweber/AdtechBook/releases/download/part4-data/part4-shift.zip) from the `part4-data` release and unzip it into `out/`, so the files are in `out/snapshot-shift/`.
 
 **Or build it,** on the market you built for the Part IV dataset, with the bidder and trainer up and the variables still set (about eight minutes). The four days must run in one command:
 

@@ -43,7 +43,7 @@ The heart of this repo is a simulated mobile ad market. You run a real bidder ag
 - **Organic installs**, which happen with no ad at all, including people who play so many games that they would have found the app without our ad.
 - **Advertisers** with campaigns, budgets, targets, and creatives, some of whom share their full install data.
 - **Fraud**: bot devices and fraudulent publisher apps.
-- **Traffic patterns**: daily cycles by time zone, and scenarios for failures, bad labels, hypercasual ad revenue, and traffic surges.
+- **Traffic patterns**: daily cycles by time zone, and scenarios for failures, bad labels, hypercasual ad revenue, traffic surges, and a market shift.
 - **The ground truth**: the true probability behind every click, install, and win, and the lift of every impression, so every model, forecast, and A/B test can be checked against what really happened.
 
 <p align="center">
@@ -81,19 +81,19 @@ the logs a DSP would see, it writes the true click, install, and lift
 probabilities behind every impression, so you can check a model against
 what really happened, not just against noisy outcomes.
 
-What exists today and what's planned:
-
-| Component | Status |
+| Component | What it is |
 |---|---|
-| `code/sim/`: adsim 0.3, the simulated market | **Works.** Crawl, walk, and run markets; OpenRTB requests with exchange quirks; first-price auctions with a winner's curse; clicks, installs, organic installs, MMP attribution, delayed postbacks, purchases, and non-attributed data; holdouts; truth tables. Runs offline with a Python policy, or live against a real bidder: OpenRTB over HTTP in simulated time, `tmax` enforced, notice URLs called, postbacks delivered, and failure scenarios for the incident chapters. See [`code/sim/README.md`](code/sim/README.md) |
-| `code/dsp/`: bidder 0.14, the Go reference DSP | **Parts II and III complete: the crawl and walk stages.** Parsing and normalization of each exchange's quirks, device profiles, eligibility and selection, the bid ledger with FeatureVectors, notices, holdouts, kill switches, a fallback ladder, alerts, and reconciliation. Then LightGBM click, install, and win models served natively in Go with parity checks before every deploy, bid shading, pricing for CPC, CPI, ROAS, and CPA goals, pacing, shadow mode, canaries and A/B tests, incrementality measurement, per-stage latency and a load generator, a prediction monitor with incident drills and playbooks, and a live console. See [`code/dsp/README.md`](code/dsp/README.md) |
-| `code/training/`: adtrain 0.8, training, validation, publishing | **Parts II and III complete.** Datasets from the bidder's ledger with automated checks, an FTRL click model with hashed tokens and crosses, LightGBM conversion and win models, out-of-time validation and readouts, publishing with golden examples, lift and pacing analysis, label quarantine, train/serve parity jobs, and ONNX export for the serving comparison. See [`code/training/README.md`](code/training/README.md) |
-| `compose.yaml`: Docker Compose | **Works.** The bidder, the training service, and the simulator, plus a `loadtest` profile for the load generator. Infrastructure services are planned |
+| `code/sim/`: adsim 0.9, the simulated market | Crawl, walk, and run markets; OpenRTB requests with exchange quirks; first-price auctions with a winner's curse; clicks, installs, organic installs, MMP attribution, delayed postbacks, purchases, ad revenue, and non-attributed data; holdouts; truth tables. Runs offline with a Python policy, or live against a real bidder: OpenRTB over HTTP in simulated time, `tmax` enforced, notice URLs called, postbacks delivered. Scenarios for failures, bad labels, Ad ROAS, uplift, traffic surges, and a market shift, and true rates for every creative. See [`code/sim/README.md`](code/sim/README.md) |
+| `code/dsp/`: bidder 0.23, the Go reference DSP | Parsing and normalization of each exchange's quirks, device profiles, eligibility and selection, the bid ledger with FeatureVectors, notices, holdouts, kill switches, a fallback ladder, alerts, and reconciliation. LightGBM click, install, and win models served natively in Go with parity checks before every deploy; bid shading; pricing for CPC, CPI, ROAS, Ad ROAS, and CPA goals with win curves, uplift, and one pricing equation; pacing; shadow mode, canaries, and A/B tests; incrementality; a prediction monitor with drills and playbooks; a DCNv2 served in pure Go; and a live console with a Deep models tab. See [`code/dsp/README.md`](code/dsp/README.md) |
+| `code/training/`: adtrain 0.20, training, validation, publishing | Datasets from the bidder's ledger with automated checks, an FTRL click model, LightGBM conversion, value, win, and uplift models, out-of-time validation and readouts, publishing with golden examples, lift and pacing analysis, label quarantine, and train/serve parity. For Part IV: trees against a DCNv2, pretraining a transformer, exporting for Go serving, retraining through a market shift, learned campaign selection, and personalized creative selection, all on a laptop's CPU. See [`code/training/README.md`](code/training/README.md) |
+| `code/onnxbench/` | Chapter 17's comparison of ONNX Runtime from Go with the bidder's own tree evaluator. Not part of `docker compose` |
+| `compose.yaml`: Docker Compose | The bidder, the training service, and the simulator, plus a `loadtest` profile for the load generator |
 
-Parts II and III run end to end, and so do Part IV's exercises through
-Chapter 34: the **[walkthrough](WALKTHROUGH.md)** has every command, and
+Every exercise in Parts II, III, and IV runs, through Chapter 36: the
+**[walkthrough](WALKTHROUGH.md)** has every command, and
 [AGENTS.md](AGENTS.md) helps an AI coding agent guide you through them. Each
-chapter's "Try it on the simulator" box says what its exercise runs on.
+chapter's "Try it on the simulator" box ends with the versions it was tested
+with.
 
 Quick start, no Docker needed:
 
@@ -132,45 +132,23 @@ includes it). If you get `unknown flag: --build` or `'compose' is not a
 docker command`, your Docker is too old: update Docker Desktop. Without
 Docker, see [`code/dsp/README.md`](code/dsp/README.md).
 
-## Toward a full simulator
+## What the simulator leaves out
 
-adsim 0.3 already runs a live market for a real bidder: it sends OpenRTB
-bid requests over HTTP in simulated time, enforces each exchange's
-timeout so a slow bidder loses auctions, calls the win, loss, and billing
-notice URLs, delivers MMP postbacks, and injects failures for the incident
-chapters (a campaign target entered 100 times too high, lost billing
-notices, and bad attribution labels). The bidder
-also has the listen-only mode the "watch before you bid" chapter uses.
-Still planned, roughly in this order:
+adsim runs a live market for a real bidder, with the scenarios each
+chapter needs; Appendix E of the book documents its equations and
+versions. It still leaves out:
 
-**Devices that change during the run (adsim 0.4)**
-
-- Installs change what a device plays, tastes drift, sessions have a
-  rhythm, and ads cause fatigue. This is what gives sequence models and
-  transformers real signal to learn, and the truth tables record how much
-  lift that signal is worth.
-
-**A market that fights back (adsim 0.5)**
-
+- iOS and ATT: devices without an IFA, SKAdNetwork postbacks with coarse
+  values and delays, and contextual-only signals.
+- Click injection and click spamming fraud, beyond the 10-second rejection
+  rule.
+- Devices that change during a run: installs don't change which apps a
+  device plays, and its fatigue only builds within a day.
 - Competing bidders that learn and adapt their shading.
-- Market shifts: seasonality, holiday CPM spikes, a big buyer entering or
-  leaving, traffic surges.
-- More fault injection for incident labs: exchange outages, postback
-  delays, duplicate floods, schema changes, clock skew.
-
-**The rest of the mobile ecosystem (adsim 0.6)**
-
-- iOS and ATT: devices without an IFA, SKAdNetwork-style postbacks with
-  coarse values and delays, contextual-only signals.
-- Creative content features, for creative selection models.
-- Click injection and click spamming fraud.
-
-**Throughout**
-
-- A scoreboard: fixed seeds and markets, with policies scored on ROAS,
-  incremental installs, and pacing error against the simulator's truth.
-  Write a `decide()` function and see whether you can beat the baseline.
-- Speed, so the `medium` and `large` scales run in reasonable time.
+- A scoreboard: fixed markets where policies are scored against the
+  simulator's truth.
+- Speed: the built-in policy loops in Python, so the `medium` and `large`
+  scales are slow.
 
 ## Docker
 
@@ -181,7 +159,7 @@ quick start above), and so does rendering the book.
 
 ### Deep models on the CPU
 
-Part IV's deep models (Chapters 25 to 29) are PyTorch, built for a laptop's
+Part IV's deep models (Chapters 25 to 29, 35, and 36) are PyTorch, built for a laptop's
 CPU: the training image installs the CPU build, and each chapter's command
 runs in a few minutes on the Part IV dataset. The code doesn't use a GPU.
 To scale up, with bigger datasets, wider models, and longer histories,
@@ -190,9 +168,8 @@ the GPU: the book provides the code, not the compute.
 
 ## Contributing
 
-The book and the code are open source, and contributions are welcome. Good
-places to start are the planned exercises and simulator features above: each
-one says what it needs. Open an issue to discuss a change before a large
+The book is openly licensed and the code is open source, and contributions are welcome. Good
+places to start are the simulator features it leaves out, listed above. Open an issue to discuss a change before a large
 pull request. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
@@ -214,7 +191,10 @@ appendices/                 Glossary, OpenRTB fields, templates, reading, the si
 code/sim/                   Python: adsim, the simulated market
 code/dsp/                   Go: the reference bidder and its console
 code/training/              Python: training, validation, publishing (adtrain)
+code/onnxbench/             Go: Chapter 17's ONNX Runtime comparison
 compose.yaml                Docker Compose: the bidder, the trainer, and the simulator
+WALKTHROUGH.md              Every exercise's commands (WALKTHROUGH-windows.md for PowerShell)
+AGENTS.md                   Guidance for AI coding agents working through the exercises
 images/                     Figures, the ebook cover (cover.jpg, added to the EPUB by
                             scripts/polish_epub.py), and the README cover (cover-front.jpg)
 styles/preamble.tex         Print styling: headers, code boxes, copyright page
@@ -317,8 +297,11 @@ fail. You can also run the workflow manually from the
   Readers of a printed copy can check out that tag to get the text and code
   that match their book.
 - Each tag's release notes record the simulator version it was built and
-  tested with (for example, `adsim 0.1`), and which "Try it on the
-  simulator" exercises are runnable at that tag.
+  tested with (for example, `adsim 0.9`).
+- The Part IV datasets are assets of their own release,
+  [`part4-data`](https://github.com/bgweber/AdtechBook/releases/tag/part4-data),
+  so they don't change with each print edition. Its notes record the
+  simulator versions that built them.
 - Print comes first. Lock the PDF with a KDP proof copy before building the
   EPUB: during print work, build only the PDF and web editions
   (`quarto render --to pdf`, `quarto preview`). Then build the EPUB once
