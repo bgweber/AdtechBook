@@ -310,10 +310,34 @@ The design is simple to draw, but most of the work is in three areas where it ca
 - **Ask separately for purchase data.** Advertisers who are happy to pool installs may see their payer lists as their most valuable asset.
 - **Follow platform and privacy rules,** including ATT consent on iOS, which we cover in @sec-ios-and-contextual-signals, and exclude sensitive app categories and anything directed at children.
 
-::: {.callout-tip title="Try it on the simulator"}
-Pretrain a small transformer on the simulator's non-attributed install and purchase events. Compute affinity scores and head outputs, add them to the LightGBM install and value models, and measure the gain against the true install rates and values. Then build Design B with tower dot products and a LightGBM calibration layer, and compare the two designs on the same traffic.
+## Pretraining on the Part IV Dataset
 
-*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
+The companion code runs a small version of this design on the Part IV dataset from @sec-where-trees-stop. The transformer has two pre-norm blocks, a width of 32, and a context of the last 128 events, for 24,992 parameters. Its tokens are a device's appearances on the bid stream, its clicks, and its installs, credited to the DSP or shared by advertisers, each with a gap bucket and a position. It's pretrained on next-install prediction from every device's events before the validation days, with the output layer sharing the app table. The popularity of each install's period, its day in the run or its month before it, is added to the logits during training, so the dot product $h \cdot e_j$ learns only a device's lift for an app over what everyone was installing at the time. Reinstalls of an app a device already has are dropped, since the target is an app the device doesn't have yet. One model starts its app table from co-install vectors, the warm start, and one from random values, and each trains in about 15 seconds on a laptop's CPU.
+
+Design A then computes a device state for every device on every day, from the events before that day, with the advertised app's events masked out, and adds the lift for the advertised app to the LightGBM install models as one feature. The leakage check found no state built from an event on or after its impression's day. @tbl-c27-results has the variants of @tbl-c27-variants that fit the dataset, with a pooled profile in place of variant 2: the mean co-install vector of the device's installs before the day, without the advertised app, and its cosine with the advertised app's vector. The error is the mean absolute error against the true rate, divided by the mean true rate.
+
+| Variant | Install after view: AUC | Error | Install after click: error | Click: error |
+|---|---|---|---|---|
+| 1. Plain features, no device history | 0.783 | 0.891 | 0.564 | 0.534 |
+| 2. The Part III device features | 0.796 | 0.874 | 0.514 | 0.546 |
+| 3. Plus a pooled co-install profile | 0.806 | 0.814 | 0.462 | 0.497 |
+| 4. Plus the pretrained transformer, random start | 0.796 | 0.857 | 0.506 | 0.551 |
+| 5. Plus the pretrained transformer, warm start | 0.795 | 0.880 | 0.510 | 0.538 |
+
+: Design A on the Part IV dataset's two test days: LightGBM install and click models with each signal added, against the simulator's true rates. {#tbl-c27-results tbl-colwidths="[40,15,15,15,15]"}
+
+The pooled profile pays off. It cuts the install-after-view error by 7% and the click error by 9%, and most of all for devices the DSP never acquired: on impressions to devices with no credited installs, from 1.006 to 0.904, because the installs advertisers share fill in what the DSP's own logs can't see.
+
+The transformer barely moves the trees, and its own numbers show why. Its pretraining loss is 2.82, against 2.87 for the popularity of each period alone. On next installs after the cutoff, it ranks the installed app in its top 5 of 35 apps 80% of the time, which looks strong next to 42% for overall popularity, and is no better than the 81% for popularity over the last 7 days. It learned which campaigns were running, not what each device wants. Within each advertised app, its affinity has a rank correlation of −0.04 with the true install rate, against +0.37 for the pooled profile, and only 30% of its app vectors' nearest neighbors share a genre, against 55% for the co-install vectors. Without the recent-popularity baseline and the check within each app, the transformer would have looked like a win.
+
+The reason is the histories. The simulator gives each device about four installs before the cutoff. A pooled profile needs only counts, so a few installs are enough for it to locate a device's taste, but a sequence model needs long histories to learn anything from their order, and the payoff of pretraining isn't there until it has them. That's the comparison to run with more compute: lengthen the device histories, add devices, and find where the transformer passes the pooled profile.
+
+::: {.callout-tip title="Try it on the simulator"}
+Pretrain a small transformer on next-install prediction from the Part IV dataset's device histories, with the popularity of each install's period in the logits. Compute daily device states with the advertised app masked, add each device's lift for the advertised app to the LightGBM install models, and compare it against plain features and a pooled co-install profile, against the true install rates. Check for leakage, compare next-install prediction against recent popularity, and check each signal within each advertised app.
+
+Scaling up is yours: longer device histories (the number of installs each device gets before the run starts is set in adsim's `history.py`), more devices, wider models and longer contexts on a GPU, the future-window objective, purchases as targets, and Design B. On the simulator's short histories, the pooled profile wins; find how long histories have to be before pretraining pays off.
+
+*Status: runs with the companion code (adtrain 0.15, adsim 0.7), on the Part IV dataset: about three minutes on a laptop's CPU. Scaling up is yours. Commands are in `WALKTHROUGH.md`, under this chapter.*
 
 :::
 

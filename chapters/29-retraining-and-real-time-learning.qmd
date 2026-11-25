@@ -30,9 +30,7 @@ It helps to separate the five things "real-time learning" can mean, because vend
 2. **Real-time features,** updated within seconds of an impression or a win. The model doesn't change, but its inputs do. Moloco describes features that update the next prediction as soon as a user sees an ad or a competitor changes a bid.[^c29-moloco]
 3. **Fast-adapting layers on a slower model.** The calibration multiplier $\kappa$, per-campaign bias terms, the pacing multiplier $\gamma$, and creative bandits absorb drift between retrains. This is the practical sweet spot for a DSP, and most of it was built in Parts II and III.
 4. **Online training of the model itself,** where the model's weights update with each new example. FTRL logistic regression from @sec-a-click-model is the classic example,[^c29-mcmahan] continuous training of large models such as GEM is the modern one,[^c29-gem] and libraries such as GoMLX can fine-tune a model in a Go service on win and loss feedback.[^c29-golang]
-5. **Self-improving systems,** as described in earnings calls and product pages, where more advertisers and more data feed periodic model releases. AppLovin describes models that keep improving through periodic releases and more data, and Unity describes its Vector platform as self-learning and adaptive.[^c29-applovin][^c29-unity] These are claims about results, not methods, and should be read that way.
-
-<!-- TODO: check the AppLovin earnings call transcripts (R19, R20) before quoting or characterizing specific statements. -->
+5. **Self-improving systems,** as described in earnings calls and product pages, where more advertisers and more data feed periodic model releases. AppLovin describes a cycle in which its team releases better models, advertisers see better returns and spend more, and more advertisers bring more data for a more sophisticated model, and Unity describes its Vector platform as self-learning and adaptive.[^c29-applovin][^c29-unity] These are claims about results, not methods, and should be read that way.
 
 For most DSPs, the order to invest in is the order above, starting from the third: fast-adapting layers first, then more frequent retraining, then real-time features, and online training of the model itself last.
 
@@ -59,7 +57,7 @@ Three published approaches correct for this:
 
 The simulator makes the bias easy to see, because it knows the true conversion rate. Train a model every few hours on recent impressions with naive labels, and its predictions fall below the true rate. Apply one of the corrections, and the gap closes.
 
-<!-- RESULT: calibration against the true rate for naive and corrected training with frequent retraining, from a fixed-seed run. -->
+The next section measures both on the simulator: naive labels left a model retrained every 6 hours at about two-thirds of the true rate, and importance weights by elapsed time closed the gap.
 
 ## Shared State for Real-Time Features
 
@@ -67,10 +65,39 @@ Real-time features build on the fleet-wide counter store from @sec-operating-the
 
 Streaming jobs update these counters from impression, win, click, and postback events as they arrive. The difficulty is keeping training and serving consistent when features change this fast. A feature computed at bid time from a counter that was a few seconds stale is the value the model saw, so it's the value that's logged in the FeatureVector, and the value training uses. Recomputing it later from the event log, even as of the bid time, would give a fresher value than the bidder had, which is the skew from @sec-logging-at-bid-time all over again.
 
-::: {.callout-tip title="Try it on the simulator"}
-Shift the simulated market mid-day, for example by launching a new game that takes over a genre's audience. Compare a model retrained daily, the same model with a continuously updated $\kappa$, and an online-updated model, by their calibration against the true rates through the shift. Then retrain every few hours with naive labels and with a delayed feedback correction, and measure the bias each leaves.
+## A Market Shift in the Reference DSP
 
-*Status: planned. This exercise needs market shift scenarios, which adsim 0.3 doesn't support yet.*
+The simulator's `new-game` scenario shifts the market mid-day: at 12:00 UTC, a new hypercasual hit that isn't one of the DSP's advertisers takes over the genre's audience, and from then on the genre's games get 40% of the installs they did before. Hypercasual games had most of the dataset's installs, so the shift hits where the money is. The Part IV shift dataset continues the Part IV market for four days with the scenario on, the shift at noon on the first, and records when each install's postback arrived.
+
+`adtrain retrain` replays the shift with four ways of keeping a LightGBM install model current, each trained only on the installs whose postbacks had arrived by its training time:
+
+- **Daily:** retrained at midnight on the last 7 days, on impressions whose install window had closed, as in walk.
+- **Daily, with $\kappa$:** the daily model times a calibration multiplier per advertised app. Every hour, $\kappa$ compares the installs reported so far for the last day's impressions with what the model in use predicts for them, times the share of installs reported by then. Each update moves $\ln \kappa$ by at most 0.2, and $\kappa$ starts again at 1 when the model is retrained.
+- **Every 6 hours, naive:** retrained every 6 hours on every impression, with installs not reported yet counted as no install.
+- **Every 6 hours, delay-weighted:** the same rows, with each reported install counted as $1/F(e)$ installs, where $F(e)$ is the share of installs reported by the time its impression had waited $e$, from the impressions before the replay. These are importance weights by elapsed time, in the spirit of ES-DFM. With install rates of a few percent, weighting the positives alone is close to unbiased.
+
+Installs are reported 1.4 hours after the impression at the median and 12.5 hours at the 90th percentile, and 79% are reported within 6 hours, so a model retrained every 6 hours is missing many of the installs from its most recent impressions. Calibration is measured against the truth: predicted installs over true installs times the share credited to the DSP, which the labels count, measured on the week before the replay. @tbl-c29-shift has the hypercasual campaigns.
+
+| Phase | Daily | Daily, with $\kappa$ | Every 6 hours, naive | Every 6 hours, delay-weighted |
+|---|---|---|---|---|
+| The day before the shift | 0.97 | 0.93 | 0.64 | 1.02 |
+| The first 6 hours | 2.70 | 2.59 | 2.06 | 3.08 |
+| 6 to 24 hours | 2.62 | 1.91 | 0.74 | 1.14 |
+| The second day | 1.84 | 1.08 | 0.73 | 0.98 |
+| The third day | 1.05 | 0.96 | 0.73 | 1.07 |
+
+: Calibration of the hypercasual install predictions through the shift, against the truth: 1.00 is right. {#tbl-c29-shift tbl-colwidths="[32,14,18,18,18]"}
+
+Before the shift, the naive model sits at two-thirds of the truth, the bias of delayed labels, and the delay-weighted model is calibrated. In the first 6 hours, every model overpredicts by two to three times, because none has seen the shift yet. Then they separate. The delay-weighted model is within 14% of the truth from 6 hours after the shift, and calibrated on the second day. The daily model overpredicts by 2.6 times for the rest of the first day and 1.8 times on the second, which a DSP would pay for in overbids on every hypercasual impression, until its retrain on the third day. $\kappa$ fixes most of that a day sooner than the retrain, limited by its bounded steps and by the installs it has to wait for. The naive model looks closer than the daily one after the shift, at 0.74, but for the wrong reason: its bias toward too few installs happens to point the same way as the shift, and it stays at 0.73 once the market settles.
+
+For the other genres, whose true rate didn't change, the naive model stayed below the others throughout. On the last two days, the daily, $\kappa$, and delay-weighted models all drifted to about three-quarters of the truth together, so that drift isn't about how often they retrain.
+
+::: {.callout-tip title="Try it on the simulator"}
+Shift the simulated market mid-day, with a new game that takes over a genre's audience, and replay the shift with a model retrained daily, the same model with an hourly $\kappa$ per advertised app, and models retrained every 6 hours with naive labels and with importance weights by elapsed time. Compare their calibration against the true rates, hour by hour, before and through the shift.
+
+Scaling up is yours: an online-updated model, retraining every 2 hours, the delayed feedback model or DEFER in place of the weights, purchases with their week-long delays, and shifts of other kinds, such as an exchange that changes its auction.
+
+*Status: runs with the companion code (adtrain 0.17, adsim 0.8), on the Part IV shift dataset: about two minutes on a laptop's CPU. Scaling up is yours. Commands are in `WALKTHROUGH.md`, under this chapter.*
 
 :::
 

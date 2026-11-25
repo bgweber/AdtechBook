@@ -111,9 +111,7 @@ A recent line of research treats a campaign's bidding over a day as a sequence t
 
 ![A decision transformer for bidding. Each step is three tokens, the return to go, the state, and the action. The model predicts the next action, conditioned on the value the campaign still wants to win.](../images/p4-decision-transformer.png){#fig-c34-dt width="100%" fig-alt="A causal transformer reads a sequence of tokens in groups of three, return to go, state and action, for each step, and predicts the next action, the pacing multiplier."}
 
-It's the same idea as the next-install transformer in @sec-sequences-and-transformers, applied to the campaign's day rather than a device's history, and it learns from logged trajectories without a reward model or a simulator. AIGB generates bidding trajectories with a conditional diffusion model,[^c34-aigb] and GAS combines a generative model with search after training to refine its decisions.[^c34-gas] These methods were built for advertising platforms that run their own auctions, and they're evaluated on benchmarks such as AuctionNet.
-
-<!-- TODO: R11 to R13 were located but not read in full; check each paper's method and results before describing them in more detail. -->
+It's the same idea as the next-install transformer in @sec-sequences-and-transformers, applied to the campaign's day rather than a device's history, and it learns from logged trajectories without a reward model or a simulator. AIGB generates a campaign's whole bidding trajectory with a conditional diffusion model, conditioned on the return it should reach, and reported 2.81% more GMV in an online A/B test on Alibaba's advertising platform.[^c34-aigb] GAS refines a generative policy's output after training, with small critics for different advertiser preferences and a search inspired by Monte Carlo tree search, and was tested online on Kuaishou's platform.[^c34-gas] These methods were built for advertising platforms that run their own auctions. AuctionNet, built from Alibaba's advertising data with second-price auctions, lets them be compared offline against baselines such as a PID controller and online linear programming.
 
 They're the current research frontier, not the state of practice for a DSP. Adapting them to a DSP means accounting for first-price auctions on outside exchanges, competition the DSP can't observe, and delayed outcomes. They're worth watching, and worth trying on the simulator, before anyone puts one in charge of a budget.
 
@@ -136,10 +134,28 @@ Report each metric by campaign, not only in total. A policy that wins on large c
 
 RL is worth its complexity when there's structure the PI controller can't use: strong and predictable daily patterns in the value of traffic, several interacting constraints, frequent shocks, or budgets that span days. It isn't worth it when the controller already keeps spend on plan and the remaining gains are small, which for many DSPs is most campaigns. A sensible path is to keep PI as the default, add MPC with the forecast as the first upgrade, and use learned policies for the campaigns where the simulator and the test show a clear gain beyond MPC.
 
-::: {.callout-tip title="Try it on the simulator"}
-Build a logged-auction simulator from a simulated week of one campaign's bid logs and its win model, and check it by replaying the PI controller that ran. Add a traffic surge to one day, then compare the PI controller, MPC with the forecast, and a policy trained with Q-learning in the simulator, on the companion simulator. Compare value won per dollar, spend against plan, and the multiplier over the day.
+## Pacing Policies in the Reference DSP
 
-*Status: planned. This exercise needs traffic surge scenarios, which adsim 0.3 doesn't support yet.*
+The reference DSP builds a logged-auction simulator for one campaign at a time, in the training service, from two of its days: the day before trains and plans, and the newest day tests. For each logged bid, the bid without the day's pacing multiplier is the base; at any multiplier, the day's win curve for its exchange says whether the bid wins, the bid is what it pays, and the advertiser value logged with it is what it wins. Requests the campaign skipped once its budget ran out are filled in from its bids in the same hour, and the budget is a hard stop, as in the bidder. Three policies set the multiplier every quarter hour: the bidder's own PI controller, with the same gains and bounds; MPC, which re-plans every interval for the multiplier that would spend the remaining budget on the rest of the day, by the day before's traffic; and tabular Q-learning, trained on 10,000 randomized versions of the day before, with traffic and competition up to 20% either way and random three-hour surges, and the reward from this chapter. The whole comparison takes about half a minute.
+
+The simulator for the test day adds what the plan didn't expect: the companion simulator's traffic surge, three times the requests from 13:00 to 16:00 UTC. The exercise plays two simulated days on the market from @sec-the-unified-pricing-equation, with the PI controller on: a normal day to train on, and the surge day to test on. As a first check, replaying the multipliers the bidder really used on the surge day spent \$23.15 for a campaign with a \$23.15 budget, which actually spent \$23.23.
+
+::: {.content-visible when-format="html"}
+![Three pacing policies compared on the reference DSP's console, in a simulator built from one campaign's logged auctions, on a day whose traffic tripled from 13:00 to 16:00: spend, value won, delivery, tracking error against plan, how much the multiplier moved, when the budget ran out, and the multiplier every two hours.](../images/ch34-console-rlpace.png){#fig-c34-policies width="100%" fig-alt="Screenshot of the pacing policies table for campaign 21 with a $23.15 budget, trained on day 18 and tested on day 19. PI: value won $76.32, 3.30 per dollar, tracking error 9.0%, budget out at 16:30. MPC: $89.10, 3.85 per dollar, tracking error 4.4%, budget out at 19:45. Q-learning: $74.48, 3.22 per dollar, tracking error 10.5%, volatility 0.150, budget out at 16:00."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Three pacing policies compared on the reference DSP's console, in a simulator built from one campaign's logged auctions, on a day whose traffic tripled from 13:00 to 16:00: spend, value won, delivery, tracking error against plan, how much the multiplier moved, when the budget ran out, and the multiplier every two hours.](../images/ch34-console-rlpace-print.png){#fig-c34-policies width="100%" fig-alt="Screenshot of the pacing policies table for campaign 21 with a $23.15 budget, trained on day 18 and tested on day 19. PI: value won $76.32, 3.30 per dollar, tracking error 9.0%, budget out at 16:30. MPC: $89.10, 3.85 per dollar, tracking error 4.4%, budget out at 19:45. Q-learning: $74.48, 3.22 per dollar, tracking error 10.5%, volatility 0.150, budget out at 16:00."}
+:::
+
+@fig-c34-policies shows the three policies on a hypercasual Ad ROAS campaign. The PI controller met its plan in the morning, then ran into the surge and ran out of budget at 16:30, so it missed the evening. MPC saw its remaining budget drop during the surge, cut its multiplier from 0.57 to 0.30, and lasted until 19:45. It won \$89.10 of advertiser value against \$76.32 for PI on the same spend, 17% more, with half the tracking error. How much MPC gains depends on the room under the multiplier's floor of 0.3: a campaign that overspends its plan even at 0.3 can't slow down for a surge, whatever the policy. In another run of the same market, campaign 21 reached the floor by early afternoon under both policies, both ran out of budget at 16:00, and MPC won only 3% more. Q-learning won \$74.48, about as much as PI, and moved its multiplier about fourteen times as much as either. A table of eight time blocks, five spend-against-plan buckets, and five multiplier levels can't learn much from one day's variations, and the chapter's sensible path holds: MPC with the forecast first, and learned policies only where it leaves value behind.
+
+::: {.callout-tip title="Try it on the simulator"}
+Build a logged-auction simulator from one campaign's bid logs and the day's win curves, and check it by replaying the multipliers the bidder used. Add a traffic surge to one day, then compare the PI controller, MPC with the forecast, and a policy trained with Q-learning, on value won per dollar, spend against plan, and the multiplier over the day.
+
+Scaling up is yours: train on a week instead of a day, give Q-learning a richer state or replace it with a small network, put MPC in the bidder's pacing service and run it against PI in a budget-split A/B test, and test a policy trained in the logged-auction simulator against the companion simulator itself.
+
+*Status: runs with the companion code (dsp 0.19, adtrain 0.13, adsim 0.6, with the `traffic-surge` scenario), continuing the market from @sec-the-unified-pricing-equation: two simulated days, about two minutes, and half a minute for the comparison. The Pricing tab runs the comparison for a campaign. The week of training, the deep policies, and the live A/B test are yours. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 :::
 
@@ -150,9 +166,9 @@ In this chapter, we learned pacing policies. Budget-constrained bidding is a seq
 Pacing decides how much each campaign bids. Next, we learn which campaigns get scored at all, and personalize that choice for each device.
 
 
-[^c34-auctionnet]: "AuctionNet: A Novel Benchmark for Decision-Making in Large-Scale Games," NeurIPS 2024 Datasets and Benchmarks, arXiv:2412.10798, <https://arxiv.org/abs/2412.10798>
+[^c34-auctionnet]: Kefan Su et al., "AuctionNet: A Novel Benchmark for Decision-Making in Large-Scale Games," NeurIPS 2024 Datasets and Benchmarks, arXiv:2412.10798, <https://arxiv.org/abs/2412.10798>
 
 [^c34-aigb]: Jiayan Guo et al., "AIGB: Generative Auto-bidding via Conditional Diffusion Modeling," KDD, 2024, arXiv:2405.16141, <https://arxiv.org/abs/2405.16141>
 
-[^c34-gas]: "GAS: Generative Auto-bidding with Post-training Search," WWW, 2025, arXiv:2412.17018, <https://arxiv.org/abs/2412.17018>
+[^c34-gas]: Yewen Li, Shuai Mao, et al., "GAS: Generative Auto-bidding with Post-training Search," Companion Proceedings of the ACM Web Conference (WWW), 2025, arXiv:2412.17018, <https://arxiv.org/abs/2412.17018>
 [^c34-wu]: Di Wu et al., "Budget Constrained Bidding by Model-free Reinforcement Learning in Display Advertising," CIKM, 2018, <https://arxiv.org/abs/1802.08365>

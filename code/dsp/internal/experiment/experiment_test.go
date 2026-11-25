@@ -123,3 +123,23 @@ func TestBudgetSplit(t *testing.T) {
 		t.Fatal("after the test, the campaign's whole budget is shared again")
 	}
 }
+
+// A lift study (Chapter 32) needs no challenger; a tilt test needs an
+// uplift bundle.
+func TestStudyAndTilt(t *testing.T) {
+	m := setup(t)
+	e, err := m.Start(Config{Kind: Study}, 0)
+	if err != nil || e.TreatShare != 0.5 || m.Live() == nil || m.Live().Kind != Study {
+		t.Fatalf("study: %v %+v", err, e)
+	}
+	if err := m.Stop(1, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Start(Config{Kind: Tilt, Challenger: "gbm-0002"}, 2); err == nil {
+		t.Fatal("a tilt test started without an uplift registry")
+	}
+	m.Uplift = m.Registry
+	if _, err := m.Start(Config{Kind: Tilt, Challenger: "gbm-0002"}, 2); err == nil {
+		t.Fatal("a tilt test started with a conversion bundle")
+	}
+}

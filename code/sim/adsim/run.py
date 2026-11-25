@@ -29,6 +29,8 @@ from .policy import CrawlPolicy, standardize
 from .requests import make_requests
 from .world import make_world
 
+NEW_GAME_SHARE = 0.4  # installs of the genre's games after a new hit launches (Chapter 29)
+
 PUBLIC_REQUEST_COLS = [
     "request_id", "ts_ms", "exchange", "tmax", "at", "ifa", "os", "osv",
     "make", "model", "connectiontype", "country", "bundle", "placement",
@@ -111,6 +113,13 @@ def simulate(cfg: SimConfig, policy=None, keep_requests: bool = True,
                                imp.adv_app_id.to_numpy(),
                                imp.creative_id.to_numpy().astype(int),
                                n_seen)
+            if cfg.new_game_ms >= 0:
+                # a new game takes over a genre's audience (Chapter 29): its
+                # players install the genre's other games far less often
+                hit = ((imp.imp_ts_ms.to_numpy() >= cfg.new_game_ms)
+                       & (world.apps.genre.to_numpy()[imp.adv_app_id.to_numpy()] == cfg.new_game_genre))
+                for k in ("p_install_click", "p_install_view"):
+                    p[k] = np.where(hit, p[k] * NEW_GAME_SHARE, p[k])
             for k, v in p.items():
                 imp[k] = v
             for c, cost in zip(cid, imp.price.to_numpy() / 1000):
@@ -141,6 +150,10 @@ def simulate(cfg: SimConfig, policy=None, keep_requests: bool = True,
     installs = mmp.resolve_installs(world, installed, organic, imps,
                                     clicks)
     events = mmp.purchases(world, installs)
+    if cfg.ad_revenue:
+        events = pd.concat([events, mmp.ad_revenue(world, installs, events)],
+                           ignore_index=True).sort_values(
+            "ts_ms", kind="stable").reset_index(drop=True)
     pbs = mmp.postbacks(world, installs, events)
     if cfg.bad_labels:
         bad = mmp.misattributed(world, imps, cfg.start_day)
@@ -251,5 +264,7 @@ def _truth_impressions(world, imps, organic, cfg):
         "p_organic_window": p0,
         "lift": (1 - p0) * p_ad,
         "expected_d7_revenue": truth.expected_revenue(world, dev, app, 7),
+        "expected_d7_ad_revenue": truth.expected_ad_revenue(world, dev, app, 7),
+        "expected_d3_ad_revenue": truth.expected_ad_revenue(world, dev, app, 3),
         "n_seen_today": imps.n_seen_today,
     })

@@ -85,11 +85,28 @@ Value models need different evaluation from classifiers:
 
 ![Cumulative gain curves for D7 revenue. Ranking installs by a value model captures most of the revenue in the top fifth of installs. Ranking by install probability alone captures much less, because likely installers aren't the same as likely payers. Simulated data.](../images/p4-gain-curve.png){#fig-c30-gain width="100%" fig-alt="Cumulative gain curves for D7 revenue. Ranking installs by the value model captures revenue fastest, with a Gini of 0.63, ahead of ranking by an install model alone at 0.40, and both are well above random."}
 
+## Value Prediction in the Reference DSP
+
+The reference DSP prices Ad ROAS campaigns for hypercasual apps with a value model, on the simulator's walk market with ad revenue turned on. Ad revenue labels are dense: in the simulator, as in real hypercasual games, every player earns something on the install day, and more on each day they keep playing, and hypercasual ads convert far better than most. The campaigns are judged on D3 ad revenue, so a label is final three and a half days after the install, not ten. The model is a LightGBM regression with a Tweedie loss, trained on every install of a hypercasual app, whichever campaign brought it, with the same inputs as the install models plus one: how many requests a day the DSP sees from the device, a proxy for how much its player plays. The bidder serves it natively, like the other trees, through an exp link.
+
+The exercise runs on the simulator's smallest market, so that it takes minutes. After nine simulated days, the model was trained on 251 installs and evaluated on the 63 installs of the next two days with final labels. Its predictions correlated 0.73 with the simulator's true D3 value, against 0.11 for each app's average, the pricing from @sec-pricing-for-goals. The fifth of installs it ranked highest held 53% of the true value, against 39% for the per-app average. Overall, it predicted 0.77 times the true value, as in @fig-c30-bundles.
+
+::: {.content-visible when-format="html"}
+![Conversion bundles on the reference DSP's console, with the value model's correlation with the true D3 value next to the per-app average's on the same installs, after six simulated days (gbm-0001, too few labels to learn from) and nine (gbm-0002).](../images/ch30-console-value.png){#fig-c30-bundles width="100%" fig-alt="Screenshot of the LightGBM conversion models table with two bundles. Columns: click AUC and calibration, install AUCs and calibration, and Value: true corr. gbm-0002, the champion: click AUC 0.799, install (click) AUC 0.863, value 0.730 vs 0.112. gbm-0001: click AUC 0.786, no install models, value 0.000 vs 0.123."}
+:::
+
+::: {.content-visible unless-format="html"}
+![Conversion bundles on the reference DSP's console, with the value model's correlation with the true D3 value next to the per-app average's on the same installs, after six simulated days (gbm-0001, too few labels to learn from) and nine (gbm-0002).](../images/ch30-console-value-print.png){#fig-c30-bundles width="100%" fig-alt="Screenshot of the LightGBM conversion models table with two bundles. Columns: click AUC and calibration, install AUCs and calibration, and Value: true corr. gbm-0002, the champion: click AUC 0.799, install (click) AUC 0.863, value 0.730 vs 0.112. gbm-0001: click AUC 0.786, no install models, value 0.000 vs 0.123."}
+:::
+
+Better predictions only matter if they buy more revenue, and a value A/B test checks that: it splits devices and each campaign's budget in half, and prices Ad ROAS bids with the value model in one arm and with each app's average in the other. On the small market, three days weren't enough to tell: about 270 installs per arm, and a treatment ROAS 0.95 times the control's measured from the postbacks (95% interval 0.66 to 1.41), 1.05 times from the simulator's true values (0.83 to 1.33). On a market ten times bigger, the simulator's laptop scale, the same test over three days found the value model's installs earned $270 of D3 ad revenue against $190 for the same spend: 1.42 times the ROAS measured (0.94 to 1.99), and 1.36 times from the true values (1.18 to 1.58). A value model can only show its worth where there's enough volume to measure it, which is one reason the DSPs that win on ROAS are the big ones.
+
 ::: {.callout-tip title="Try it on the simulator"}
-Train a two-part value model and a ZILN head on simulated installs and purchases. Compare predicted D7 revenue with the true expected revenue from the ground truth, by decile and by country, and plot the cumulative gain curves of both models.
+Run the walk market with ad revenue for nine days, train a value model for the Ad ROAS campaigns' D3 ad revenue, and compare it with each app's average against the true expected revenue from the ground truth, by fifth of the prediction and by country, and against the least-squares model on log revenue in its report.
 
-*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
+Scaling up is yours: run the value A/B test on the small market and see how wide its interval is, then on the laptop-scale market (`ADSIM_SCALE=laptop`, about ten times the traffic and the run time) for long enough to read it out. The deep funnel is yours too: purchase revenue for ROAS campaigns, with a two-part model and a Tweedie model on D7 purchase revenue, and a ZILN head once you have the deep models of Part IV. Purchases are sparse, so this needs many more simulated days than ad revenue.
 
+*Status: runs with the companion code (dsp 0.15, adtrain 0.9, adsim 0.4), on the walk market with ad revenue (`ADSIM_SCENARIO=ad-roas`): nine simulated days, about five minutes. The Conversions tab shows each bundle's value model against the per-app average, and the Experiments tab runs and reads out value A/B tests. Scaling up and the purchase revenue models are yours. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 :::
 
 ## Conclusion

@@ -1,10 +1,9 @@
 # The reference DSP
 
 The bidder the book builds, in Go. It grows chapter by chapter, from a
-listening bidder in Part II to the full DSP in Part IV. Stages are
-configuration (`-stage crawl|walk|run`), and a git tag marks the end of each
-part (`part-2`, ...), so you can always see the code for the chapter you're
-reading.
+listening bidder in Part II to the full DSP in Part IV, as one program:
+stages are configuration (`-stage crawl` for Part II, `-stage walk` from
+Part III on), and each print edition's git tag has the code that matches it.
 
 ## Run it against the simulated market
 
@@ -89,6 +88,12 @@ slow down bidding.
 | 21 | Pricing for goals: installs from both paths, D7 revenue per install by app for ROAS (`values.json` in the bundle), calibration multipliers by campaign, the internal auction by expected surplus with 10% exploration and logged candidates, Thompson sampling over creatives with matured posteriors; selection, creative stats, and Thompson's on/off survive restarts | Works |
 | 22 | Pacing by bid modification (`internal/ops/pacing.go`): a PI controller on each campaign's gamma in log space every simulated quarter hour (Kp 0.5, Ki 0.05, bounds 0.3-2, at most 0.2 in ln gamma a step), against the traffic-shaped plan; days start from the replay forecast or yesterday's gamma; manual overbids logged apart; throttling as the backstop; state survives restarts | Works |
 | 23 | Incrementality from the ghost-bid holdout (the Evaluate tab, `adtrain lift`), against the simulator's true caused installs | Works |
+| 28 | Serving deep models (`internal/deep`, `cmd/deepcheck`): the Chapter 26 DCNv2 run in pure Go from the bundle `adtrain export` writes, with golden vectors checked at load and no allocations per request; the request's share of the first layers computed once for all candidates; versioned app vectors and device states scored with dot products, refused when versions don't match, with both versions' tables kept during a rollover; top-k over a contiguous matrix; the console's Deep models tab (Chapters 25 to 29): datasets, run buttons, each chapter's latest report, the Go check run in the bidder, and an embedding viewer | Works |
+| 30 | Value prediction for Ad ROAS (with the simulator's `--scenario ad-roas`): `AD_ROAS` campaigns priced on D3 ad revenue per install, from the bundle's `value` model (LightGBM, Tweedie, served natively with an exp link) when it has one, else the app's average; value A/B tests (`value` experiments) price Ad ROAS bids with a challenger's value model and everything else with the champion | Works |
+| 31 | Win curves and the winner's curse: a win bundle with a `curve` target (LightGBM on the request alone for the location of the log price to beat, logistic with the spec's `curve_scale`, served with a raw link) shades with one tree pass per request and gives the market price; its `curse.json` table marks values down by the margin of the media value over that price; curse A/B tests (`curse` experiments) apply a challenger's table to half the devices, with each campaign's budget split | Works |
+| 32 | Uplift: lift studies (`study` experiments: the control arm's devices get ghost bids only) and incrementality tilts (`tilt` experiments: install campaigns' values times an uplift bundle's ratio, (mu1 - mu0) / mu_attr, over its average across the bids made, `1 - alpha + alpha r / mean`, capped at 2); uplift bundles under `models/uplift`, tested, never deployed | Works |
+| 33 | The unified pricing equation: campaign levers saved in `models/pricing/levers.json` (a second CPI goal with a weight, each goal with the campaign's calibration; a tilt alpha with a pinned uplift bundle); the bid ledger logs each goal's value, weight, and calibration, the tilt and ratio, and the margin; the Pricing tab explains a logged bid term by term and runs the consistency check (through the training service) | Works |
+| 34 | Pacing policies in a simulator built from logged auctions: the Pricing tab runs the training service's comparison of the PI controller, MPC, and Q-learning for one campaign on its newest day (the bidder's pacing is unchanged) | Works |
 | 18 | Champion and challenger: `DEPLOYED` is the champion, `CHALLENGER` the latest bundle that passed the pipeline; promote, roll back, and a deploy log with the action and the version before; a bundle that failed the pipeline's checks needs force | Works |
 
 ## Modes
@@ -103,6 +108,7 @@ slow down bidding.
 ```
 cmd/bidder/          main: flags, the bid and admin servers
 cmd/loadgen/         the load test: replays the raw request log at rising rates (Chapter 17)
+cmd/deepcheck/       the deep model check: parity, per-request benchmarks, versions (Chapter 28)
 internal/openrtb/    the OpenRTB 2.6 fields the bidder reads
 internal/normalize/  one internal request, whatever the exchange's quirks
 internal/bidder/     the bid path and notice handler: parse, normalize, decide, respond, log
@@ -117,6 +123,7 @@ internal/ops/        kill switches, audit log, throttling, alerts, reconciliatio
 internal/ledger/     the bid ledger, one JSON line per request, per day
 internal/stats/      live numbers for the console
 internal/latency/    stage timings and their percentiles (Chapter 17)
+internal/deep/       the DCNv2 in Go, and versioned vectors and dot products (Chapter 28)
 internal/clock/      simulated time from the X-Adsim-Time header
 internal/console/    the admin console (static/index.html), playbooks (static/playbooks), and starting training runs
 ```

@@ -117,3 +117,133 @@ Recounting the device profiles:
 ```powershell
 Invoke-RestMethod -Method Post http://localhost:8081/api/profiles/recount
 ```
+
+## The Part IV Dataset
+
+To download it, unzip [`part4-dataset.zip`](https://github.com/bgweber/AdtechBook/releases/download/part4-data/part4-dataset.zip), from the `part4-data` release, into `out\`. To build it instead:
+
+```powershell
+docker compose down; Remove-Item -Recurse -Force out
+$env:ADSIM_PRESET="walk"; $env:BIDDER_STAGE="walk"; $env:ADSIM_SCENARIO="ad-roas,full-share"
+docker compose build
+docker compose up -d bidder trainer
+$env:ADSIM_DAYS=7; docker compose run --rm sim
+```
+
+After deploying the conversion bundle on the Conversions tab, the second week:
+
+```powershell
+docker compose run --rm sim
+```
+
+The `docker compose exec trainer ...` and `docker compose run --rm --no-deps trainer ...` commands run as written.
+
+## Chapter 29: Retraining and Real-Time Learning
+
+To download the shift dataset, unzip [`part4-shift.zip`](https://github.com/bgweber/AdtechBook/releases/download/part4-data/part4-shift.zip), from the `part4-data` release, into `out\`. To build it instead, on the Part IV market with the bidder and trainer up:
+
+```powershell
+$env:ADSIM_SCENARIO="ad-roas,full-share,new-game"; $env:ADSIM_DAYS=4; docker compose run --rm sim
+docker compose exec trainer python -m adtrain snapshot --ledger /out/ledger --sim-out /out/sim --out /out/snapshot-shift
+```
+
+## Chapter 30: Value Prediction
+
+Starting over on the market with ad revenue, and keeping the variables set for the rest of the chapter:
+
+```powershell
+docker compose down; Remove-Item -Recurse -Force out
+$env:ADSIM_PRESET="walk"; $env:BIDDER_STAGE="walk"; $env:ADSIM_SCENARIO="ad-roas"
+$env:ADSIM_DAYS=9; docker compose up --build
+```
+
+The value A/B test's three days, from a second window with the same variables set:
+
+```powershell
+$env:ADSIM_DAYS=3; docker compose run --rm sim
+```
+
+For the laptop scale, add `$env:ADSIM_SCALE="laptop"`. The `docker compose exec trainer ...` commands run as written.
+
+## Chapter 31: Win Rate Curves and the Winner's Curse
+
+With the Chapter 30 variables still set and its bundle deployed, the five days before training, from a second window:
+
+```powershell
+$env:ADSIM_DAYS=5; docker compose run --rm sim
+```
+
+The curse A/B test's three days, twice (once before **Stop**, once after):
+
+```powershell
+$env:ADSIM_DAYS=3; docker compose run --rm sim
+```
+
+The benchmark, with Go installed:
+
+```powershell
+cd code\dsp; $env:GBM_WIN_BUNDLE="..\..\out\models\win\win-0001"; go test ./internal/gbm -run x -bench WinShadeFromEnv; cd ..\..
+```
+
+The `docker compose exec trainer ...` commands run as written.
+
+## Chapter 32: Uplift Modeling
+
+Starting over on the market with sure things, with the bidder and trainer first:
+
+```powershell
+docker compose down; Remove-Item -Recurse -Force out
+$env:ADSIM_PRESET="walk"; $env:BIDDER_STAGE="walk"; $env:ADSIM_SCENARIO="ad-roas,uplift"
+docker compose build
+docker compose up -d bidder trainer
+```
+
+After **Start a lift study 50/50**, the nine days:
+
+```powershell
+$env:ADSIM_DAYS=9; docker compose run --rm sim
+```
+
+The tilt test's three days, twice (once before **Stop**, once after):
+
+```powershell
+$env:ADSIM_DAYS=3; docker compose run --rm sim
+```
+
+The `docker compose exec trainer ...` commands run as written.
+
+## Chapter 33: The Unified Pricing Equation
+
+Continuing Chapter 32's market, with its variables still set:
+
+```powershell
+docker compose build
+docker compose up -d bidder trainer
+```
+
+After saving campaign 16's levers on the Pricing tab, the three days:
+
+```powershell
+$env:ADSIM_DAYS=3; docker compose run --rm sim
+```
+
+The `docker compose exec trainer ...` commands run as written.
+
+## Chapter 34: Pacing with Reinforcement Learning
+
+Continuing Chapter 33's market, with its variables still set:
+
+```powershell
+docker compose build
+docker compose up -d bidder trainer
+```
+
+After clicking **PI controller** on the Pricing tab, a normal day, then a day with a surge:
+
+```powershell
+$env:ADSIM_DAYS=1; docker compose run --rm sim
+$env:ADSIM_SCENARIO="ad-roas,uplift,traffic-surge"; docker compose run --rm sim
+$env:ADSIM_SCENARIO="ad-roas,uplift"
+```
+
+The last line sets the scenario back, so later runs don't surge. The `docker compose exec trainer ...` commands run as written.

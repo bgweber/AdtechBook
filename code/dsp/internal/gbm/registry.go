@@ -25,8 +25,9 @@ type Registry struct {
 	Dir    string // the models directory, such as out/models
 	Family string // its subdirectory: conversion (the default) or win
 
-	cur atomic.Pointer[Bundle]
-	mu  sync.Mutex
+	cur    atomic.Pointer[Bundle]
+	pinned atomic.Pointer[Bundle] // an uplift bundle the campaigns' tilts use (Chapter 33)
+	mu     sync.Mutex
 }
 
 // Family is the default directory a registry serves.

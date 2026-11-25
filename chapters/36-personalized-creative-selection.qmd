@@ -144,10 +144,42 @@ Studios are protective of creative performance data, so a creative model trained
 
 Generated creatives change the picture. Studios can now produce many variants of a creative quickly with generative tools, which is good for testing, and creates a cold-start problem at a new scale: hundreds of new creatives a week, each with no history. Content embeddings and exploration in embedding space are what make that volume usable.
 
-::: {.callout-tip title="Try it on the simulator"}
-Simulate creative engagement histories for devices with hidden creative preferences. Compare personalized creative selection, with content embeddings, a device's creative history, and neural-linear Thompson sampling, with per-campaign Thompson sampling, on installs, on true lift, and on how many impressions a new creative needs before it's served at its true rate.
+## Creative Selection in the Reference DSP
 
-*Status: planned. This exercise needs creative content features and device state that persists across days, which adsim 0.3 doesn't support yet.*
+The companion code runs this chapter's exercise on the Part IV dataset from @sec-where-trees-stop. Each of its 22 campaigns has three creatives, tagged with a format (video, playable, or static) and one of four styles: gameplay, story, user-generated, or minimal. The simulated market gives each device a hidden preference over the styles, and each creative a hidden quality, so the best creative differs by device. Creative selection needs counterfactual outcomes, what would have happened with a creative that wasn't shown, so the dataset includes the market's true click and install rates for every creative of the campaign on each impression from the validation days on, and the replay draws outcomes from them.
+
+The replay runs over the 94,840 impressions of days 9 to 13 in time order, and each policy picks one of the campaign's creatives for each. Every policy starts from the logged impressions of the training days, and outcomes use common random numbers, so two policies that pick the same creative get the same outcome. To test cold start, one creative per campaign is held back until day 11, the first test day. Install feedback is immediate, without the delays of @sec-retraining-and-real-time-learning. The policies are:
+
+- **Random**, the baseline;
+- **Per-campaign Thompson sampling**, from @sec-pricing-for-goals: a Beta posterior on each creative's install rate, the same for every device;
+- **Personalized Thompson sampling**: a Bayesian logistic model of an install, over the creative's style and format, a per-creative intercept, and the device's creative history: its click and install rates for the creative's style, smoothed toward the device's own overall rates. It's refitted every 2,000 impressions with a Laplace approximation, a Gaussian posterior around the fitted weights, and the weights are sampled once per refit;
+- **Best fixed**: each campaign's best creative in hindsight, which no online policy can know;
+- **Oracle**: each impression's best creative for that device, the upper bound.
+
+The personalized model is a small stand-in for the neural-linear bandit: the features are built by hand, rather than learned by the towers, and the posterior is over a few dozen weights rather than a 64-dimension $\phi$. The exploration works the same way. @tbl-c36-results has expected installs, from the true rates of the creatives each policy chose.
+
+| Policy | Installs | vs random | Test days | Share of the oracle's gain | New creatives, test days |
+|---|---|---|---|---|---|
+| Random | 1,591 | | 958 | | 34% |
+| Per-campaign Thompson sampling | 1,639 | +3.0% | 994 | 14% | 54% |
+| Personalized Thompson sampling | 1,690 | +6.2% | 1,030 | 28% | 38% |
+| Best fixed, in hindsight | 1,690 | +6.2% | 1,021 | 29% | 22% |
+| Oracle | 1,939 | +21.9% | 1,220 | 100% | 30% |
+
+: Creative selection replayed over days 9 to 13 of the Part IV dataset, 94,840 impressions. Installs are expected installs from the true rates; the test days are days 11 to 13, when each campaign's new creative is available. {#tbl-c36-results tbl-colwidths="[34,12,11,11,16,16]"}
+
+Personalization doubles the gain of per-campaign sampling and ties the best fixed creative in hindsight, which no online policy can know, and on the test days it beats it, 1,030 installs against 1,021. Per-campaign sampling can only find each campaign's best creative on average, and it does that slowly. It also overspends on new creatives: it gives them 54% of test-day impressions, because a new creative's posterior is wide, while the oracle gives them 30%. The personalized model gives them 38%, because the style and format of a new creative tell it what to expect before its first impression: it's the content prior from earlier in this chapter, with tags in place of embeddings. The device-history weights are all positive and well determined: a device that installs from a style is more likely to install from the next creative in it.
+
+History is where the gain comes from. Measured as a share of the oracle's installs, the personalized policy matches per-campaign sampling on devices with fewer than 20 logged impressions before the replay, 85.8% for both, and pulls ahead with more history: 87.8% against 84.4% for devices with 20 to 100, and 86.8% against 82.7% for devices with more.
+
+It's still only 28% of the oracle's gain. Two weeks of impressions give most devices a handful of impressions per style, which is a noisy estimate of a preference, and three creatives per campaign is a small choice. Longer creative histories, learned creative and device towers in place of hand-built rates, fatigue, and the hundreds of creatives that generated variants bring are where the rest of the gain is, and they're the exercise.
+
+::: {.callout-tip title="Try it on the simulator"}
+Replay the Part IV dataset's validation and test days with the market's true creative rates, and compare random selection, per-campaign Thompson sampling, personalized Thompson sampling over creative content and the device's creative history, the best fixed creative in hindsight, and the oracle. Compare installs, the share of the oracle's gain, how each policy treats a new creative, and the gain by how much history a device has.
+
+Scaling up is yours: longer creative histories, creative and device towers trained on engagement in place of the hand-built features, content embeddings of real creatives, fatigue, many more creatives per campaign, and delayed install feedback.
+
+*Status: runs with the companion code (adtrain 0.20, adsim 0.9), on the Part IV dataset: about a minute on a laptop's CPU. Commands are in `WALKTHROUGH.md`, under this chapter.*
 
 :::
 

@@ -22,6 +22,10 @@ Just as important is what's missing. There are no install or purchase models, no
 
 The book follows this pattern three times. Part II is the crawl stage: the simplest DSP that works. Part III is the walk stage: a DSP that can compete for the goals advertisers actually buy. Part IV is the run stage: deep models, learned pacing and selection, and one pricing equation for every goal. Each part ends with a working DSP and a chapter on operating it, so production practices grow with the system rather than arriving all at once at the end.
 
+@fig-c5-dsp-stages is the whole DSP at the end of Part II, in two halves. The bid path answers each request, in order, and the learning loop turns what happened into the next models. Parts III and IV redraw the same diagram and shade the boxes they change, so you can see where each chapter fits.
+
+![The reference DSP at the end of Part II. The bid path answers each request in order; the learning loop turns the logs into labels, datasets, and models, publishes them to the bidder, and measures what they do. Parts III and IV redraw this diagram.](../images/dsp-stage-part2.png){#fig-c5-dsp-stages width="100%" fig-alt="Two columns of boxes. The bid path: parse and eligibility, device profile and features, campaign and creative selection, prediction, pricing and shading, and pacing, each with Part II's version, such as an FTRL click model and a fixed shade of 0.7. The learning loop: logs and labels, datasets and training, publishing and monitoring, and experiments and incrementality. Every request feeds the logs, and model bundles go back to prediction."}
+
 ## The Reference DSP and the Synthetic Data Generator
 
 Every chapter from here on has a working example that you can run. The examples run on the companion bid simulator in the book's GitHub repository, which has two halves: a reference DSP, and a simulated market for it to bid in.
@@ -46,7 +50,7 @@ docker compose up --build
 ![The reference DSP's console during a simulated day, with a click model deployed. The cards across the top are the funnel from requests to clicks, and the campaigns table shows spend against budget, and predicted against actual click rates, for each campaign.](../images/ch05-console-live-print.png){#fig-c5-console width="100%" fig-alt="Screenshot of the DSP console's Live tab at simulated day 7, 15:44, with click model click-0001 deployed. Cards show 46,716 requests at 2,160 per second, 27,435 bids, 8,999 wins, 6,433 impressions, 257 clicks, and p50 and p99 latency of 0.1 and 17 ms. Below, a table lists eight campaigns with their goal, target, countries, budget, spend today, bids, wins, win rate, impressions, eCPM, clicks, click rate, predicted click rate, and installs."}
 :::
 
-For each workflow in later parts, we show a managed option on Google Cloud Platform and an open source option you can run on your own hardware.
+For each workflow in later parts, we show a managed option on Google Cloud Platform and an open-source option you can run on your own hardware.
 
 The most useful property of the simulator is that it knows the truth. In a real DSP, you never learn the true probability that a device would have clicked on an ad, only whether it did. You never learn whether an install would have happened without the ad, only whether the MMP credited the DSP with it. In the simulator, the market generated those outcomes from known probabilities, so it can report them next to the logs. That lets us check things that are impossible to check in production:
 

@@ -6,7 +6,7 @@ project:
     - scripts/polish_epub.py
 
 # Code cells are executed once locally and the results are committed in
-# _freeze/. CI reuses those results, so GPU chapters never need a GPU in CI.
+# _freeze/. CI reuses those results instead of running the code again.
 execute:
   freeze: auto
 
@@ -100,6 +100,7 @@ lang: en
 # tinted in the web edition).
 filters:
   - filters/formula-box.lua
+  - filters/code-breaks.lua
 
 format:
   # --- Free web edition (GitHub Pages) ---------------------------------
@@ -118,7 +119,7 @@ format:
     documentclass: scrbook
     classoption:
       - twoside
-      - open=right
+      - open=any                # chapters start on the next page: no blank pages before them
       - cleardoublepage=empty
       - chapterprefix=true
       - headings=normal
@@ -126,20 +127,29 @@ format:
     geometry:
       - paperwidth=7in
       - paperheight=10in
-      - inner=0.875in
-      - outer=0.625in
-      - top=0.85in
-      - bottom=0.75in
+      - inner=0.875in           # the gutter stays wide: at ~400+ pages the spine eats into it
+      - outer=0.75in
+      - top=0.75in
+      - bottom=0.65in
       - bindingoffset=0in
       - headheight=14pt
       - headsep=0.25in
       - footskip=0.4in
-    mainfont: "TeX Gyre Pagella"
+    # Crimson Text (SIL Open Font License), shipped in fonts/ so any
+    # machine, CI included, builds the same book without installing it
+    mainfont: "CrimsonText"
+    mainfontoptions:
+      - Path=fonts/crimson-text/
+      - Extension=.ttf
+      - UprightFont=*-Regular
+      - ItalicFont=*-Italic
+      - BoldFont=*-Bold
+      - BoldItalicFont=*-BoldItalic
     sansfont: "TeX Gyre Heros"
     monofont: "DejaVu Sans Mono"
     monofontoptions: [Scale=0.8]
-    fontsize: 10.5pt
-    linestretch: 1.05
+    fontsize: 10pt
+    linestretch: 1.06
     highlight-style: monochrome
     code-block-bg: "#E0E0E0"    # 12% gray, matching the formula boxes
     code-block-border-left: "#808080"
@@ -153,7 +163,7 @@ format:
     number-depth: 1
     fig-pos: "htb"
     fig-dpi: 300
-    fig-width: 5.5              # text block width: 7in - 0.875in - 0.625in
+    fig-width: 5.375            # text block width: 7in - 0.875in - 0.75in
     keep-tex: true
     include-in-header: styles/preamble.tex
 

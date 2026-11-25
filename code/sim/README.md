@@ -97,6 +97,44 @@ first simulated day of a live run:
   that never installed. Every postback carries a `match_type` field:
   `id_matching`, or `probabilistic` for these.
 
+Two scenarios change the market rather than a day of it, so keep them on
+for every run of the same market, in live or offline mode (a third,
+`traffic-surge`, changes only the run's first day):
+
+- `--scenario ad-roas` (Chapter 30): hypercasual apps earn ad revenue, and
+  the market gets six Ad ROAS campaigns for hypercasual apps, judged on
+  D3 ad revenue per dollar. Hypercasual ads convert far better than the
+  rest (an install-rate lift of 2.6 in log-odds), as they do in the real
+  market, so even the tiny market has enough installs to learn from. A player earns on the install day and on every
+  later day they still play: day 1 follows the app's D1 retention, and
+  after that the chance of playing another day rises with the player's
+  taste for the genre. A day's revenue is the device's ad impressions (it
+  sees more when it's more active) times its country's eCPM, with noise.
+  The MMP sends one `af_ad_revenue` postback per player per day, and
+  advertisers who share non-attributed data share these too. The truth
+  table for impressions adds `expected_d3_ad_revenue` and
+  `expected_d7_ad_revenue`. The other campaigns are the same as without
+  the scenario.
+- `--scenario uplift` (Chapter 32): sure things. Heavy players find new
+  games on their own far more often: the organic install rate grows with
+  the cube of how much the device plays, relative to the median, and is
+  four times higher for its favorite genre, so many installs weren't
+  caused by any ad. Every advertiser shares its install data, as in a lift
+  study. The truth table for impressions already has each impression's
+  `lift`. Chapter 32 runs it with ad revenue: `--scenario ad-roas,uplift`.
+- `--scenario traffic-surge` (Chapter 34): three times the requests from
+  13:00 to 16:00 UTC on the run's first day, with devices and apps drawn
+  from that day's own traffic, as a large promotion might bring. Run it
+  for one day, then drop it.
+- `--scenario full-share`: every advertiser shares its install data,
+  for the Part IV datasets of Chapters 25 to 29, 35, and 36. Keep it on for every run
+  of the market.
+- `--scenario new-game` (Chapter 29): at 12:00 UTC on the run's first
+  day, a new hypercasual hit that isn't one of the bidder's advertisers
+  takes over the genre's audience, and the genre's games get 40% of the
+  installs they did before, on every later day of the run. Run all the
+  shifted days in one command.
+
 At the end of every live run, each simulated exchange also sends its
 invoice (`PUT /api/invoices`): what it billed, by day, exchange, and
 placement, also written to `logs/invoices`.
@@ -143,6 +181,20 @@ MMP's own vocabulary, in each source's own format.
 | `installs` | Every install: organic or ad, caused or not, and who the MMP credited |
 | `events` | Every purchase and D1 open |
 
+**Creative truth** (Chapter 36). Choosing a creative needs the outcomes of
+creatives that weren't shown. `python -m adsim.creative_truth --snapshot
+out/snapshot` rebuilds the world of a Part IV snapshot (with its preset,
+scale, seed, and scenarios; walk, tiny, 7, and `ad-roas,full-share` by
+default), checks the rebuilt rates against the snapshot's truth for the
+creatives that were shown, and refuses if they don't match. It then writes
+two tables into the snapshot and records them in its manifest:
+`creatives.parquet`, each creative's campaign, format, style, orientation,
+and length, what a content embedding would see; and
+`creative_truth.parquet`, the true p_click and p_install of every creative
+of the campaign, for each impression from the first validation day on,
+with the device's fatigue as it was. The style preferences and qualities
+stay hidden.
+
 ## How the market works
 
 Each generator matches a row of the "Generators to Build" table in the
@@ -177,9 +229,10 @@ book plan.
 
 ## Not yet built
 
-- Device state that updates during the run (new installs don't yet change
-  which apps a device plays, and profiles aren't simulated).
-- Click injection and click spamming fraud; ad revenue for hypercasual
-  games; iOS and ATT; protocol buffer schemas for the logs.
+- Device state that updates during the run (new installs don't change
+  which apps a device plays, and fatigue only builds within a day).
+- Click injection and click spamming fraud; iOS, ATT, and SKAdNetwork;
+  protocol buffer schemas for the logs.
+- Competing bidders that adapt their shading.
 - Performance work: the crawl policy loops in Python, so `medium` and
   `large` scales are slow.

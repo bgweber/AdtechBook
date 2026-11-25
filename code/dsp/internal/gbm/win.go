@@ -9,9 +9,34 @@ import (
 
 // WinModel is a win rate model (Chapter 20): a bundle with one target,
 // "win", whose inputs include the bid, as ln(bid) and ln(bid / floor).
+//
+// A bundle can also have a win curve (Chapter 31), target "curve": trees
+// that read only the request and predict the location of the log price to
+// beat, with a logistic spread. Then one pass through the trees gives the
+// win rate at every bid, and the market price for the winner's curse
+// correction; the bundle's curve is used instead of "win".
 type WinModel struct {
 	*Bundle
 	iBid, iRatio int
+	curve        bool
+}
+
+// Curve reports whether the model shades with a win curve.
+func (w *WinModel) Curve() bool { return w.curve }
+
+// MarketPrice is the predicted median price to beat, CPM, from the curve:
+// the bid that wins half the time. 0 without a curve.
+func (w *WinModel) MarketPrice(x []float64) float64 {
+	if !w.curve {
+		return 0
+	}
+	return math.Exp(w.Spec.CurveOffset + w.Models["curve"].Predict(x))
+}
+
+// curveProb is the curve's win rate at a bid, from the log location.
+func (w *WinModel) curveProb(mu, bid float64) float64 {
+	z := (math.Log(math.Max(bid, 1e-4)) - mu) / w.Spec.CurveScale
+	return 1 / (1 + math.Exp(-z))
 }
 
 // NewWinModel wraps a loaded win bundle.
@@ -19,10 +44,12 @@ func NewWinModel(b *Bundle) (*WinModel, error) {
 	if b == nil {
 		return nil, fmt.Errorf("no bundle")
 	}
-	if _, ok := b.Models["win"]; !ok {
+	_, curve := b.Models["curve"]
+	curve = curve && b.Spec.CurveScale > 0
+	if _, ok := b.Models["win"]; !ok && !curve {
 		return nil, fmt.Errorf("%s has no win model", b.Spec.Version)
 	}
-	w := &WinModel{Bundle: b, iBid: -1, iRatio: -1}
+	w := &WinModel{Bundle: b, iBid: -1, iRatio: -1, curve: curve}
 	for i, k := range b.Spec.Numeric {
 		switch k {
 		case "ln_bid":
@@ -31,7 +58,7 @@ func NewWinModel(b *Bundle) (*WinModel, error) {
 			w.iRatio = len(b.Spec.Categorical) + i
 		}
 	}
-	if w.iBid < 0 {
+	if w.iBid < 0 && !curve {
 		return nil, fmt.Errorf("%s has no ln_bid input", b.Spec.Version)
 	}
 	return w, nil
@@ -39,6 +66,12 @@ func NewWinModel(b *Bundle) (*WinModel, error) {
 
 // Prob is the predicted chance that a bid wins, with x from Inputs.
 func (w *WinModel) Prob(x []float64, bid, floor float64) float64 {
+	if w.curve {
+		if bid < floor {
+			return 0
+		}
+		return w.curveProb(w.Spec.CurveOffset+w.Models["curve"].Predict(x), bid)
+	}
 	w.setBid(x, bid, floor)
 	return w.Models["win"].Predict(x)
 }
@@ -82,6 +115,17 @@ func (w *WinModel) ShadeInputs(x []float64, media, floor float64) (float64, floa
 	}
 	if len(bids) == 0 {
 		return 0, 0
+	}
+	if w.curve { // one pass: the curve gives every bid's win rate
+		mu := w.Spec.CurveOffset + w.Models["curve"].Predict(x)
+		best, bestB, bestP := -1.0, 0.0, 0.0
+		for _, b := range bids {
+			p := w.curveProb(mu, b)
+			if s := (media - b) * p; s > best {
+				best, bestB, bestP = s, b, p
+			}
+		}
+		return bestB, bestP
 	}
 	rows := make([][]float64, len(bids))
 	flat := make([]float64, len(bids)*len(x))

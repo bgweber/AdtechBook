@@ -25,7 +25,7 @@ A production reference point for this kind of serving: Aarki has described expor
 
 When a model doesn't fit the CPU budget, try these in order before adding GPUs to the bid path: precompute more of it offline, distill the online part into a smaller model, and batch candidates into one inference call.
 
-<!-- RESULT: p99 latency and cost per million requests for Design A and Design B on the reference DSP. -->
+The end of this chapter measures the deep work on the reference DSP's bid path, in @tbl-c28-bench.
 
 ## Splitting Work Between Batch and the Bid Path
 
@@ -167,13 +167,9 @@ A few optimizations go beyond the tree-serving settings of @sec-serving-models-i
 
 Training on GPU and serving on CPU is the dominant pattern for DSPs, and it's the pattern in this book. GPU serving makes sense only when an online model can't be made cheaper by precomputing, distilling, or batching, and the deciding number is FLOPs per request times requests per second.
 
-As a rough estimate, online target attention over a 1,000-event history, with 256 dimensions and 50 candidates, takes about 25 million multiply-adds per request for the attention alone. At 1 million requests per second, that's tens of trillions of operations per second, which means hundreds of CPU cores per trading location, against a handful of GPUs. At ten times lower request rates, or with a shorter history, CPU wins.
+As a rough estimate, online target attention over a 1,000-event history, with 256 dimensions and 50 candidates, takes about 25 million multiply-adds per request for the attention alone. At 1 million requests per second, that's 25 trillion a second. The reference bidder's network code does about 1.8 billion multiply-adds a second on one core: its DCNv2 does about 46,000 per candidate in 26 µs, from @tbl-c28-bench. At that rate, the attention alone needs about 14,000 cores in each trading location, and code several times faster still needs thousands, against a handful of GPUs. At much lower request rates, or with a much shorter history, CPU wins.
 
-<!-- TODO: replace the estimate with measured numbers from the reference DSP. -->
-
-When it's needed, it's done with an inference server such as NVIDIA Triton running as a sidecar next to the bidder, called over gRPC, with dynamic batching that collects requests over a 1 to 2 ms window, TensorRT or ONNX engines in FP16, GPUs in every trading location, and a CPU fallback model when the GPU path times out. Triton is also the standard option for teams that want endpoint serving on-prem with both CPU and GPU execution providers.[^c28-outofcloud]
-
-<!-- TODO: check NVIDIA Triton documentation on dynamic batching and recommender inference before citing specifics. -->
+When it's needed, it's done with an inference server such as NVIDIA Triton running as a sidecar next to the bidder, called over gRPC, with dynamic batching set to hold requests for 1 to 2 ms so that they can be batched (by default, Triton batches what's waiting without holding anything),[^c28-triton] TensorRT or ONNX engines in FP16, GPUs in every trading location, and a CPU fallback model when the GPU path times out. Triton is also the standard option for teams that want endpoint serving on-prem with both CPU and GPU execution providers.[^c28-outofcloud]
 
 ## When a Feature Store Makes Sense
 
@@ -204,10 +200,10 @@ A few design choices make this reliable:
 - **Freshness monitoring.** Track the lag between event time and availability time per feature, because training should reflect the lag the bidder actually experienced.
 - **Log what was served anyway.** Even with a feature store, have the bidder log the values it read and their timestamps. The log is the ground truth for parity checks against the offline store.
 
-On Google Cloud, a simple version is an offline store in BigQuery with timestamped rows and an online store in Bigtable, written by the same Dataflow or batch job. Managed options include the Feature Store in Google's Gemini Enterprise Agent Platform, which replaced the Vertex AI brand in April 2026,[^c28-agent-platform] and open source options include Feast.[^c28-feast] Commercial platforms such as Tecton add streaming materialization and a registry.
+On Google Cloud, a simple version is an offline store in BigQuery with timestamped rows and an online store in Bigtable, written by the same Dataflow or batch job. Managed options include the Feature Store in Google's Gemini Enterprise Agent Platform, which replaced the Vertex AI brand in April 2026,[^c28-agent-platform] and open-source options include Feast.[^c28-feast] Commercial platforms such as Tecton add streaming materialization and a registry.
 
 [^c28-agent-platform]: "Google Announces New Gemini Enterprise Agent Platform," *THE Journal*, May 4, 2026. Most of the former Vertex AI services, including Feature Store, Pipelines, and Model Registry, continue under the Agent Platform name.
-[^c28-feast]: Feast, an open source feature store, <https://feast.dev/>
+[^c28-feast]: Feast, an open-source feature store, <https://feast.dev/>
 
 ### Choosing an Approach for Your Team
 
@@ -283,10 +279,36 @@ The one option to avoid is running the transformer in the bid path itself, synch
 [^c28-incidents]: Ben Weber, "Machine Learning Incidents in AdTech," *Towards Data Science*, January 29, 2025, <https://medium.com/data-science/machine-learning-incidents-in-adtech-e3f48d858054>
 
 
-::: {.callout-tip title="Try it on the simulator"}
-Serve Design B's online ranker on CPU, and profile the bid path under load with replayed traffic. Then publish a new device state version without the matching app vectors, and watch the bidder refuse to score mismatched versions and fall back.
+## Serving the Part IV Models in the Reference DSP
 
-*Status: planned. This exercise needs the companion Go bidder with the ONNX device tower, which isn't built yet.*
+The companion code exports the DCNv2 of @sec-deep-models-with-embeddings, trained on the Part IV dataset, and serves it and the vectors of @sec-sequences-and-transformers the way this chapter describes. `adtrain export` trains the model and writes it twice. `dcn.onnx` is the ONNX export, opset 17, checked against PyTorch with ONNX Runtime on 2,000 test rows: the largest difference in a logit was $3.8 \times 10^{-6}$. `dcn.json` is the bundle for the reference bidder, with the vocabularies, the numeric transforms, the weights, and 45 golden vectors: raw test impressions with PyTorch's logits, including the edge cases of the parity list, unseen IDs, no recent apps, the longest list of recent apps, missing numbers, and an unseen recent app.
+
+The reference bidder has no dependencies and no cgo, so instead of ONNX Runtime it runs the network in pure Go, as it runs LightGBM, with one set of buffers per worker so that scoring doesn't allocate. It checks the golden vectors when the bundle loads, and refuses a bundle that doesn't match. In ours, Go matched PyTorch within $2.9 \times 10^{-6}$. A team serving with ONNX Runtime would load `dcn.onnx` instead, with the same golden vectors. The comparison in @sec-serving-models-in-the-bid-path, `code/onnxbench`, shows how to call ONNX Runtime from Go without cgo.
+
+`deepcheck` then benchmarks the bid path's deep work on one core, with requests from the test days and the dataset's campaign and creative combinations as candidates. @tbl-c28-bench has the results from ours.
+
+| Work per request | p50 | p99 |
+|---|---|---|
+| DCNv2, three heads, one candidate | 27 µs | 47 µs |
+| DCNv2, 10 candidates | 258 µs | 551 µs |
+| DCNv2, 50 candidates | 1,296 µs | 2,710 µs |
+| DCNv2, 50 candidates, the request's share of the first layers once | 1,020 µs | 1,709 µs |
+| One affinity: a 32-dimension dot product and two lookups | 0.1 µs | |
+| 2,000 campaign vectors of 64 dimensions, all scored, top 10 kept | 76 µs | 100 µs |
+| 50,000 campaign vectors, the same | 1,951 µs | 2,374 µs |
+
+: The deep work on the bid path in the reference DSP, on one core of a laptop. {#tbl-c28-bench tbl-colwidths="[64,18,18]"}
+
+The numbers follow the rules of this chapter. The DCN is fast for one candidate and takes over a millisecond for fifty, which is a large share of a 10 ms budget, so a per-candidate network should be small, or run only on the top few candidates. Splitting per-request from per-candidate work helps even inside the network. The first cross layer and the first MLP layer multiply $x_0$, and only the candidate's slots of $x_0$ change between candidates, so the request's share of those products can be computed once. That cut the median for fifty candidates by a fifth, and its tail by more. Dot products are nearly free: an affinity from a device state of @sec-sequences-and-transformers takes a tenth of a microsecond, and scoring 2,000 campaign vectors takes 76 µs, the tens of microseconds the arithmetic above predicts.
+
+The versions are checked too. The app vectors and device states carry the version of the model that computed them, and the bidder refuses to score a device record whose version has no table loaded, which the trees then treat as missing. In a simulated rollover, with half of the 1,821 device records from a new version and only the old tables loaded, 910 records were refused. With both versions' tables loaded, all were scored.
+
+::: {.callout-tip title="Try it on the simulator"}
+Export the deep conversion model from the Part IV dataset to ONNX and to the reference bidder, and check both against PyTorch with golden vectors that include unseen IDs and empty lists. Benchmark it per request with 1, 10, and 50 candidates, compute the request's share of the first layers once, and score Chapter 27's device states against the app vectors with dot products. Then roll over to a new device state version without its tables, and watch the bidder refuse to score mismatched versions and fall back.
+
+Scaling up is yours: serve the network in the live bid path behind a deployment, load-test it with replayed traffic as in @sec-serving-models-in-the-bid-path, distill it, quantize the vectors, and run a two-tower device tower once per request.
+
+*Status: runs with the companion code (adtrain 0.16, bidder 0.20), on the Part IV dataset: under a minute for the export and the checks. Scaling up is yours. Commands are in `WALKTHROUGH.md`, under this chapter.*
 
 :::
 
@@ -307,6 +329,8 @@ Serving deep models efficiently makes it possible to update them more often. Tha
 [^c28-golang]: Ben Weber, "Options for ML Serving with Golang," *Medium*, May 7, 2026, <https://medium.com/@bgweber/options-for-ml-serving-with-golang-3b1afa3a6182>
 
 [^c28-onprem]: Ben Weber, "OnPrem vs Public Cloud for AdTech ML," *Data Science Collective*, May 15, 2026, <https://medium.com/data-science-collective/on-prem-vs-public-cloud-for-ml-3fb4568bd589>
+
+[^c28-triton]: NVIDIA, "Dynamic Batcher," *Triton Inference Server User Guide*, <https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/batcher.html>
 
 [^c28-outofcloud]: Ben Weber, "Out of the Cloud: Building On-Prem Machine Learning Pipelines," *Data Science Collective*, September 27, 2025, <https://medium.com/data-science-collective/out-of-the-cloud-building-on-prem-machine-learning-pipelines-597d5603502f>
 

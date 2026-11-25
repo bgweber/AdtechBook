@@ -222,11 +222,11 @@ Here are a few incidents that show how these signals work together. I've told ea
 
 The same design works on very different infrastructure. The key split is between metrics, which are low-cardinality time series for real-time dashboards and alerts, and analytical data, which is high-cardinality logs for segment breakdowns, calibration, and parity. I've written before about the tradeoffs between running ML infrastructure on premises and on a public cloud for ad tech, and monitoring is one of the places where the cloud saves the most setup work.[^c24-onprem] @fig-c19-stacks shows the two stacks side by side.
 
-![Two monitoring stacks with the same design. On the left, an open source stack for on-premises infrastructure, with Prometheus and Grafana for real-time metrics and alerts, and Kafka and ClickHouse for prediction logs and analysis. On the right, the Google Cloud equivalent, with Cloud Monitoring for metrics and alerts, and Pub/Sub and BigQuery for logs and analysis.](../images/monitoring-stacks.png){#fig-c19-stacks width="100%" fig-alt="Two side-by-side monitoring stacks with the same shape. On premises, the Go bidder sends coarse metrics to Prometheus and Grafana and logs through Kafka to ClickHouse and Airflow jobs. On Google Cloud, it uses Cloud Monitoring and alerting, and logs through Pub/Sub to BigQuery jobs."}
+![Two monitoring stacks with the same design. On the left, an open-source stack for on-premises infrastructure, with Prometheus and Grafana for real-time metrics and alerts, and Kafka and ClickHouse for prediction logs and analysis. On the right, the Google Cloud equivalent, with Cloud Monitoring for metrics and alerts, and Pub/Sub and BigQuery for logs and analysis.](../images/monitoring-stacks.png){#fig-c19-stacks width="100%" fig-alt="Two side-by-side monitoring stacks with the same shape. On premises, the Go bidder sends coarse metrics to Prometheus and Grafana and logs through Kafka to ClickHouse and Airflow jobs. On Google Cloud, it uses Cloud Monitoring and alerting, and logs through Pub/Sub to BigQuery jobs."}
 
 [^c24-onprem]: Ben Weber, "OnPrem vs Public Cloud for AdTech ML," *Data Science Collective*, May 15, 2026, <https://medium.com/data-science-collective/on-prem-vs-public-cloud-for-ml-3fb4568bd589>
 
-#### An Open Source Stack for On-Premises Infrastructure
+#### An Open-Source Stack for On-Premises Infrastructure
 
 | Role | Tool | Notes |
 |---|---|---|
@@ -237,7 +237,7 @@ The same design works on very different infrastructure. The key split is between
 | Prediction logs | Kafka into ClickHouse | A sample of the bid ledger with predictions, versions, and segments |
 | Batch jobs | Airflow running Spark or Python | Daily calibration, PSI, and parity jobs, writing results back to ClickHouse |
 
-: An open source monitoring stack. {#tbl-c19-oss}
+: An open-source monitoring stack. {#tbl-c19-oss}
 
 The main trap in this stack is label cardinality in Prometheus. Every distinct combination of labels creates a separate time series, so labels must stay coarse, such as model, version, exchange, platform, and host.[^c24-prometheus] Breakdowns by publisher app, country, or campaign belong in ClickHouse, which handles high-cardinality aggregation well. For prediction distributions, export Prometheus histograms with log-spaced buckets, so quantiles can be estimated across hosts.
 
@@ -327,7 +327,7 @@ On-call should be managed in an incident management system, not in a chat channe
 - **Routing** from each alert in @sec-operating-a-competitive-dsp to the right rotation and tier.
 - **A record** of every alert, acknowledgment, and action, which feeds postmortems.
 
-PagerDuty is the most common choice, and Grafana Cloud IRM and Jira Service Management also cover these needs. The market has shifted recently, which is worth knowing if you're choosing a tool. Atlassian stopped selling Opsgenie in June 2025 and ends support for it in April 2027, folding its on-call features into Jira Service Management.[^c24-opsgenie] Grafana's open source OnCall project was archived in March 2026, with development continuing in Grafana Cloud IRM.[^c24-grafana]
+PagerDuty is the most common choice, and Grafana Cloud IRM and Jira Service Management also cover these needs. The market has shifted recently, which is worth knowing if you're choosing a tool. Atlassian stopped selling Opsgenie in June 2025 and ends support for it in April 2027, folding its on-call features into Jira Service Management.[^c24-opsgenie] Grafana's open-source OnCall project was archived in March 2026, with development continuing in Grafana Cloud IRM.[^c24-grafana]
 
 Problems are still often raised in chat, by an analyst or an account manager noticing something odd. Make it easy to find the right person with a chat command, such as `/oncall`, that shows who is currently on call for the ML rotation and lets the person raise an incident in the system directly, rather than mentioning individuals.
 

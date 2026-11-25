@@ -6,6 +6,7 @@ import time
 
 from . import openrtb
 from .config import preset
+from .history import DAY_MS
 from .live import HttpPolicy
 from .run import simulate
 
@@ -47,7 +48,18 @@ def main() -> None:
                         "better creative, Chapter 21; keep it on for every "
                         "run of the same market), bad-labels (the MMP credits "
                         "false installs on the run's first day, 06:00-18:00, "
-                        "Chapter 24)")
+                        "Chapter 24), ad-roas (hypercasual apps earn ad "
+                        "revenue and the market gets Ad ROAS campaigns, "
+                        "Chapter 30; keep it on for every run of the same "
+                        "market), uplift (heavy players install games of "
+                        "their favorite genre on their own, so many credited "
+                        "installs weren't caused, Chapter 32; keep it on too), "
+                        "traffic-surge (three times the requests from 13:00 to "
+                        "16:00 UTC on the run's first day, Chapter 34), "
+                        "full-share (every advertiser shares its install data, "
+                        "for the Part IV dataset; keep it on), "
+                        "new-game (at 12:00 UTC on the run's first day, a new hypercasual hit "
+                        "takes over the genre's audience; Chapter 29)")
     p.add_argument("--workers", type=int, default=32,
                    help="concurrent connections to the bidder in live mode")
     a = p.parse_args()
@@ -57,7 +69,26 @@ def main() -> None:
     creative_test = "creative-test" in scen
     # bad-labels changes what the MMP sends on the run's first day
     bad_labels = "bad-labels" in scen
-    scen = tuple(x for x in scen if x not in ("creative-test", "bad-labels"))
+    # ad-roas changes the world too: hypercasual apps earn ad revenue, and
+    # the market gets Ad ROAS campaigns (Chapter 30)
+    ad_roas = "ad-roas" in scen
+    # uplift changes the world: heavy players install their favorite genre
+    # on their own (Chapter 32)
+    uplift = "uplift" in scen
+    # traffic-surge triples the requests from 13:00 to 16:00 UTC on the
+    # run's first day (Chapter 34)
+    surge = "traffic-surge" in scen
+    # full-share: every advertiser shares its install data (the Part IV
+    # dataset, Chapters 25-29); keep it on for every run of the market
+    full_share = "full-share" in scen
+    # new-game: at 12:00 UTC on the run's first day, a new hypercasual hit
+    # (not ours) takes over the genre's audience, and the genre's games get
+    # 40% of their installs from then on (Chapter 29); run the shifted days
+    # in one command
+    new_game = "new-game" in scen
+    scen = tuple(x for x in scen
+                 if x not in ("creative-test", "bad-labels", "ad-roas", "uplift", "traffic-surge",
+                              "full-share", "new-game"))
     if scen and not a.bidder:
         p.error("--scenario needs --bidder")
     policy = (HttpPolicy(a.bidder, workers=a.workers, admin_url=a.bidder_admin,
@@ -72,17 +103,23 @@ def main() -> None:
     else:
         start = int(a.start_day)
     cfg = preset(a.preset, a.scale, seed=a.seed, days=a.days).with_(
-        start_day=start, creative_test=creative_test)
+        start_day=start, creative_test=creative_test, ad_revenue=ad_roas, uplift=uplift,
+        new_game_ms=(start * DAY_MS + 12 * 3_600_000) if new_game else -1)
+    if uplift or full_share:
+        # a lift study's advertisers share their full install data, and so
+        # do all of them in the Part IV dataset's market
+        cfg = cfg.with_(nonattributed_sharing=1.0)
     settle = a.settle or ("run" if a.preset == "crawl" else "day")
     if policy is not None and settle == "day" and a.days > 1:
         # one simulated day at a time: the MMP settles each day's installs
         # at its end, and postbacks due later go out when their time comes
         for d in range(a.days):
-            res = simulate(cfg.with_(days=1, start_day=start + d, bad_labels=bad_labels and d == 0),
+            res = simulate(cfg.with_(days=1, start_day=start + d, bad_labels=bad_labels and d == 0,
+                                     surge=surge and d == 0),
                            policy=policy, progress=True)
             res.write(f"{a.out}/runs/start={start + d:04d}")
     else:
-        res = simulate(cfg.with_(bad_labels=bad_labels), policy=policy, progress=True)
+        res = simulate(cfg.with_(bad_labels=bad_labels, surge=surge), policy=policy, progress=True)
     if policy is not None:
         policy.close()
         print(f"live mode: {policy.sent:,} requests to {a.bidder} "

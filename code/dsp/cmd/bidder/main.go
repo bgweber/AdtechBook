@@ -35,7 +35,7 @@ import (
 	"github.com/bgweber/adtechbook/code/dsp/internal/stats"
 )
 
-const version = "0.14.0"
+const version = "0.23.0"
 
 func main() {
 	bidAddr := flag.String("bid-addr", ":8080", "bid port, for exchanges")
@@ -153,13 +153,24 @@ func main() {
 	} else if v != "" {
 		log.Printf("deployed win model: %s (bids shaded by expected surplus)", v)
 	}
-	exp := &experiment.Manager{Dir: filepath.Join(*modelsDir, "experiments"), Registry: conv, Win: winReg,
+	upReg := &gbm.Registry{Dir: *modelsDir, Family: "uplift"} // uplift models (Chapter 32): tested, never deployed
+	// the campaigns' levers of the unified equation (Chapter 33), and the
+	// uplift bundle their tilts use
+	leversPath := filepath.Join(*modelsDir, "pricing", "levers.json")
+	if err := pol.LoadLevers(leversPath); err != nil {
+		log.Printf("campaign levers not loaded: %v", err)
+	} else if u := pol.Levers().Uplift; u != "" {
+		if err := upReg.Pin(u); err != nil {
+			log.Printf("uplift bundle %s for the tilts not loaded: %v", u, err)
+		}
+	}
+	exp := &experiment.Manager{Dir: filepath.Join(*modelsDir, "experiments"), Registry: conv, Win: winReg, Uplift: upReg,
 		Book: book, Note: func(what string) { opsys.Note(what, "experiment", 0) }}
 	exp.Interrupted()
 	b := &bidder.Bidder{Mode: *mode, Version: version, BidShare: *bidShare, NoticeURL: *noticeURL,
 		Policy: pol, Book: book, Profiles: profiles,
 		Bids: bids, Notices: notices, Clicks: clicks, Postbacks: postbacks, Raw: raw, MMPToken: *mmpToken,
-		Stats: st, Models: models, Conversion: conv, Exp: exp, Win: winReg, Ops: opsys,
+		Stats: st, Models: models, Conversion: conv, Exp: exp, Win: winReg, Uplift: upReg, Ops: opsys,
 		Lat: latency.NewRecorder(), LoadLat: latency.NewRecorder()}
 
 	bidMux := http.NewServeMux()
@@ -173,8 +184,9 @@ func main() {
 		Info:  console.Info{Version: version, Mode: *mode, Stage: *stage, BidShare: *bidShare},
 		Stats: st, Book: book, Profiles: profiles, Bids: bids, Notices: notices, Clicks: clicks,
 		Postbacks: postbacks, Models: models, Conversion: conv, Ops: opsys, Policy: pol, Exp: exp, Win: winReg,
-		Latency: b.Lat, LoadLatency: b.LoadLat, LoadTests: filepath.Join(*opsDir, "loadtest.json"),
+		Uplift: upReg, Levers: leversPath, Latency: b.Lat, LoadLatency: b.LoadLat, LoadTests: filepath.Join(*opsDir, "loadtest.json"),
 		Datasets: filepath.Join(filepath.Dir(*modelsDir), "datasets"),
+		DeepDir:  filepath.Join(filepath.Dir(*modelsDir), "export"),
 		Trainer:  &console.Trainer{URL: *trainerURL, Models: models}}
 	adminSrv := &http.Server{Addr: *adminAddr, Handler: console.Handler(deps)}
 	console.StartDaily(deps) // the daily parity check (Chapter 24)

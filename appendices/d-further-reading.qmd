@@ -2,7 +2,7 @@
 
 The Preface lists the books and surveys that cover the field as a whole. This appendix goes part by part, collecting the papers, documentation, and posts that each part draws on, with a sentence on why each is worth reading. Full citations are in each chapter's footnotes. Entries already in the Preface aren't repeated here unless a part leans on them heavily.
 
-<!-- TODO: verify every entry against its source before publishing, as with the Preface footnotes. -->
+<!-- Entries checked against their sources 2026-11-25, except the author's own posts. -->
 
 ## Part I: The Mobile Programmatic Ecosystem
 
@@ -64,7 +64,7 @@ The Preface lists the books and surveys that cover the field as a whole. This ap
 - Ruoxi Wang et al., "Deep & Cross Network for Ad Click Predictions," AdKDD, 2017, and "DCN V2," WWW, 2021.
 - Paul Covington, Jay Adams, and Emre Sargin, "Deep Neural Networks for YouTube Recommendations," RecSys, 2016. Two-stage retrieval and ranking.
 - Xinyang Yi et al., "Sampling-Bias-Corrected Neural Modeling for Large Corpus Item Recommendations," RecSys, 2019. Training two-tower models with in-batch negatives.
-- Engineering at Meta, "From User Sequences to Scaling Laws" and "Meta's Generative Ads Model (GEM)," 2025. How the largest ad platform describes its sequence models and foundation model.
+- Engineering at Meta, "Meta's Generative Ads Model (GEM)," 2025, and "From User Sequences to Scaling Laws: A Multi-Stage Architecture for Meta's Ads Ranking," 2026. How the largest ad platform describes its sequence models and foundation model.
 - Lee Xiong et al., "LLaTTE: Scaling Laws for Multi-Stage Sequence Modeling in Large-Scale Ads Recommendation," arXiv, 2026.
 
 **Retraining and delayed feedback**
@@ -74,7 +74,7 @@ The Preface lists the books and surveys that cover the field as a whole. This ap
 
 **Value, auctions, and uplift**
 
-- Xiaojing Wang, Tianqi Liu, and Jingang Miao, "A Deep Probabilistic Model for Customer Lifetime Value Prediction," 2019. The zero-inflated lognormal loss used for value models.
+- Xiaojing Wang, Tianqi Liu, and Jingang Miao, "A Deep Probabilistic Model for Customer Lifetime Value Prediction," arXiv, 2019. The zero-inflated lognormal loss used for value models.
 - Kan Ren et al., "Deep Landscape Forecasting for Real-time Bidding Advertising," KDD, 2019.
 - E. C. Capen, R. V. Clapp, and W. M. Campbell, "Competitive Bidding in High-Risk Situations," *Journal of Petroleum Technology*, 1971. The original description of the winner's curse, from oil lease auctions.
 - Susan Athey and Guido Imbens, "Recursive Partitioning for Heterogeneous Causal Effects," *PNAS*, 2016, and Nicholas Radcliffe, "Using Control Groups to Target on Predicted Lift," 2007. The foundations of uplift modeling and Qini curves.
@@ -82,15 +82,15 @@ The Preface lists the books and surveys that cover the field as a whole. This ap
 **Pacing, selection, and creatives**
 
 - Santiago Balseiro et al., "A Field Guide for Pacing Budget and ROS Constraints," ICML, 2024.
-- "AuctionNet: A Novel Benchmark for Decision-Making in Large-Scale Games," NeurIPS Datasets and Benchmarks, 2024. A public environment for learned bidding and pacing.
+- Kefan Su et al., "AuctionNet: A Novel Benchmark for Decision-Making in Large-Scale Games," NeurIPS Datasets and Benchmarks, 2024. A public environment for learned bidding and pacing.
 - Olivier Chapelle and Lihong Li, "An Empirical Evaluation of Thompson Sampling," NeurIPS, 2011. Thompson sampling in display advertising, with delayed feedback.
 - Liang Tang et al., "Automatic Ad Format Selection via Contextual Bandits," CIKM, 2013.
-- "Parallel Ranking of Ads and Creatives in Real-Time Advertising Systems," AAAI, 2024.
+- Zhiguang Yang et al., "Parallel Ranking of Ads and Creatives in Real-Time Advertising Systems," AAAI, 2024.
 
 ## Part V: Beyond the Bidder
 
 - Apple Developer Documentation, *AdAttributionKit*. Postback windows, conversion values, and crowd anonymity.
-- "Learning from Aggregated Data: Curated Bags versus Random Bags," 2023. Training conversion models from aggregate labels.
+- Lin Chen, Gang Fu, Amin Karbasi, and Vahab Mirrokni, "Learning from Aggregated Data: Curated Bags versus Random Bags," arXiv, 2023. Training conversion models from aggregate labels.
 - Google, "Update on Plans for Privacy Sandbox Technologies," October 2025.
 - Xiao Ma et al., "Entire Space Multi-Task Model," SIGIR, 2018, and Jiaqi Ma et al., "Multi-gate Mixture-of-Experts," KDD, 2018. Multi-task models for the click-to-install-to-purchase funnel.
 - Recent work on generative recommendation for advertising, such as "Generative Recommendation for Large-Scale Advertising" (2026) and "One Model, Two Markets: Bid-Aware Generative Recommendation" (2026), cited in @sec-conclusion.
@@ -109,13 +109,13 @@ These projects are good next steps after the companion code. Most are research c
 
 **Bidders**
 
-- bidflock: <https://github.com/AndrewAct/bidflock>. An OpenRTB 2.6 auction system in Go, with logistic-regression scoring, budget pacing in Redis, and Kafka events. A useful comparison with the reference DSP's single-process design.
+- bidflock: <https://github.com/AndrewAct/bidflock>. A real-time bidding auction system in Go, built as several services, with Redis and Kafka. A useful comparison with the reference DSP's single-process design.
 - RTB4Free: <https://github.com/rtb4free/bidder>. A Java OpenRTB bidder from an open-source DSP, with Docker images.
 - Eyevinn's demand-side platform: <https://github.com/Eyevinn/demand-side-platform>. A small Node.js DSP with pluggable bidding agents, built for testing and teaching.
 
 **Click and conversion models**
 
-- FuxiCTR: <https://github.com/reczoo/FuxiCTR>. Config-driven PyTorch implementations of more than 50 CTR models, from logistic regression and DeepFM to DIN, DCN-V2, and multi-task models such as MMoE and PLE.
+- FuxiCTR: <https://github.com/reczoo/FuxiCTR>. Config-driven PyTorch and TensorFlow implementations of dozens of CTR models, from logistic regression and DeepFM to DIN, DCN-V2, and multi-task models such as MMoE and PLE.
 - BARS: <https://github.com/reczoo/BARS>. Open benchmarks for CTR prediction, with fixed data splits, settings, and logs for every result. A model for how to compare models fairly.
 - DeepCTR: <https://github.com/shenweichen/DeepCTR>. A widely used TensorFlow library of deep CTR models, with a PyTorch version, DeepCTR-Torch.
 - DLF: <https://github.com/rk2900/DLF>. Code for "Deep Landscape Forecasting for Real-time Bidding Advertising," KDD, 2019, which models win prices with survival analysis to handle censored losses, with Kaplan-Meier and other baselines.
@@ -127,7 +127,7 @@ These projects are good next steps after the companion code. Most are research c
 **Datasets**
 
 - iPinYou: the first large public RTB dataset, with bids, impressions, clicks, and conversions from a 2013 competition. Scripts to process it: <https://github.com/wnzhang/make-ipinyou-data>.
-- Criteo: the Criteo AI Lab publishes several advertising datasets, including the Kaggle click logs, an attribution modeling dataset, and an uplift dataset of 25 million users from incrementality tests: <https://ailab.criteo.com>.
+- Criteo: the Criteo AI Lab publishes several advertising datasets, including the Kaggle click logs, an attribution modeling dataset, and an uplift dataset of 25 million rows from incrementality tests: <https://ailab.criteo.com>.
 - Avazu: 40 million mobile ad impressions with clicks, from a 2014 Kaggle competition: <https://www.kaggle.com/c/avazu-ctr-prediction>.
 - Open Bandit Dataset: logged recommendations under random and Thompson sampling policies, with propensities, released with the Open Bandit Pipeline.
 
@@ -155,4 +155,3 @@ These are the posts I've written on ML in mobile ad tech, which several chapters
 - **AdExchanger** and **PPC Land**. News sites that cover ad tech deals, exchange changes, and privacy policy. Several chapters cite them for events and dates.
 - Company engineering blogs, such as Engineering at Meta, Moloco's blog, and Digital Turbine's blog. Rare public descriptions of how production ad systems are built.
 
-<!-- TODO: add any other public talks or podcast appearances. -->

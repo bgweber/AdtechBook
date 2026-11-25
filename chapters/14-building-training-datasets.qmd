@@ -142,7 +142,7 @@ Bad data is cheaper to catch before training than after. Every training job star
 
 When a check fails, the job doesn't train. It keeps the current champion, alerts the team that owns the failing input, and records why it skipped. The one thing it never does is train on a partial day silently, because a model trained on half a day's postbacks looks like a model of a world where installs halved.
 
-These checks can be written directly in the pipeline, as SQL or PySpark assertions, or with open source tools such as Great Expectations or Evidently.[^c14-outofcloud] The tool matters less than having the checks, and having an owner for each one.
+These checks can be written directly in the pipeline, as SQL or PySpark assertions, or with open-source tools such as Great Expectations or Evidently.[^c14-outofcloud] The tool matters less than having the checks, and having an owner for each one.
 
 ## Contracts with Exchanges and MMPs
 

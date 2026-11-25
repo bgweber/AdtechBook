@@ -2,15 +2,15 @@
 
 A large share of the modern internet economy runs on advertising. Meta alone reported \$196 billion in advertising revenue for 2025, nearly all of its \$201 billion in total revenue.[^meta] Search, social, video, and streaming all depend on ads to pay for products that people use for free. And a growing part of this ad economy runs on mobile devices. App marketers spent an estimated \$109 billion on app marketing in 2025, with \$78 billion of it going to user acquisition: paying to get new users to install an app.[^appsflyer]
 
-The companies that power this market have become some of the most valuable businesses in tech. AppLovin, a mobile ad tech company that many people outside the industry have never heard of, has had a market capitalization well above \$100 billion for much of the past two years.[^applovin] Its business, and the businesses of the many smaller platforms that compete with it, comes down to a simple loop. An app wants new users. A publisher has an ad slot to fill. An auction runs in under a hundred milliseconds. And machine learning models decide who to show an ad to, which ad to show, and how much to pay for it.
+The companies that power this market have become some of the most valuable businesses in tech. AppLovin, a mobile ad tech company that many people outside the industry have never heard of, has had a market capitalization well above \$100 billion for much of the past two years.[^applovin] Its business, and the businesses of the many smaller platforms that compete with it, come down to a simple loop. An app wants new users. A publisher has an ad slot to fill. An auction runs in under a hundred milliseconds. And machine learning models decide who to show an ad to, which ad to show, and how much to pay for it.
 
 This book provides a look under the hood at how that loop works. It walks through the machine learning systems that power a mobile demand side platform (DSP), from the data that feeds the models, to training and validating them, to serving them in a bidder that responds to millions of requests per second. It is written for practitioners who want to understand not just the models, but the systems around them.
 
-[^meta]: Meta Platforms, "Meta Reports Fourth Quarter and Full Year 2025 Results," January 28, 2026.
-[^appsflyer]: AppsFlyer, "State of App Marketing," 2025 edition.
-[^applovin]: Market capitalization varies daily. AppLovin traded above \$200 billion at points in 2025 and above \$100 billion through most of 2026.
+[^meta]: Meta Platforms, "Meta Reports Fourth Quarter and Full Year 2025 Results," January 28, 2026. Advertising revenue was \$196.2 billion of \$201.0 billion.
+[^appsflyer]: AppsFlyer, "Top 5 Data Trends" report, December 2025, <https://www.appsflyer.com/resources/reports/top-5-data-trends-report/>. Of the \$109 billion, \$78 billion went to user acquisition and \$31 billion to remarketing.
+[^applovin]: Market capitalization varies daily. AppLovin ended 2025 at about \$242 billion, fell below \$100 billion at points in 2026, and was back to about \$136 billion in November 2026, after its third quarter results.
 
-<!-- TODO: refresh the figures above before publishing. -->
+<!-- Figures checked 2026-11-25: latest full year is 2025. -->
 
 ## Why Mobile Ad Tech
 
@@ -24,7 +24,7 @@ This book focuses on the demand side of programmatic ad tech, which is where I h
 
 ## Who This Book Is For
 
-This book is written for a similar audience as my prior book, *Data Science in Production*. It is for data science and machine learning students and practitioners who want to learn what is involved in building advertising systems and how ML is used in practice in this domain. If you have trained models in notebooks and want to understand what it takes to run them in a live system that spends real money every second, this book is for you.
+This book is written for an audience similar to the one for my prior book, *Data Science in Production*. It is for data science and machine learning students and practitioners who want to learn what is involved in building advertising systems and how ML is used in practice in this domain. If you have trained models in notebooks and want to understand what it takes to run them in a live system that spends real money every second, this book is for you.
 
 There are three groups of readers that I had in mind while writing:
 
@@ -34,9 +34,9 @@ There are three groups of readers that I had in mind while writing:
 
 ## What You Will Learn
 
-You will learn about state of the art machine learning in bidding systems, but you will also come away with a broad understanding of the mobile programmatic ecosystem. We will cover the details of how real-time auctions work, the OpenRTB protocol that exchanges and bidders use to communicate, mobile measurement partners (MMPs) that attribute installs and in-app events back to ads, and how a DSP integrates with ad exchanges.
+You will learn about state-of-the-art machine learning in bidding systems, but you will also come away with a broad understanding of the mobile programmatic ecosystem. We will cover the details of how real-time auctions work, the OpenRTB protocol that exchanges and bidders use to communicate, mobile measurement partners (MMPs) that attribute installs and in-app events back to ads, and how a DSP integrates with ad exchanges.
 
-The book does not stop at the models. For each ML system that we discuss, we provide hands-on examples of how to make it a reality inside a DSP: parsing bid requests, fetching device profiles, building tensors for a model, turning predictions into a bid price, and logging what the model saw so that you can debug it later. Each of them runs on the companion bid simulator described in Code Examples and Conventions, so you can trace a bid, change a model or a pricing term, and see what happens. The ML topics follow a progression from simple and validated approaches to state of the art, for each of the main decisions that a DSP makes:
+The book does not stop at the models. For each ML system that we discuss, we provide hands-on examples of how to make it a reality inside a DSP: parsing bid requests, fetching device profiles, building tensors for a model, turning predictions into a bid price, and logging what the model saw so that you can debug it later. The examples for each system run on the companion bid simulator described in Code Examples and Conventions, so you can trace a bid, change a model or a pricing term, and see what happens. The ML topics follow a progression from simple and validated approaches to state of the art, for each of the main decisions that a DSP makes:
 
 - **Conversion prediction:** from logistic regression on hashed features, to LightGBM, to deep neural networks, sequence models, and transformers pretrained on device histories.
 - **Goals and pricing:** from CPC, to CPI, CPA, and ROAS goals, to one pricing equation with weighted goals and a tilt toward incremental value.
@@ -47,7 +47,7 @@ The book does not stop at the models. For each ML system that we discuss, we pro
 
 We also cover the work that happens around the models: building training datasets, offline evaluation, validation and publishing, serving options, experimentation on live campaigns, monitoring, and handling incidents.
 
-The goal of this book is for you to be able to join an ad tech startup and implement a new ML system end to end. That means either building it yourself, or having enough knowledge to write a technical spec and partner with an engineering team, or a team of agents, to wire up the system.
+The goal of this book is for you to be able to join an ad tech startup and implement a new ML system end to end. That means either building it yourself or having enough knowledge to write a technical spec and partner with an engineering team, or a team of agents, to wire up the system.
 
 ## Prerequisites
 
@@ -59,13 +59,13 @@ Experience with SQL, Spark, and a cloud platform such as GCP is helpful but not 
 
 ## How This Book Is Organized
 
-After Part I, the book builds a DSP three times, at three levels of ambition: crawl, walk, and run. Each of those parts ends with a working DSP that could be operated in production, and each one opens its topics with what broke or didn't scale at the previous level. Shipping, monitoring, and on-call aren't collected in one place. They're threaded through every part, at the level that part needs, and each part ends with a chapter on operating the DSP it built. The book is divided into five parts:
+After Part I, the book builds a DSP three times, at three levels of ambition: crawl, walk, and run. Each of those parts ends with a working DSP that could be operated in production, and each one begins by explaining what broke or failed to scale at the previous level. Shipping, monitoring, and on-call aren't collected in one place. They're threaded through every part, at the level that part needs, and each part ends with a chapter on operating the DSP it built. The book is divided into five parts:
 
 - **Part I: The Mobile Programmatic Ecosystem** is a tour of how mobile ad tech works, with no code, that sets up the ML problems in the rest of the book: how a free game sells an ad slot through an auction, how measurement partners attribute installs and purchases, and what happens inside a DSP, from campaign setup to a single bid worked out by the numbers.
 - **Part II: A First DSP** builds the simplest DSP that closes the loop: a Go bidder with a logistic regression click model, CPC and a first CPI campaign, bidding on low-CPM inventory, with features and propensities logged from the first bid, and the dashboards, alerts, and kill switches needed to spend real money.
 - **Part III: A Competitive DSP** adds the goals advertisers actually buy: LightGBM models for click, install, purchase, and win rate, goal-based pricing, PI pacing, incrementality reporting, a model registry and pipelines, and shadow runs, canaries, and A/B tests for every change.
 - **Part IV: A State-of-the-Art DSP** builds deep and sequence models, pretrained on data beyond the DSP's own wins, and serves them on CPU within the latency budget. It brings every pricing term into one equation, and replaces hand-tuned pacing and selection with learned policies.
-- **Part V: Beyond the Bidder** covers iOS and contextual signals, building an ML team at a DSP, building a healthy ML culture, and where the field is heading.
+- **Part V: Beyond the Bidder** moves from building the bidder to the constraints around it: iOS and contextual signals, building an ML team at a DSP, building a healthy ML culture, and where the field is heading.
 
 If you already know ad tech, you can skip Part I. If you know ML well but are new to ad tech, start with Part I. It's also readable without an ML background, if you want to share it with colleagues. The online version of the book is designed so that chapters can be read on their own, with links back to the background they depend on.
 
@@ -95,23 +95,17 @@ The code examples in this book use two languages:
 - **Python** for model training, validation, and publishing, with PySpark where the data is too large for a single machine.
 - **Go** for the DSP and serving examples, including the bidder, feature encoding, and in-process model inference.
 
-We present both cloud and on-prem options throughout the book. For managed services, the examples use Google Cloud Platform (GCP). For self-hosted infrastructure, we use open source tools that you can run on your own hardware. We do not cover Kubernetes or the infrastructure work needed to scale a bidder to millions of requests per second, which is its own book.
+We present both cloud and on-prem options throughout the book. For managed services, the examples use Google Cloud Platform (GCP). For self-hosted infrastructure, we use open-source tools that you can run on your own hardware. We do not cover Kubernetes or the infrastructure work needed to scale a bidder to millions of requests per second, which is its own book.
 
 The book is built around a companion simulator, `adsim`: a simulated mobile ad market that runs on a laptop. The market generates devices, apps, campaigns, and bid requests, with the quirks real exchanges have, runs first-price auctions against competing bidders, and sends win notices and MMP postbacks with realistic delays. Because the market is simulated, the true click, install, and lift rates are known, so a model's calibration, or a lift measurement, can be checked against the truth. Simulator results show how a method works, not how large its gains will be in production. @sec-simulated-world documents how the simulator works and the schema of every table it writes.
 
-The software is being built alongside the book, and the software is the source of truth: the book only describes an exercise as runnable once the code for it exists and is tested. Each "Try it on the simulator" box ends with a status line that says where it stands:
-
-- **Runs:** the exercise runs today on the simulator and the companion code, and the box gives the commands.
-- **Data ready:** the simulator already produces everything the exercise needs, and the companion code and commands are in progress.
-- **Planned:** the exercise needs code that isn't built yet, such as a simulator capability like iOS traffic or market shocks, or a later version of the bidder or training pipelines. The status line says which.
-
-As the code lands, the status lines change and the boxes get exact commands. The simulator covers the crawl, walk, and run markets, and Part II runs end to end: one command, `docker compose up --build`, starts the simulator, the reference DSP's Go bidder, its training code, and a web console for watching it bid, train, and deploy. Every exercise in Part II runs. Part IV goes further than any laptop simulation can: small versions of its models can be trained on the simulator's data, and the rest is presented as a reference design, labeled as such. Figures built from simulated or illustrative data say so in their captions.
+Each "Try it on the simulator" box ends with a status line that names the versions of the companion code it was tested with and how long it takes to run, and the commands are in the repository's `WALKTHROUGH.md`, under each chapter. Every exercise in Parts II, III, and IV runs. Part II runs end to end with one command, `docker compose up --build`, which starts the simulator, the reference DSP's Go bidder, its training code, and a web console for watching it bid, train, and deploy. Part IV's exercises run on a small market in a few minutes each, on a laptop's CPU, and scaling them up is left to the reader: the code scales, and the compute is yours. The last exercise is in @sec-personalized-creative-selection; the chapters after it, on operating at scale, iOS, teams, and culture, have none. Where Part IV describes more than a laptop simulation can show, it's presented as a reference design, labeled as such. Figures built from simulated or illustrative data say so in their captions.
 
 All of the code is in the book's GitHub repository. Longer listings, schema walkthroughs, and notebooks are in the online edition and the repository rather than in print.
 
-The book is available in three editions. The online edition and an EPUB for e-readers are free, at <https://bgweber.github.io/AdtechBook/>. The print edition is in black and white, and figures are designed to be readable in grayscale. Some long lines of code are wrapped in the print edition to fit the page.
+The book is available in three editions. The online edition and an EPUB for e-readers are free at <https://bgweber.github.io/AdtechBook/>. The print edition is in black and white, and figures are designed to be readable in grayscale. Some long lines of code are wrapped in the print edition to fit the page.
 
-The book is open source, at [github.com/bgweber/AdtechBook](https://github.com/bgweber/AdtechBook). The text and figures are licensed under CC BY-NC-SA 4.0, and the code, including the code samples in this book, under the MIT License, so you can copy the code into your own projects. Corrections and contributions are welcome; the repository explains how.
+The book is openly licensed, and its source is at [github.com/bgweber/AdtechBook](https://github.com/bgweber/AdtechBook). The text and figures are licensed under CC BY-NC-SA 4.0, and the code, including the code samples in this book, under the MIT License, so you can copy the code into your own projects. Corrections and contributions are welcome; the repository explains how.
 
 ## Recommended Reading
 
@@ -120,12 +114,12 @@ These are books that I recommend for learning more about machine learning, AI, a
 - ***Designing Machine Learning Systems*** by Chip Huyen.[^dmls] The best overview of the full lifecycle of ML systems in production, from data engineering to deployment and monitoring.
 - ***AI Engineering: Building Applications with Foundation Models*** by Chip Huyen.[^aieng] A practical guide to building with foundation models, and useful context for how AI tools are changing the way that ML teams work.
 - ***Data Science in Production*** by Ben Weber.[^dsp] My 2020 book on scaling models with web endpoints, serverless functions, containers, workflow tools, and batch and streaming pipelines. This book is a spiritual successor to it, with a focus on one domain.
-- ***Designing Data-Intensive Applications*** by Martin Kleppmann.[^ddia] The standard reference on the data systems that ML platforms are built on: storage, replication, batch and stream processing, and the tradeoffs between them.
+- ***Designing Data-Intensive Applications*** by Martin Kleppmann and Chris Riccomini.[^ddia] The standard reference on the data systems that ML platforms are built on: storage, replication, batch and stream processing, and the tradeoffs between them.
 
 [^dmls]: Chip Huyen, *Designing Machine Learning Systems*, O'Reilly Media, 2022.
 [^aieng]: Chip Huyen, *AI Engineering: Building Applications with Foundation Models*, O'Reilly Media, 2025.
 [^dsp]: Ben Weber, *Data Science in Production: Building Scalable Model Pipelines with Python*, 2020.
-[^ddia]: Martin Kleppmann, *Designing Data-Intensive Applications*, O'Reilly Media.
+[^ddia]: Martin Kleppmann and Chris Riccomini, *Designing Data-Intensive Applications*, 2nd edition, O'Reilly Media, 2026. The first edition, by Martin Kleppmann alone, is from 2017.
 
 ## Related Work
 
@@ -169,9 +163,9 @@ This book is narrower and more hands-on than most of the existing literature on 
 [^clearcode]: Clearcode, *The AdTech Book*, <https://adtechbook.clearcode.cc/>
 [^ctrsurvey]: Weinan Zhang, Jiarui Qin, Wei Guo, Ruiming Tang, and Xiuqiang He, "Deep Learning for Click-Through Rate Estimation," IJCAI, 2021.
 [^ctrbench]: Jieming Zhu et al., "Open Benchmarking for Click-Through Rate Prediction," CIKM, 2021.
-[^autobid]: "Auto-bidding and Auctions in Online Advertising: A Survey," arXiv, 2024, <https://arxiv.org/abs/2408.07685>
+[^autobid]: Gagan Aggarwal et al., "Auto-bidding and Auctions in Online Advertising: A Survey," *ACM SIGecom Exchanges* 22(1), 2024, <https://arxiv.org/abs/2408.07685>
 [^pacingguide]: Santiago Balseiro et al., "A Field Guide for Pacing Budget and ROS Constraints," ICML, 2024, <https://arxiv.org/abs/2302.08530>
-[^pacingbook]: *A Practical Guide to Budget Pacing Algorithms in Digital Advertising*, arXiv, 2025, <https://arxiv.org/abs/2503.06942>
+[^pacingbook]: Yuanlong Chen, *A Practical Guide to Budget Pacing Algorithms in Digital Advertising*, arXiv, 2025, <https://arxiv.org/abs/2503.06942>
 [^trenches]: H. Brendan McMahan et al., "Ad Click Prediction: a View from the Trenches," KDD, 2013.
 [^fbctr]: Xinran He et al., "Practical Lessons from Predicting Clicks on Ads at Facebook," ADKDD, 2014.
 [^delayed]: Olivier Chapelle, "Modeling Delayed Feedback in Display Advertising," KDD, 2014.
@@ -179,7 +173,7 @@ This book is narrower and more hands-on than most of the existing literature on 
 [^kohavi]: Ron Kohavi, Diane Tang, and Ya Xu, *Trustworthy Online Controlled Experiments*, Cambridge University Press, 2020.
 [^reliableml]: Cathy Chen, Niall Richard Murphy, Kranti Parisa, D. Sculley, and Todd Underwood, *Reliable Machine Learning*, O'Reilly Media, 2022.
 
-<!-- TODO: verify authors, editions, years, and venues for every footnote before publishing. Fill in missing authors for the autobid and pacingbook entries, and the edition and year for ddia. -->
+<!-- Footnotes checked 2026-11-25. -->
 
 ## A Note on AI
 

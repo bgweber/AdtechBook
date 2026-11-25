@@ -2,6 +2,8 @@
 
 In @sec-measuring-incrementality, we measured how many of the DSP's attributed installs it actually caused, with ghost bids on a device holdout, and estimated incrementality ratios by segment. A segment ratio says that, on average, a share $r$ of the attributed installs in a segment were caused by the ads. It doesn't say which impressions those were. Two devices in the same segment can differ completely: one was about to install the game from a friend's recommendation, and the ad only collected the credit, and the other would never have found the game without it.
 
+So far, incrementality has been measured alongside the bidder. The bidder still prices every impression on its predicted attributed installs, and the holdouts tell us afterward how much of that was real. This chapter brings the causal estimate into the bid itself: not only measuring which impressions caused installs, but using that to decide what an impression is worth. @sec-the-unified-pricing-equation then puts it in the same equation as every other pricing term.
+
 **Uplift modeling** predicts the lift for each impression: the difference between the chance of an install with the ad and without it. It's the per-impression version of the incrementality ratio, and it lets the DSP bid on what an impression causes rather than on what it gets credit for. It's also one of the hardest models in the book, because the label it predicts is never observed for any single impression. We only see one of the two outcomes.
 
 In this chapter, we will build uplift models, from two separate models to a shared base with an uplift head, evaluate them with Qini curves, look at the signals that predict lift, and price on incremental value.
@@ -94,10 +96,30 @@ The pacing system in @sec-basic-pacing works the same way with either form, beca
 
 : Pricing inputs for incrementality. {#tbl-c24b-pricing}
 
-::: {.callout-tip title="Try it on the simulator"}
-Train a T-learner and a shared-base uplift head on simulated impressions, using the randomness from the holdout and from bid exploration. Evaluate both with Qini curves on held-out randomized data, and against the true lift from the ground truth, which the simulator knows for every impression. Then price one campaign on incremental value, and compare its incremental CPI with attributed pricing.
+## Uplift in the Reference DSP
 
-*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
+The reference DSP gets its randomized data from a **lift study**: for nine days, it bids as usual for half the devices and only ghost-bids for the other half, so whether a device sees our ads is random. The simulator's market for this chapter has sure things built in: heavy players, the devices that play the most, find new games on their own far more often, so their organic installs are common. Every advertiser in the study shares its full install data, so installs from any source can be counted on both halves. The unit is a device, an advertiser app, and a day, from the day's first bid for the app, real or ghost, and the label is an install within a day of it.
+
+The DSP trains two uplift models, both LightGBM trees: a T-learner, with one model for devices we bid on and one for held-out devices, and a transformed-outcome model. It also trains a third model, of installs credited to us, so that the incrementality ratio, $r = (\hat{\mu}_1 - \hat{\mu}_0) / \hat{p}_{attr}$, is per install we'd get credit for, the unit the pricing equation needs. The randomized rows have a few hundred installs, so the models get only a few inputs: how many requests a day the device sends, how many of our ads it saw today, and the app, placement, exchange, and country. The bidder serves all three models natively.
+
+On the small market, the study gave 99,517 device-app-days, with 647 installs on the devices we bid on and 448 on held-out ones. The segment pattern came through clearly: as @fig-c32-uplift shows, the share of all installs our ads caused fell from 0.75 for the lightest players to 0.20 for the heaviest, measured from the study, against 0.84 and 0.20 in the simulator's truth. The per-device ranking didn't: on held-out devices, the T-learner's Qini coefficient was 0.03, no better than random targeting at 0.05, and the transformed outcome's was negative. The attributed install model did better than both, at 0.20, because in this market the devices most likely to install are also where the ads cause the most installs. A few hundred randomized installs are enough to measure a segment, not to rank devices, which is the main constraint the chapter started with.
+
+::: {.content-visible when-format="html"}
+![The uplift card on the reference DSP's console: an uplift bundle from a nine-day lift study, its Qini coefficients on held-out devices for the T-learner, the attributed install model, and random targeting, and the share of all installs our ads caused, by fifth of how much the device plays, measured from the study next to the simulator's truth.](../images/ch32-console-uplift.png){#fig-c32-uplift width="100%" fig-alt="Screenshot of the uplift table with one bundle, upl-0001, days 0 to 7, 99,517 device-app-days, installs 647 bid on and 448 held out, Qini uplift 0.026, attributed 0.204, random 0.046, share of installs our ads cause from lightest to heaviest players 0.75 0.62 0.59 0.43 0.20, true 0.84 0.70 0.69 0.41 0.20, and a Tilt A/B 50/50 button."}
+:::
+
+::: {.content-visible unless-format="html"}
+![The uplift card on the reference DSP's console: an uplift bundle from a nine-day lift study, its Qini coefficients on held-out devices for the T-learner, the attributed install model, and random targeting, and the share of all installs our ads caused, by fifth of how much the device plays, measured from the study next to the simulator's truth.](../images/ch32-console-uplift-print.png){#fig-c32-uplift width="100%" fig-alt="Screenshot of the uplift table with one bundle, upl-0001, days 0 to 7, 99,517 device-app-days, installs 647 bid on and 448 held out, Qini uplift 0.026, attributed 0.204, random 0.046, share of installs our ads cause from lightest to heaviest players 0.75 0.62 0.59 0.43 0.20, true 0.84 0.70 0.69 0.41 0.20, and a Tilt A/B 50/50 button."}
+:::
+
+Pricing on uplift then went wrong in an instructive way. A tilt A/B test, with each campaign's budget split, multiplied install campaigns' values by $r$ over its average across the bids we make, with $\alpha = 1$. Over three days, the treatment spent \$311 against \$290, and our ads caused 255 installs in its arm against 292 in the control's, by the simulator's truth: a cost per caused install 1.23 times the control's (95% interval 1.04 to 1.42). Two things worked against it. Of the installs credited to us, 85% were caused, because the heavy players' organic installs mostly happened without our ad being the last touch, so attributed pricing was already close to incremental pricing, and the ratio only fell below 1 for the heaviest fifth. And a ratio that is mostly noise per device acts like a random multiplier on bids, which costs money on average. A tilt is worth testing only where measured incrementality varies more than the model's error, and with an $\alpha$ well below 1 until it does.
+
+::: {.callout-tip title="Try it on the simulator"}
+Run a lift study on a market with sure things, train a T-learner and a transformed-outcome model on it, and evaluate them with Qini curves on held-out devices and against the simulator's true lift, by segment and per device. Then run a tilt A/B test and compare the cost per caused install with attributed pricing.
+
+Scaling up is yours: on the laptop-scale market, see how many randomized installs it takes before the per-device ranking beats the attributed model, and try the tilt at a smaller $\alpha$, or from the segment table instead of the model. The shared-base uplift head is yours too once you have the deep models of Part IV, and so is bid exploration as a second source of randomness.
+
+*Status: runs with the companion code (dsp 0.17, adtrain 0.11, adsim 0.5), on a new walk market with ad revenue and sure things (`ADSIM_SCENARIO=ad-roas,uplift`): fifteen simulated days, about ten minutes. The Experiments tab runs the lift study, trains the uplift models, and runs and reads out tilt A/B tests. Scaling up, the shared-base head, and exploration are yours. Commands and screenshots are in `WALKTHROUGH.md`, under this chapter.*
 
 :::
 

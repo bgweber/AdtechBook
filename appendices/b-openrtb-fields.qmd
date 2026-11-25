@@ -64,6 +64,10 @@ Treat every field as optional, even ones the spec marks as required. A field tha
 
 : Device and geo fields. {#tbl-b-device tbl-colwidths="[30,36,34]"}
 
+```{=latex}
+\Needspace{14\baselineskip}% keep the heading with its table (print)
+```
+
 ## User and Regulations
 
 | Field | ML use | Quirks |

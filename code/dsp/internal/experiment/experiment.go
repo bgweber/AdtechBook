@@ -13,6 +13,12 @@
 //   - shading: an A/B test in which the challenger is a win rate model,
 //     and the treatment shades bids with it instead of the fixed factor
 //     (Chapter 20).
+//   - value: an A/B test in which the treatment prices Ad ROAS campaigns
+//     with the challenger bundle's value model, and everything else with
+//     the champion (Chapter 30).
+//   - curse: an A/B test in which the challenger is a win bundle with a
+//     winner's curse table, and the treatment marks values down by their
+//     margin over its predicted market price (Chapter 31).
 //
 // Every bid record carries the experiment's ID and the request's arm, so
 // the analysis comes from the ledger. Each experiment's record is kept in
@@ -42,6 +48,10 @@ const (
 	Canary  = "canary"
 	AB      = "ab"
 	Shading = "shading" // A/B test of model-based shading against the fixed shade (Chapter 20)
+	Value   = "value"   // A/B test of a value model for Ad ROAS against the champion's (Chapter 30)
+	Curse   = "curse"   // A/B test of a win bundle's winner's curse correction (Chapter 31)
+	Study   = "study"   // lift study: the control arm's devices get ghost bids only (Chapter 32)
+	Tilt    = "tilt"    // A/B test of an uplift bundle's incrementality tilt (Chapter 32)
 )
 
 // Guardrail limits for a canary.
@@ -64,6 +74,7 @@ type Config struct {
 	StageHours  float64   `json:"stage_hours,omitempty"`  // simulated hours per canary stage
 	BudgetSplit bool      `json:"budget_split,omitempty"` // A/B: split each campaign's budget
 	Force       bool      `json:"force,omitempty"`        // a challenger that failed validation
+	Alpha       float64   `json:"alpha,omitempty"`        // tilt strength, 0 to 1 (Chapter 32)
 }
 
 // Check is one guardrail, as last evaluated.
@@ -173,6 +184,7 @@ type Live struct {
 	Bundle *gbm.Bundle   // a conversion challenger
 	Win    *gbm.WinModel // a win model challenger (shading tests)
 	Fault  string
+	Alpha  float64 // tilt strength (Chapter 32)
 }
 
 // Arm assigns a device: a salted hash, so a device stays in one arm.
@@ -202,6 +214,7 @@ type Manager struct {
 	Dir      string        // where experiment records go, such as out/models/experiments
 	Registry *gbm.Registry // conversion bundles
 	Win      *gbm.Registry // win models (Chapter 20)
+	Uplift   *gbm.Registry // uplift models (Chapter 32)
 	Book     *campaigns.Book
 	Note     func(what string) // the ops audit log
 
@@ -238,32 +251,72 @@ func (m *Manager) Start(cfg Config, nowMS int64) (*Experiment, error) {
 		if cfg.StageHours <= 0 {
 			cfg.StageHours = 4
 		}
-	case AB, Shading:
+	case AB, Shading, Value, Curse, Study, Tilt:
 		if cfg.Share <= 0 || cfg.Share >= 1 {
 			cfg.Share = 0.5
 		}
+		if cfg.Kind == Tilt && (cfg.Alpha <= 0 || cfg.Alpha > 1) {
+			cfg.Alpha = 1
+		}
 	default:
-		return nil, fmt.Errorf("kind must be shadow, canary, ab, or shading")
+		return nil, fmt.Errorf("kind must be shadow, canary, ab, shading, value, curse, study, or tilt")
+	}
+	if cfg.Kind == Study {
+		// no challenger: the treatment arm bids as usual, the control only
+		// ghost-bids, so the two differ in whether they see our ads at all
+		cfg.Challenger = ""
+		e := &Experiment{ID: m.nextID(), Config: cfg, Status: "running", StartedMS: nowMS,
+			StartedAt: time.Now().UTC().Format(time.RFC3339), StageStartMS: nowMS,
+			Arms: [2]*ArmStats{newArm(), newArm()}, TreatShare: cfg.Share}
+		e.event(nowMS, fmt.Sprintf("lift study: %.0f%% of devices get our ads, the rest ghost bids only", 100*cfg.Share))
+		m.cur = e
+		m.publish(nil, nil)
+		m.save()
+		m.note(e.ID + " started: " + e.Events[0].What)
+		return e, nil
 	}
 	reg := m.Registry
-	if cfg.Kind == Shading {
+	if cfg.Kind == Shading || cfg.Kind == Curse {
 		reg = m.Win
 		if reg == nil {
 			return nil, fmt.Errorf("no win model registry")
 		}
 	}
-	if cur := reg.Current(); cur != nil && cur.Spec.Version == cfg.Challenger {
+	if cfg.Kind == Tilt {
+		reg = m.Uplift
+		if reg == nil {
+			return nil, fmt.Errorf("no uplift model registry")
+		}
+	}
+	// a value test can use the champion's own value model: the control arm
+	// prices Ad ROAS with the bundle's per-app averages instead
+	if cur := reg.Current(); cur != nil && cur.Spec.Version == cfg.Challenger && cfg.Kind != Value && cfg.Kind != Curse {
 		return nil, fmt.Errorf("%s is already the champion", cfg.Challenger)
 	}
 	b, res := reg.Prepare(cfg.Challenger, cfg.Force)
 	if b == nil {
 		return nil, fmt.Errorf("%s", res.Message)
 	}
+	if cfg.Kind == Tilt {
+		_, ok1 := b.Models["mu1"]
+		_, ok0 := b.Models["mu0"]
+		if !ok1 || !ok0 || !(b.Spec.UpliftMean > 0) {
+			return nil, fmt.Errorf("%s isn't an uplift bundle", cfg.Challenger)
+		}
+	}
+	if cfg.Kind == Value {
+		if _, ok := b.Models["value"]; !ok {
+			return nil, fmt.Errorf("%s has no value model: train on a market with Ad ROAS campaigns", cfg.Challenger)
+		}
+	}
 	var wm *gbm.WinModel
-	if cfg.Kind == Shading {
+	if cfg.Kind == Shading || cfg.Kind == Curse {
 		var err error
 		if wm, err = gbm.NewWinModel(b); err != nil {
 			return nil, err
+		}
+		if cfg.Kind == Curse && (b.Curse == nil || !wm.Curve()) {
+			return nil, fmt.Errorf("%s has no win curve and curse table: train it with --curve --curse", cfg.Challenger)
 		}
 		b = nil
 	}
@@ -280,7 +333,7 @@ func (m *Manager) Start(cfg Config, nowMS int64) (*Experiment, error) {
 		e.TreatShare = cfg.Stages[0]
 		e.event(nowMS, fmt.Sprintf("canary: %s on %.0f%% of devices, %g simulated hours a stage",
 			cfg.Challenger, 100*e.TreatShare, cfg.StageHours))
-	case AB, Shading:
+	case AB, Shading, Value, Curse, Tilt:
 		e.TreatShare = cfg.Share
 		if cfg.BudgetSplit {
 			m.Book.SetSplit(cfg.Share)
@@ -288,6 +341,15 @@ func (m *Manager) Start(cfg Config, nowMS int64) (*Experiment, error) {
 		what := "A/B test: " + cfg.Challenger
 		if cfg.Kind == Shading {
 			what = "shading A/B test: bids shaded with " + cfg.Challenger + " instead of the fixed factor,"
+		}
+		if cfg.Kind == Value {
+			what = "value A/B test: Ad ROAS bids priced with " + cfg.Challenger + "'s value model,"
+		}
+		if cfg.Kind == Curse {
+			what = "winner's curse A/B test: values marked down by margin with " + cfg.Challenger + ","
+		}
+		if cfg.Kind == Tilt {
+			what = fmt.Sprintf("incrementality tilt A/B test: install campaigns' values tilted by %s's uplift, alpha %.2f,", cfg.Challenger, cfg.Alpha)
 		}
 		e.event(nowMS, fmt.Sprintf("%s on %.0f%% of devices%s", what, 100*cfg.Share,
 			map[bool]string{true: ", with each campaign's budget split", false: ", budgets shared"}[cfg.BudgetSplit]))
@@ -318,7 +380,7 @@ func (m *Manager) publish(b *gbm.Bundle, wm *gbm.WinModel) {
 		share = e.Config.Share
 	}
 	m.live.Store(&Live{ID: e.ID, Kind: e.Config.Kind, Share: share, Salt: e.ID,
-		Bundle: b, Win: wm, Fault: e.Fault})
+		Bundle: b, Win: wm, Fault: e.Fault, Alpha: e.Config.Alpha})
 }
 
 // Stop ends the running experiment.
@@ -336,7 +398,7 @@ func (m *Manager) end(nowMS int64, status, why string) {
 	e := m.cur
 	e.Status, e.Reason, e.EndedMS = status, why, nowMS
 	e.event(nowMS, status+": "+why)
-	if (e.Config.Kind == AB || e.Config.Kind == Shading) && e.Config.BudgetSplit {
+	if (e.Config.Kind == AB || e.Config.Kind == Shading || e.Config.Kind == Value || e.Config.Kind == Curse || e.Config.Kind == Tilt) && e.Config.BudgetSplit {
 		m.Book.SetSplit(0)
 	}
 	m.live.Store(nil)

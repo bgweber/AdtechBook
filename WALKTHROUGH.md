@@ -1,10 +1,12 @@
 # Run the Simulator: A Chapter-by-Chapter Walkthrough
 
-Part II of the book builds a working demand-side platform (DSP): a Go bidder that buys ads on a simulated mobile ad market, a training pipeline that learns a click model from the bidder's own logs, and a web console to watch it all. Part III grows it into a competitive DSP on a bigger market: LightGBM conversion models, a pipeline and registry, experiments, bid shading, pricing for goals, pacing, incrementality, serving performance, and operations. This page gives the commands for each chapter's "Try it on the simulator" box, and shows what you should see. The book's chapters tell the story of the same runs, with the reasoning behind each result.
+Part II of the book builds a working demand-side platform (DSP): a Go bidder that buys ads on a simulated mobile ad market, a training pipeline that learns a click model from the bidder's own logs, and a web console to watch it all. Part III grows it into a competitive DSP on a bigger market: LightGBM conversion models, a pipeline and registry, experiments, bid shading, pricing for goals, pacing, incrementality, serving performance, and operations. Part IV, in progress, adds the state of the art, starting with value prediction, win curves, uplift, the unified pricing equation, and pacing with reinforcement learning. This page gives the commands for each chapter's "Try it on the simulator" box, and shows what you should see. The book's chapters tell the story of the same runs, with the reasoning behind each result.
 
 You need [Docker](https://docs.docker.com/get-docker/) with Compose v2 (`docker compose version` should work). Nothing else: the simulator, the bidder, and the training code all run in containers.
 
 The commands are for a Linux shell, bash, and run as written in the macOS Terminal (zsh) too. On Windows, run them in a WSL 2 terminal, the setup Docker Desktop recommends, or use the PowerShell versions in [WALKTHROUGH-windows.md](WALKTHROUGH-windows.md).
+
+Working with an AI coding agent? [AGENTS.md](AGENTS.md) tells it how to guide you through these exercises, check your results, and get you unstuck.
 
 Your numbers won't match the screenshots exactly. The simulator is seeded, but how far your run has got, and what you've clicked on the console, changes what you see. The shapes and the stories should match.
 
@@ -20,9 +22,9 @@ ADSIM_DAYS=7 docker compose up --build
 |---|---|---|
 | `ADSIM_DAYS` | `2` | Simulated days to play in each run |
 | `ADSIM_SEED` | `7` | The simulator's random seed |
-| `ADSIM_SCALE` | `tiny` | Traffic volume: `tiny` or `laptop` |
+| `ADSIM_SCALE` | `tiny` | Traffic volume: `tiny`, or `laptop` (about ten times the traffic, for scaling up) |
 | `ADSIM_PRESET` | `crawl` | The market: `crawl` (Part II) or `walk` (Part III) |
-| `ADSIM_SCENARIO` | (none) | Break something on purpose: `wrong-target`, `lost-billing` (Chapter 12); `creative-test` (Chapter 21); `bad-labels` (Chapter 24) |
+| `ADSIM_SCENARIO` | (none) | Break something on purpose: `wrong-target`, `lost-billing` (Chapter 12); `creative-test` (Chapter 21); `bad-labels` (Chapter 24); `ad-roas`, ad revenue and Ad ROAS campaigns (Chapter 30) |
 | `BIDDER_MODE` | `bid` | `listen` to log requests without bidding (Chapter 7) |
 | `BIDDER_BID_SHARE` | `1` | Share of requests to bid on (Chapter 7) |
 | `BIDDER_SKEW` | (none) | Normalize one feature wrongly: `bundle` or `conn` (Chapter 8) |
@@ -548,6 +550,286 @@ Every false postback carried `match_type=probabilistic`, a value the MMP had nev
 - **A serving bug.** Click **Deploy** next to the serving bug, and the bidder starts logging finer cellular connection types than the training code computes. Play a day: when the day turns, the daily parity check finds it, and the parity alert links to its playbook.
 
 Also built, without a drill: the pacing controller now starts each day at a gamma of at most 1 and steps up toward its starting value, so a campaign doesn't open the day at twice its value while its plan is still near zero.
+
+## Part IV: A State-of-the-Art DSP
+
+Part IV is in progress. Its exercises run on the smallest market, so each run takes a few minutes; every chapter leaves scaling up, more traffic and more days, to you. The code is complete and scales; the compute is yours.
+
+**The Deep models tab.** Chapters 25 to 29, 35, and 36 also run from the console. With the bidder and trainer up (`docker compose up -d bidder trainer`), open the **Deep models** tab: it shows which datasets are in `out/`, has a **Run** button for each chapter's command, and shows each chapter's latest report, whether it ran from the tab or from a terminal. Its **embedding viewer** maps the vectors the chapters learned, colored by genre: the install-together vectors, the DCNv2's app embeddings (Chapter 26), the transformer's app table and its device states (Chapter 27). Pick a genre to highlight, and click an app to see its nearest neighbors. Run Chapters 25 to 27 first, so there's something to map.
+
+## The Part IV Dataset
+
+Chapters 25 to 28, 35, and 36 share one dataset (Chapter 29 has its own): a frozen snapshot of a simulated market, so each chapter's models train in minutes on the same rows. Get it one of two ways.
+
+**Download it** (fastest, and the book's numbers): download [`part4-dataset.zip`](https://github.com/bgweber/AdtechBook/releases/download/part4-data/part4-dataset.zip) from the `part4-data` release and unzip it into `out/`, so the files are in `out/snapshot/`.
+
+**Or build it** (about twenty minutes): a fresh fourteen-day walk market with ad revenue, where every advertiser shares its install data, with the conversion models deployed after the first week.
+
+```bash
+docker compose down; rm -rf out
+export ADSIM_PRESET=walk BIDDER_STAGE=walk ADSIM_SCENARIO=ad-roas,full-share
+docker compose build
+docker compose up -d bidder trainer
+ADSIM_DAYS=7 docker compose run --rm sim
+```
+
+On the Conversions tab, build a dataset, train LightGBM, and deploy the bundle. Then play the second week and write the snapshot:
+
+```bash
+ADSIM_DAYS=7 docker compose run --rm sim
+docker compose exec trainer python -m adtrain snapshot --ledger /out/ledger --sim-out /out/sim --out /out/snapshot
+```
+
+Ours had 211,540 impressions from 1,860 devices over fourteen days: nine days to train on, two to validate, two to test, and the newest, whose installs aren't final. A larger market or more days make a bigger dataset, for scaling up.
+
+## Chapters 25 and 26: Where Trees Stop, and Deep Models with Embeddings
+
+One command trains a small multi-task DCNv2 in PyTorch and LightGBM on the same rows, and compares them against the true rates (about half a minute, on the CPU):
+
+```bash
+docker compose run --rm --no-deps trainer deep --snapshot /out/snapshot
+```
+
+For Chapter 25, the output compares the two models overall and where trees should struggle, and their time per prediction. In ours, LightGBM was slightly ahead everywhere at this scale: an error against the true click rate of 0.55 against 0.58 overall, and 0.47 against 0.52 on rare advertiser apps. For Chapter 26, it has each head's AUC and calibration against the truth, the embedding rows training never touched and what zeroing them does, and whether the app embeddings group apps by genre: in ours, 12% of each app's nearest neighbors shared its genre, no better than random, against 57% for app vectors learned from which devices install apps together.
+
+**Scaling up is yours.** Build a bigger dataset, and on a GPU, train wider and longer, and find where the deep model passes the trees.
+
+## Chapter 27: Sequences and Transformers
+
+One command pretrains a small transformer on the dataset's device histories, predicting each device's next install, and adds what it learned to the LightGBM install models (Design A), against the true rates (about three minutes, on the CPU):
+
+```bash
+docker compose run --rm --no-deps trainer pretrain --snapshot /out/snapshot
+```
+
+The output has the pretraining loss against popularity alone, next-install prediction against popularity over the last 7 days, the leakage check, each signal's correlation with the true install rate within each advertised app, and the error of each variant against the truth, by how many installs the device had. The app vectors, the daily device states, and the report go to `out/pretrain`. In ours, a pooled profile of each device's installs, from co-install vectors, cut the error against the true install-after-view rate from 0.87 to 0.81, while the transformer barely moved it (0.86 and 0.88): with about four installs per device, it learned which campaigns were running, not what each device wants.
+
+**Scaling up is yours.** Give devices longer histories (the installs each device gets before the run are set in adsim's `history.py`), build a bigger dataset, and find where pretraining passes the pooled profile.
+
+## Chapter 28: Serving Deep Models
+
+Two commands: the trainer exports Chapter 26's DCNv2 to ONNX and to a bundle for the Go bidder, with golden vectors, and copies Chapter 27's app vectors and device states (run `pretrain` first for those); then the bidder's image checks the bundle in pure Go and benchmarks it (under a minute in all):
+
+```bash
+docker compose build
+docker compose run --rm --no-deps trainer export --snapshot /out/snapshot --out /out/export --pretrain /out/pretrain
+docker compose run --rm --no-deps --entrypoint deepcheck bidder -dir /out/export
+```
+
+The first reports the ONNX parity check against PyTorch (in ours, the largest logit difference was 3.8e-06). The second reports Go's parity with the golden vectors, the time per request with 1, 10, and 50 candidates, with and without the request's share of the first layers done once, the time for dot products, and a version rollover: device records from a version with no tables loaded are refused, and scored once both versions' tables are loaded. Times vary by machine; in ours, one candidate took 27 µs and fifty about 1.3 ms. Everything goes to `out/export`.
+
+**Scaling up is yours.** Serve the network in the live bid path, and load-test it as in Chapter 17.
+
+## Chapter 29: Retraining and Real-Time Learning
+
+This chapter has a dataset of its own, the Part IV market with a shift: four more days with the `new-game` scenario, where at 12:00 UTC on the first, a new hypercasual hit takes over the genre's audience, and the genre's games get 40% of their installs from then on. It also records when each install's postback arrived.
+
+**Download it:** download [`part4-shift.zip`](https://github.com/bgweber/AdtechBook/releases/download/part4-data/part4-shift.zip) from the `part4-data` release and unzip it into `out/`, so the files are in `out/snapshot-shift/`.
+
+**Or build it,** on the market you built for the Part IV dataset, with the bidder and trainer up and the variables still set (about eight minutes). The four days must run in one command:
+
+```bash
+ADSIM_SCENARIO=ad-roas,full-share,new-game ADSIM_DAYS=4 docker compose run --rm sim
+docker compose exec trainer python -m adtrain snapshot --ledger /out/ledger --sim-out /out/sim --out /out/snapshot-shift
+```
+
+Then one command replays the shift: a model retrained daily, the same with an hourly calibration multiplier per advertised app, and models retrained every 6 hours with naive labels and with importance weights for the installs not reported yet, each trained only on the postbacks that had arrived by then (about two minutes):
+
+```bash
+docker compose build
+docker compose run --rm --no-deps trainer retrain --snapshot /out/snapshot-shift
+```
+
+The output has each model's calibration against the true install rate, for the hypercasual games and the rest, from the day before the shift to the third day after it, and the calibration multiplier for the hypercasual apps. Hour by hour, they go to `out/retrain`. In ours, the daily model overpredicted hypercasual installs by 2.6 times until its next retrain, the multiplier fixed most of that a day sooner, the naive 6-hour model sat at two-thirds of the truth, and the weighted one was within 14% of it from 6 hours after the shift.
+
+**Scaling up is yours.** Retrain every 2 hours, update a model online, and try other shifts.
+
+## Chapter 30: Value Prediction
+
+Bidder 0.15 prices **Ad ROAS** campaigns: hypercasual apps whose advertisers judge them on the ad revenue their new players earn in their first three days (D3), per dollar. The simulator adds ad revenue, and six Ad ROAS campaigns, with `--scenario ad-roas`. It changes the market, so start over, and keep the variables set for every command in this chapter. Nine simulated days take about five minutes:
+
+```bash
+docker compose down; rm -rf out
+ADSIM_PRESET=walk BIDDER_STAGE=walk ADSIM_SCENARIO=ad-roas ADSIM_DAYS=9 docker compose up --build
+```
+
+When the header's clock reaches day 9, build a dataset on the Conversions tab, and click **Train LightGBM** on it. Next to the click and install models, the bundle now has a **value** model: D3 ad revenue per install, with a Tweedie loss. The **Value: true corr.** column is its correlation with the simulator's true value, against each app's average on the same installs. In our run: 0.73 against 0.11, and the fifth of installs it ranked highest held 53% of the true value. Its report (`report.json` in the bundle, under `models.value`) has the comparison by fifth of the prediction and by country, and a least-squares model on log revenue for comparison. Train it earlier, after six days, and it has too few installs with final D3 revenue to learn from.
+
+![Conversion bundles with the value model's correlation with the true value](images/ch30-console-value.png)
+
+**Scaling up is yours.** Deploy the bundle; on the Experiments tab, choose it as the challenger and click **Value A/B 50/50**. The treatment arm prices Ad ROAS bids with the bundle's value model, the control with each app's average, and everything else is the same. Play three days, stop the test, play four more so its installs' D3 revenue is final, build a dataset, and click **Read out**:
+
+```bash
+ADSIM_PRESET=walk BIDDER_STAGE=walk ADSIM_SCENARIO=ad-roas ADSIM_DAYS=3 docker compose run --rm sim
+docker compose exec trainer python -m adtrain abtest exp-0001 --goal AD_ROAS --ledger /out/ledger --sim-out /out/sim
+```
+
+On this small market, ours couldn't tell the arms apart: a ROAS ratio of 0.95 measured, with a 95% interval from 0.66 to 1.41. Then try the laptop scale (`ADSIM_SCALE=laptop`, about ten times the traffic and the time per day; build its datasets with `docker compose exec trainer python -m adtrain dataset --ledger /out/ledger --out /out/datasets --sample-rate 0.2` so they fit in memory). There, ours found 1.42 times the ROAS measured, and 1.36 times from the true values (1.18 to 1.58).
+
+**The deep funnel is yours too.** ROAS campaigns for purchase revenue: two-part and Tweedie models on D7 purchase revenue, compared by calibration by decile and gain curves against the truth's `expected_d7_revenue`. Purchases are sparse, so plan on many more simulated days.
+
+## Chapter 31: Win Rate Curves and the Winner's Curse
+
+Bidder 0.16 shades with a **win curve**: trees that read the request alone and predict the price to beat, so one pass gives the win rate at every bid and the market price. With it comes a **winner's curse table**, which marks values down by how far the media value is above that market price. Continue Chapter 30's market, with the same variables set. On the Conversions tab, click **Deploy** on Chapter 30's bundle, so the install campaigns are priced with its models, and play five days:
+
+```bash
+ADSIM_PRESET=walk BIDDER_STAGE=walk ADSIM_SCENARIO=ad-roas ADSIM_DAYS=5 docker compose run --rm sim
+```
+
+On the Experiments tab, under **Win rate models and bid shading**, tick **with a win curve and a winner's curse table** and click **Train on the last 7 days** (a few minutes), or:
+
+```bash
+docker compose exec trainer python -m adtrain win --ledger /out/ledger --models /out/models --sim-out /out/sim --curve --curse
+```
+
+The new columns are the curve's AUC and the curse table, from wins below the market price to wins above three times it, after shrinking toward 1. In our run, the curve's AUC was 0.914 against the bid-input model's 0.911, and the table was 0.94, 0.82, 0.75, 0.81, 0.69 from 630 installs. The trainer's output also prints the table measured from the simulator's true install rates: in ours, 1.17 for narrow wins down to 1.02 above three times the market.
+
+![A win model with a curve and a curse table](images/ch31-console-curve.png)
+
+With Go installed, time the two ways of shading a bid on your bundle (in ours, 151 µs for the bid-input model's grid, 13 µs for the curve):
+
+```bash
+cd code/dsp && GBM_WIN_BUNDLE=../../out/models/win/win-0001 go test ./internal/gbm -run x -bench WinShadeFromEnv; cd ../..
+```
+
+Click **Deploy** on the new model, so both arms shade with the curve, then **Curse A/B 50/50**: the treatment marks values down by the table, the control doesn't, and each gets half of every campaign's budget. Play three days with the command below, click **Stop**, run it again so the installs are in, build a dataset on the Conversions tab, and click **Read out** on the test. The readout is for CPI campaigns; the second `abtest` gives the Ad ROAS ones (use the test's ID from the Experiments tab: `exp-0002` if you ran Chapter 30's value test):
+
+```bash
+ADSIM_PRESET=walk BIDDER_STAGE=walk ADSIM_SCENARIO=ad-roas ADSIM_DAYS=3 docker compose run --rm sim
+docker compose exec trainer python -m adtrain abtest exp-0001 --ledger /out/ledger --sim-out /out/sim
+docker compose exec trainer python -m adtrain abtest exp-0001 --goal AD_ROAS --ledger /out/ledger --sim-out /out/sim
+```
+
+In ours, the treatment spent 20% less on CPI campaigns for 40 installs against 44: a CPI 0.88 times the control's measured (95% interval 0.55 to 1.43), and 0.79 times from the true install rates (0.67 to 0.93). On the Ad ROAS campaigns, its ROAS was 1.27 times the control's measured, 1.12 times from the true values.
+
+**Scaling up is yours.** On the laptop scale, see whether the measured table finds the slope by margin that the truth shows, and compare the table with a single markdown for every win.
+
+## Chapter 32: Uplift Modeling
+
+Bidder 0.17 runs **lift studies** and prices with an **incrementality tilt**. The simulator's `uplift` scenario adds sure things: heavy players install games on their own far more often, so many installs weren't caused by any ad, and every advertiser shares its install data. It changes the market, so start over. This time, build every image (the simulator's too: `up` alone would build only the bidder and trainer), and start the bidder and trainer first, so the study covers every day:
+
+```bash
+docker compose down; rm -rf out
+export ADSIM_PRESET=walk BIDDER_STAGE=walk ADSIM_SCENARIO=ad-roas,uplift
+docker compose build
+docker compose up -d bidder trainer
+```
+
+On the Experiments tab, under **Uplift**, click **Start a lift study 50/50**: half the devices get our ads, the other half only ghost bids. Play nine days (about five minutes):
+
+```bash
+ADSIM_DAYS=9 docker compose run --rm sim
+```
+
+Click **Stop**. On the Conversions tab, build a dataset, train LightGBM on it, and deploy the bundle. Then, under **Uplift**, click **Train uplift models**, or:
+
+```bash
+docker compose exec trainer python -m adtrain uplift --ledger /out/ledger --models /out/models --sim-out /out/sim
+```
+
+The trainer's output has the Qini curves on held-out devices, the share of installs caused among the installs credited to us, and the comparison by fifth of how much the device plays. In our run, from 99,517 device-app-days, the share of all installs our ads caused fell from 0.75 for the lightest players to 0.20 for the heaviest (0.84 and 0.20 in the truth), but the T-learner's Qini coefficient was 0.03, no better than random targeting (0.05), and the attributed install model's was 0.20.
+
+![An uplift bundle from a lift study](images/ch32-console-uplift.png)
+
+Click **Tilt A/B 50/50** on the bundle: the treatment multiplies install campaigns' values by each device's incrementality ratio over its average, and each arm gets half of every budget. Play three days, click **Stop**, play three more, build a dataset, and click **Read out** on the test, or:
+
+```bash
+ADSIM_DAYS=3 docker compose run --rm sim
+docker compose exec trainer python -m adtrain abtest exp-0002 --goal INSTALL --ledger /out/ledger --sim-out /out/sim
+```
+
+In ours, the tilt lost: the treatment spent $311 against $290, and our ads caused 255 installs in its arm against 292, a cost per caused install 1.23 times the control's (95% interval 1.04 to 1.42). Of the installs credited to us, 85% were caused, so there was little for the tilt to correct, and its noise cost money. The chapter explains why.
+
+**Scaling up is yours.** On the laptop scale, see how many randomized installs it takes for the uplift ranking to beat the attributed model, and try the tilt with a smaller alpha.
+
+## Chapter 33: The Unified Pricing Equation
+
+Bidder 0.18 adds the levers of the unified pricing equation, a bid ledger with every term, a bid explainer, and the consistency check. Continue Chapter 32's market, with the same variables set, and rebuild:
+
+```bash
+docker compose build
+docker compose up -d bidder trainer
+```
+
+On the Pricing tab, under **Campaign levers**, give campaign 16 (a hypercasual Ad ROAS campaign) a second goal, CPI at $0.60 with weight 0.5, and a tilt alpha of 0.3 with uplift bundle `upl-0001`, and click **Save**. Play three days (about two minutes):
+
+```bash
+ADSIM_DAYS=3 docker compose run --rm sim
+```
+
+Under **Explain a bid**, enter campaign 16 and click the button: the newest day's last bid for it, term by term, from the ledger, with the media value the terms multiply to next to the one logged. Ours went from an Ad ROAS goal value of $17.57 and a CPI goal value of $9.00, to $13.29 weighted, $12.25 tilted, $9.80 after the margin, and a bid of $6.86. Under **Consistency check**, enter campaign 16 and click the button for its own budget and target; then try a budget of 88 at a ROAS of 0.5.
+
+![The unified pricing equation on the console](images/ch33-console-pricing.png)
+
+The check from the first of the three days also compares its forecast with the next day:
+
+```bash
+docker compose exec trainer python -m adtrain frontier --ledger /out/ledger --sim-out /out/sim --campaign 16 --day 15
+docker compose exec trainer python -m adtrain frontier --ledger /out/ledger --sim-out /out/sim --campaign 16 --day 15 --budget 88 --target-roas 0.5
+docker compose exec trainer python -m adtrain explain --ledger /out/ledger --campaign 16
+```
+
+In ours, its own settings were consistent, and twice the budget at a ROAS of 0.5 wasn't: spending $88 needed a multiplier of 1.65, at a forecast ROAS of 0.41. The next day, the campaign spent $44.21 of its $44.22 budget, but the check had forecast 99 installs at that spend, and 35 were credited: the install model runs high on the impressions we win (Chapter 31), and some installs our ads drove went to other networks.
+
+**Scaling up is yours.** A week at the laptop scale against the frontier, an A/B test of unified against Part III pricing, and the margin controller.
+
+## Chapter 34: Pacing with Reinforcement Learning
+
+Adsim 0.6 adds the `traffic-surge` scenario: three times the requests from 13:00 to 16:00 UTC on the run's first day. Continue Chapter 33's market, with the same variables set, and rebuild every image:
+
+```bash
+docker compose build
+docker compose up -d bidder trainer
+```
+
+On the Pricing tab, under **Pacing**, click **PI controller**. Play a normal day, then a day with a surge (about two minutes):
+
+```bash
+ADSIM_DAYS=1 docker compose run --rm sim
+ADSIM_SCENARIO=ad-roas,uplift,traffic-surge ADSIM_DAYS=1 docker compose run --rm sim
+```
+
+Under **Pacing policies in a simulator from logged auctions**, enter campaign 21 (a hypercasual Ad ROAS campaign) and click the button (about half a minute), or:
+
+```bash
+docker compose exec trainer python -m adtrain rlpace --ledger /out/ledger --sim-out /out/sim --campaign 21
+```
+
+It builds a simulator from the campaign's logged bids on the normal day and the surge day, checks it by replaying the multipliers the bidder used, and compares the PI controller, MPC, and a Q-learning policy on the surge day. In ours, PI ran out of budget at 16:30 and won $76.32 of value; MPC cut its multiplier when the surge ate its budget, lasted until 19:45, and won $89.10, 17% more for the same spend; Q-learning won $74.48 and moved its multiplier about fourteen times as much.
+
+![Pacing policies compared on the surge day](images/ch34-console-rlpace.png)
+
+**Scaling up is yours.** A week of training days, a richer state or a small network for the learned policy, MPC in the bidder against PI in a budget-split A/B test, and a policy from the logged-auction simulator tested against the companion simulator itself.
+
+## Chapter 35: Learned Campaign Selection
+
+On the Part IV dataset, one command scores every eligible campaign with the full pipeline (LightGBM and each campaign's goal) on 25,000 sampled requests, trains a two-tower bid predictor to rank like it, and compares retrieval methods (about half a minute, on the CPU):
+
+```bash
+docker compose run --rm --no-deps trainer select --snapshot /out/snapshot
+```
+
+Or click **Run** on the Chapter 35 card of the console's Deep models tab. The output has recall at k against the full ranking's winner, and value recall, for the bid predictor, the walk candidate cap, install-affinity retrieval, the two merged, and random; recall by segment; and where each method ranks campaign 9, which starts after the training days. In ours, the predictor and the walk cap were close overall, 99% against 97% recall at 2, because the Ad ROAS campaigns won 96% of the auctions, but when a CPC campaign was the winner, the cap found it 3% of the time and the predictor 94%.
+
+**Scaling up is yours.** A market with hundreds of campaigns, offline and online tests of the selection policy, and serving the towers in the bidder.
+
+## Chapter 36: Personalized Creative Selection
+
+Chapter 36 needs the market's true rates for every creative, not just the one shown, so the Part IV dataset includes a creative truth table (`creative_truth.parquet`, with `creatives.parquet`). If your `out/snapshot/` came from an earlier download, or you built it yourself, either download `part4-dataset.zip` again, or add the table to your snapshot (about a minute; it rebuilds the simulated world from the dataset's seed and checks it against the logged rates):
+
+```bash
+docker compose run --rm --no-deps --entrypoint python sim -m adsim.creative_truth --snapshot /out/snapshot
+```
+
+Then replay the validation and test days with five creative policies: random, per-campaign Thompson sampling, personalized Thompson sampling over the creative's style and format and the device's creative history, the best fixed creative in hindsight, and the oracle (about a minute, on the CPU):
+
+```bash
+docker compose run --rm --no-deps trainer creatives --snapshot /out/snapshot
+```
+
+Or click **Run** on the Chapter 36 card of the console's Deep models tab. The output has expected installs for each policy, its share of the oracle's gain, how often it showed each campaign's new creative on the test days, and its installs as a share of the oracle's by how much history the device had; `out/creatives/personalized_weights.csv` has the personalized model's weights. In ours, per-campaign sampling captured 14% of the oracle's gain and personalized sampling 28%, about the same as the best fixed creative in hindsight, and the gap was all on devices with 20 or more logged impressions.
+
+**Scaling up is yours.** Longer creative histories, creative and device towers in place of the hand-built features, more creatives per campaign, fatigue, and delayed installs.
 
 ## Running without Docker
 

@@ -114,15 +114,6 @@ None of that makes the GAID permanent. Regulation, platform policy, or user beha
 - **Avoid features and systems that only work with an ID** where a device-free alternative exists, such as frequency estimates by placement as well as by device.
 - **Keep the geo and switchback designs from earlier in this chapter ready,** so incrementality can still be measured if device holdouts stop working.
 
-::: {.callout-tip title="Try it on the simulator"}
-Turn on ATT-style missing device IDs for a share of traffic. Compare a model trained with realistic missingness against one trained only on devices with IDs, on calibration for requests without IDs, against the true rates.
-
-<!-- TODO: the simulator doesn't have an iOS or ATT mode yet. -->
-
-*Status: planned. This exercise needs iOS traffic with ATT-style missing device IDs, which adsim 0.3 doesn't support yet.*
-
-:::
-
 ## Conclusion
 
 In this chapter, we looked at what changes without device IDs. On iOS, ATT makes the IDFA available only for consenting users, the IDFV links only one developer's apps, and SKAdNetwork and AdAttributionKit report installs as aggregated, delayed, anonymous postbacks with small conversion values, so models can't train on per-impression labels for most traffic. Contextual and placement signals, models trained with realistic missingness, calibration on aggregates, and geo and switchback tests take the place of device-level methods. Consent status travels with the data, and on Android, where the advertising ID remains for now, tracking ID coverage and keeping device-free models strong is the preparation.

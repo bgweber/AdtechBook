@@ -37,8 +37,6 @@ Two directions are worth watching.
 
 It's also worth noticing how little the largest mobile platforms say about their technical approach. Their public descriptions, mostly in earnings materials, focus on results: model releases, growth, and improvement over time, with little about methods. That's understandable, and it means much of what's known about the state of the art in mobile ad tech comes from the larger social and e-commerce platforms that publish, and from practitioners who write about what they've built.
 
-<!-- TODO: if citing AppLovin's Q2 2026 results on slower model gains, use AppLovin's own materials (R15 or later), not the third-party summary (R16). -->
-
 ## Future Work: Beyond This Book's DSP
 
 The companion DSP covers a lot, and there's much more. This section is a short tour of areas it doesn't implement, with pointers to where to start.

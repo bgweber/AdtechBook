@@ -86,7 +86,8 @@ class CrawlPolicy:
                  holdout_share: float = 0.05,
                  holdout_salt: str = "holdout-v1",
                  cvr_prior: float = 0.03, value_prior: float = 1.0,
-                 action_prior: float = 0.2, cap_cpm: float = 50.0,
+                 action_prior: float = 0.2, ad_value_prior: float = 0.35,
+                 cap_cpm: float = 50.0,
                  seed: int = 0):
         self.campaigns = campaigns.reset_index(drop=True)
         self.creatives = creatives
@@ -96,6 +97,7 @@ class CrawlPolicy:
         self.salt = holdout_salt
         self.cvr, self.value, self.action = (cvr_prior, value_prior,
                                              action_prior)
+        self.ad_value = ad_value_prior
         self.cap = cap_cpm
         self.rng = np.random.default_rng([seed, 100])
         self.geo_sets = [set(g.split(",")) for g in self.campaigns.geos]
@@ -118,6 +120,8 @@ class CrawlPolicy:
             return target * p_click * self.cvr * self.action * 1000
         if goal == "ROAS":
             return p_click * self.cvr * self.value / target * 1000
+        if goal == "AD_ROAS":  # a hypercasual install earns far less
+            return p_click * self.cvr * self.ad_value / target * 1000
         raise ValueError(goal)
 
     def decide(self, req: pd.DataFrame, state: dict) -> pd.DataFrame:

@@ -48,6 +48,7 @@ type Crawl struct {
 	HoldoutSalt   string // change it to draw a new holdout
 	CVRPrior      float64
 	ValuePrior    float64
+	AdValuePrior  float64 // D7 ad revenue per install, for AD_ROAS goals (Chapter 30)
 	ActionPrior   float64
 	CapCPM        float64
 
@@ -70,6 +71,9 @@ type Crawl struct {
 	AuctionCap atomic.Int32
 	est        scoreEstimates
 	audit      capAudit
+
+	// per-campaign levers of the unified equation (Chapter 33)
+	levers levers
 }
 
 // scoreEstimates are each campaign's recent mean auction score, for the
@@ -155,7 +159,7 @@ func (p *Crawl) weight(c campaigns.Candidate, sel Selection) float64 {
 // DefaultCrawl matches the simulator's built-in crawl policy.
 func DefaultCrawl() *Crawl {
 	return &Crawl{Margin: 0.2, Shade: 0.7, ExploreShare: 0.05, ExploreLo: 0.6, ExploreHi: 1.5,
-		HoldoutPerMil: 50, HoldoutSalt: "holdout-v1", CVRPrior: 0.03, ValuePrior: 1.0,
+		HoldoutPerMil: 50, HoldoutSalt: "holdout-v1", CVRPrior: 0.03, ValuePrior: 1.0, AdValuePrior: 0.35,
 		ActionPrior: 0.2, CapCPM: 50}
 }
 
@@ -185,24 +189,29 @@ type Decision struct {
 	// Walk pricing terms (Chapter 21): installs per impression from both
 	// paths, D7 revenue per install for ROAS goals, the campaign's
 	// target, and its calibration multiplier.
-	PInstall        float64 `json:"p_install,omitempty"`
-	ValuePerInstall float64 `json:"value_per_install,omitempty"`
-	ValueFrom       string  `json:"value_from,omitempty"`
-	Target          float64 `json:"target,omitempty"`
-	Kappa           float64 `json:"kappa,omitempty"`
-	Pacing          float64 `json:"pacing,omitempty"`        // gamma, from the pacing controller (Chapter 22)
-	Overbid         float64 `json:"overbid,omitempty"`       // a manual overbid, logged apart from gamma
-	Score           float64 `json:"score,omitempty"`         // the internal auction's expected surplus
-	CreativeFrom    string  `json:"creative_from,omitempty"` // random or thompson
-	AuctionExplored bool    `json:"auction_explored,omitempty"`
-	Capped          int     `json:"capped,omitempty"`     // campaigns the auction cap left unpriced (Chapter 17)
-	Candidates      []Cand  `json:"candidates,omitempty"` // the internal auction, best first
-	AdvertiserValue float64 `json:"advertiser_value"`     // CPM
-	MediaValue      float64 `json:"media_value"`          // CPM, after margin
-	ExploreMult     float64 `json:"explore_mult"`
-	Bid             float64 `json:"bid"` // CPM
-	Holdout         bool    `json:"holdout"`
-	Model           string  `json:"model,omitempty"` // click model version; empty = prior
+	PInstall        float64    `json:"p_install,omitempty"`
+	ValuePerInstall float64    `json:"value_per_install,omitempty"`
+	ValueFrom       string     `json:"value_from,omitempty"`
+	Target          float64    `json:"target,omitempty"`
+	Kappa           float64    `json:"kappa,omitempty"`
+	CurseKappa      float64    `json:"curse_kappa,omitempty"`   // winner's curse correction (Chapter 31)
+	Tilt            float64    `json:"tilt,omitempty"`          // incrementality tilt on the value (Chapter 32)
+	Goals           []GoalTerm `json:"goals,omitempty"`         // a weighted value's goals (Chapter 33)
+	Margin          float64    `json:"margin,omitempty"`        // our share of the value (Chapter 33's ledger)
+	Uplift          float64    `json:"uplift,omitempty"`        // predicted incremental share of installs (Chapter 32)
+	Pacing          float64    `json:"pacing,omitempty"`        // gamma, from the pacing controller (Chapter 22)
+	Overbid         float64    `json:"overbid,omitempty"`       // a manual overbid, logged apart from gamma
+	Score           float64    `json:"score,omitempty"`         // the internal auction's expected surplus
+	CreativeFrom    string     `json:"creative_from,omitempty"` // random or thompson
+	AuctionExplored bool       `json:"auction_explored,omitempty"`
+	Capped          int        `json:"capped,omitempty"`     // campaigns the auction cap left unpriced (Chapter 17)
+	Candidates      []Cand     `json:"candidates,omitempty"` // the internal auction, best first
+	AdvertiserValue float64    `json:"advertiser_value"`     // CPM
+	MediaValue      float64    `json:"media_value"`          // CPM, after margin
+	ExploreMult     float64    `json:"explore_mult"`
+	Bid             float64    `json:"bid"` // CPM
+	Holdout         bool       `json:"holdout"`
+	Model           string     `json:"model,omitempty"` // click model version; empty = prior
 	// The running experiment and this request's arm (Chapter 19), and in
 	// shadow mode, the challenger's scores for the same choice.
 	// How the bid was shaded (Chapter 20): fixed, or model, with the win
@@ -257,6 +266,17 @@ type Prediction struct {
 // predicted win rate. ok is false to keep the fixed shade.
 type Shader func(media, floor float64) (bid, winProb float64, ok bool)
 
+// Curse is the winner's curse correction for one request (Chapter 31): the
+// multiplier for a media value, from how far it is above the request's
+// predicted market price. Wins far above the market return less than
+// predicted, so their value is marked down before shading.
+type Curse func(media float64) (kappa float64)
+
+// Tilt is the incrementality tilt for one campaign and creative (Chapter
+// 32): the multiplier on its value, and the predicted incremental share of
+// its installs, r. ok is false when it doesn't apply.
+type Tilt func(c *campaigns.Campaign, cr campaigns.Creative) (mult, r float64, ok bool)
+
 // Predictor scores the chosen campaign and creative. ok is false when
 // no model is deployed.
 type Predictor func(c *campaigns.Campaign, cr campaigns.Creative) (Prediction, bool)
@@ -265,7 +285,16 @@ type Predictor func(c *campaigns.Campaign, cr campaigns.Creative) (Prediction, b
 // install goals, a click is worth the target times the chance a click
 // leads to an install (Chapter 10).
 func (p *Crawl) Value(c *campaigns.Campaign, pClick, pInstall float64) float64 {
-	return p.GoalValue(c, pClick, pInstall, 0, p.ValuePrior)
+	return p.GoalValue(c, pClick, pInstall, 0, p.valuePrior(c.Goal))
+}
+
+// valuePrior is the value per install before there's data: a hypercasual
+// install earns a few cents of ad revenue, a purchase install far more.
+func (p *Crawl) valuePrior(goal string) float64 {
+	if goal == "AD_ROAS" {
+		return p.AdValuePrior
+	}
+	return p.ValuePrior
 }
 
 // GoalValue is the advertiser value for any goal (Chapter 21), from
@@ -282,7 +311,7 @@ func (p *Crawl) GoalValue(c *campaigns.Campaign, pClick, pInstallClick, pInstall
 		return c.Target * pInst * 1000
 	case "CPA":
 		return c.Target * pInst * p.ActionPrior * 1000
-	case "ROAS":
+	case "ROAS", "AD_ROAS": // AD_ROAS: ad revenue for hypercasual apps (Chapter 30)
 		return pInst * valuePerInstall / c.Target * 1000
 	}
 	return 0
@@ -296,8 +325,8 @@ func (p *Crawl) legacyValue(c *campaigns.Campaign, pClick, pInstall float64) flo
 		return c.Target * pClick * pInstall * 1000
 	case "CPA":
 		return c.Target * pClick * pInstall * p.ActionPrior * 1000
-	case "ROAS":
-		return pClick * pInstall * p.ValuePrior / c.Target * 1000
+	case "ROAS", "AD_ROAS":
+		return pClick * pInstall * p.valuePrior(c.Goal) / c.Target * 1000
 	}
 	return 0
 }
@@ -322,7 +351,10 @@ type priced struct {
 	pInst, vpi, k  float64
 	gamma, overbid float64
 	vfrom, ifrom   string
-	value, media   float64 // advertiser value x kappa; after margin
+	value, media   float64    // advertiser value x kappa; after margin
+	ck             float64    // the winner's curse correction (Chapter 31)
+	tk, ur         float64    // the incrementality tilt and share (Chapter 32)
+	goals          []GoalTerm // a weighted value's goals (Chapter 33)
 	shaded, win    float64
 	shadeFrom      string
 	score          float64
@@ -333,7 +365,7 @@ type priced struct {
 // campaign, in the order of Chapter 21: predict, value, multipliers,
 // margin, shade. Floors and caps come later, in Decide.
 func (p *Crawl) price(c campaigns.Candidate, placement string, floor float64, rng *rand.Rand,
-	predict Predictor, shade Shader) priced {
+	predict Predictor, shade Shader, curse Curse, tilt Tilt) priced {
 	x := priced{c: c}
 	ids := make([]int, len(c.Creatives))
 	for i, cr := range c.Creatives {
@@ -356,7 +388,7 @@ func (p *Crawl) price(c campaigns.Candidate, placement string, floor float64, rn
 	if !x.hasPred {
 		x.pr = Prediction{PClick: CTRPrior[placement], PClickFrom: "prior"}
 	}
-	x.vpi, x.vfrom = p.ValuePrior, "prior"
+	x.vpi, x.vfrom = p.valuePrior(c.Campaign.Goal), "prior"
 	if x.pr.ValuePerInstall > 0 {
 		x.vpi, x.vfrom = x.pr.ValuePerInstall, x.pr.ValueFrom
 	}
@@ -368,8 +400,33 @@ func (p *Crawl) price(c campaigns.Candidate, placement string, floor float64, rn
 	}
 	if x.pr.PInstallView > 0 || x.pr.ValuePerInstall > 0 {
 		x.value = p.GoalValue(c.Campaign, pc, x.pInstallClick, x.pr.PInstallView, x.vpi) * x.k
+		// weighted goals (Chapter 33): a second goal's value, with the
+		// same calibration, mixed in by its weight
+		if lv, ok := p.Levers().Campaigns[c.Campaign.ID]; ok && lv.SecondGoal == "CPI" && c.Campaign.Goal != "CPC" {
+			a1 := x.value / x.k
+			a2 := lv.SecondTarget * x.pInst * 1000
+			x.goals = []GoalTerm{
+				{Goal: c.Campaign.Goal, Target: c.Campaign.Target, Weight: 1 - lv.Weight, Value: round6(a1), Kappa: x.k},
+				{Goal: "CPI", Target: lv.SecondTarget, Weight: lv.Weight, Value: round6(a2), Kappa: x.k}}
+			x.value = ((1-lv.Weight)*a1 + lv.Weight*a2) * x.k
+		}
 	} else {
 		x.value = p.legacyValue(c.Campaign, pc, x.pInstallClick) * x.k // crawl, unchanged
+	}
+	x.ck = 1
+	if curse != nil && x.value > 0 {
+		if k := curse(x.value * (1 - p.Margin)); k > 0 {
+			x.ck = k
+			x.value *= k
+		}
+	}
+	// the incrementality tilt (Chapter 32): install campaigns only
+	x.tk, x.ur = 1, -1
+	if tilt != nil && x.value > 0 && c.Campaign.Goal != "CPC" {
+		if m, r, ok := tilt(c.Campaign, x.cr); ok && m > 0 {
+			x.tk, x.ur = m, r
+			x.value *= m
+		}
 	}
 	// pacing scales the value before the margin and shading (Chapter 22);
 	// the auction's score still uses the unscaled value
@@ -441,7 +498,11 @@ type capAudit struct {
 // with the capped auction's. The bidder calls it on a sample of load test
 // requests, after their timings are taken.
 func (p *Crawl) AuditCap(cands []campaigns.Candidate, placement string, floor float64, rng *rand.Rand,
-	predict Predictor, shade Shader) {
+	predict Predictor, shade Shader, curse ...Curse) {
+	var cu Curse
+	if len(curse) > 0 {
+		cu = curse[0]
+	}
 	k := int(p.AuctionCap.Load())
 	if k <= 0 || len(cands) <= k {
 		return
@@ -452,7 +513,7 @@ func (p *Crawl) AuditCap(cands []campaigns.Candidate, placement string, floor fl
 	}
 	best, bestCap := math.Inf(-1), math.Inf(-1)
 	for i, c := range cands {
-		sc := p.price(c, placement, floor, rng, predict, shade).score
+		sc := p.price(c, placement, floor, rng, predict, shade, cu, nil).score
 		best = math.Max(best, sc)
 		if inCap[i] {
 			bestCap = math.Max(bestCap, sc)
@@ -493,12 +554,23 @@ func (p *Crawl) ResetCapAudit() {
 // Decide runs selection, prediction, and pricing for one request.
 func (p *Crawl) Decide(cands []campaigns.Candidate, placement, ifa string,
 	floor float64, rng *rand.Rand, predict Predictor, shade ...Shader) Decision {
-	if len(cands) == 0 {
-		return Decision{Action: "nobid", Reason: "no_eligible_campaign", CampaignID: -1, CreativeID: -1}
-	}
 	var sh Shader
 	if len(shade) > 0 {
 		sh = shade[0]
+	}
+	return p.DecideWith(cands, placement, ifa, floor, rng, predict, sh, nil)
+}
+
+// DecideWith is Decide with the winner's curse correction (Chapter 31),
+// and optionally an incrementality tilt (Chapter 32).
+func (p *Crawl) DecideWith(cands []campaigns.Candidate, placement, ifa string,
+	floor float64, rng *rand.Rand, predict Predictor, sh Shader, curse Curse, tilt ...Tilt) Decision {
+	var ti Tilt
+	if len(tilt) > 0 {
+		ti = tilt[0]
+	}
+	if len(cands) == 0 {
+		return Decision{Action: "nobid", Reason: "no_eligible_campaign", CampaignID: -1, CreativeID: -1}
 	}
 	sel := Selection(p.selection.Load())
 	weighted := func(s Selection) (int, float64) {
@@ -529,7 +601,7 @@ func (p *Crawl) Decide(cands []campaigns.Candidate, placement, ifa string,
 		done := make([]bool, len(cands))
 		best := priceIdx[0]
 		for _, i := range priceIdx {
-			all[i], done[i] = p.price(cands[i], placement, floor, rng, predict, sh), true
+			all[i], done[i] = p.price(cands[i], placement, floor, rng, predict, sh, curse, ti), true
 			p.est.update(cands[i].Campaign.ID, all[i].score)
 			if all[i].score > all[best].score {
 				best = i
@@ -545,7 +617,7 @@ func (p *Crawl) Decide(cands []campaigns.Candidate, placement, ifa string,
 			pick, _ = weighted(SelectBudget)
 			explored = true
 			if !done[pick] { // exploring past the cap: price it now
-				all[pick], done[pick] = p.price(cands[pick], placement, floor, rng, predict, sh), true
+				all[pick], done[pick] = p.price(cands[pick], placement, floor, rng, predict, sh, curse, ti), true
 			}
 		}
 		x = all[pick]
@@ -574,7 +646,7 @@ func (p *Crawl) Decide(cands []campaigns.Candidate, placement, ifa string,
 	} else {
 		pick, total := weighted(sel)
 		prob = p.weight(cands[pick], sel) / total
-		x = p.price(cands[pick], placement, floor, rng, predict, sh)
+		x = p.price(cands[pick], placement, floor, rng, predict, sh, curse, ti)
 	}
 	c, cr := x.c, x.cr
 	d := Decision{
@@ -595,11 +667,19 @@ func (p *Crawl) Decide(cands []campaigns.Candidate, placement, ifa string,
 		d.PInstallClick, d.InstallRateFrom = x.pInstallClick, x.ifrom
 		if x.pr.PInstallView > 0 || x.pr.ValuePerInstall > 0 {
 			d.PInstall, d.Target, d.Kappa = round6(x.pInst), c.Campaign.Target, x.k
-			if c.Campaign.Goal == "ROAS" {
+			if x.ck != 1 {
+				d.CurseKappa = round6(x.ck)
+			}
+			if c.Campaign.Goal == "ROAS" || c.Campaign.Goal == "AD_ROAS" {
 				d.ValuePerInstall, d.ValueFrom = x.vpi, x.vfrom
 			}
 		}
 	}
+	if x.ur >= 0 {
+		d.Tilt, d.Uplift = round6(x.tk), round6(x.ur)
+	}
+	d.Goals = x.goals
+	d.Margin = p.Margin
 	if x.gamma != 1 {
 		d.Pacing = round4(x.gamma)
 	}

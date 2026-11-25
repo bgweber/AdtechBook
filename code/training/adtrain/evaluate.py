@@ -538,33 +538,62 @@ def abtest(ledger_dir, experiment: str, sim_out=None, dataset_dir=None,
     if "experiment" not in df.columns:
         raise RuntimeError(f"{m.get('version')} has no experiment columns: build a new dataset")
     df = df[(df.experiment == experiment) & df.arm.isin(["control", "treatment"])]
-    if goal:
+    if goal == "INSTALL":
+        # every install campaign: CPI, ROAS, and Ad ROAS (Chapter 32)
+        df = df[df.goal.str.upper().isin(["CPI", "ROAS", "AD_ROAS"])]
+    elif goal:
         df = df[df.goal.str.upper() == goal]
     if df.empty:
         raise RuntimeError(f"no {goal} impressions from {experiment} in {m.get('version')}")
-    final = df.install_final.mean()
-    df = df[df.install_final]
+    # Ad ROAS (Chapter 30): the outcome is D3 ad revenue per dollar, so an
+    # impression counts once its install, if any, has final D3 revenue
+    roas = goal == "AD_ROAS"
+    done = df.install_final & ((df.install == 0) | df.d3_final) if roas else df.install_final
+    final = done.mean()
+    df = df[done]
     if df.empty:
         raise RuntimeError(f"no {experiment} impression's installs are final yet: play more days")
     df = df.assign(spend=df.price_cpm / 1000)
+    if roas:
+        df = df.assign(revenue=df.d3_revenue.where(df.install == 1, 0.0))
     tt = simout.table(sim_out, "truth", "impressions",
-                      ["impression_id", "p_click", "p_install_click", "p_install_view"]) \
+                      ["impression_id", "p_click", "p_install_click", "p_install_view", "lift"]
+                      + (["expected_d3_ad_revenue"] if roas else [])) \
         if sim_out else None
     if tt is not None:
         t = tt.set_index("impression_id").reindex("i" + df.request_id)
         pc = t.p_click.to_numpy(float)
         df = df.assign(expected=np.nan_to_num(pc * t.p_install_click.to_numpy(float) +
-                                              (1 - pc) * t.p_install_view.to_numpy(float)))
-    cols = ["spend", "install", "click"] + (["expected"] if "expected" in df else [])
+                                              (1 - pc) * t.p_install_view.to_numpy(float)),
+                       # the installs each impression caused: its lift, net
+                       # of the installs that would have happened anyway
+                       caused=np.nan_to_num(t.lift.to_numpy(float)))
+        if roas:
+            df = df.assign(expected_revenue=df.expected * np.nan_to_num(
+                t.expected_d3_ad_revenue.to_numpy(float)))
+    cols = ["spend", "install", "click"] + (["expected", "caused"] if "expected" in df else [])
+    if roas:
+        cols += ["revenue"] + (["expected_revenue"] if "expected_revenue" in df else [])
+    if "sample_weight" in df and (df.sample_weight != 1).any():
+        # a sampled dataset (--sample-rate): each kept row stands for its weight
+        df = df.assign(**{c: df[c] * df.sample_weight for c in cols})
     arms, dev = {}, {}
     for arm, g in df.groupby("arm"):
         s = g[cols].sum()
-        arms[arm] = {"devices": int(g.device_hash.nunique()), "impressions": len(g),
+        n_imps = int(round(g.sample_weight.sum())) if "sample_weight" in g else len(g)
+        arms[arm] = {"devices": int(g.device_hash.nunique()), "impressions": n_imps,
                      "spend": _r(s.spend, 2), "clicks": int(s.click), "installs": int(s.install),
                      "cpi": _r(s.spend / s.install, 3) if s.install else None}
         if "expected" in s:
             arms[arm]["expected_installs"] = _r(s.expected, 1)
             arms[arm]["true_cpi"] = _r(s.spend / s.expected, 3) if s.expected else None
+            arms[arm]["caused_installs"] = _r(s.caused, 1)
+            arms[arm]["true_icpi"] = _r(s.spend / s.caused, 3) if s.caused else None
+        if roas:
+            arms[arm]["d3_revenue"] = _r(s.revenue, 2)
+            arms[arm]["roas"] = _r(s.revenue / s.spend, 3) if s.spend else None
+            if "expected_revenue" in s:
+                arms[arm]["true_roas"] = _r(s.expected_revenue / s.spend, 3) if s.spend else None
         dev[arm] = g.groupby("device_hash")[cols].sum().to_numpy()
     out = {"experiment": experiment, "dataset": m.get("version"), "goal": goal,
            "share_final": _r(final, 3), "arms": arms}
@@ -573,9 +602,13 @@ def abtest(ledger_dir, experiment: str, sim_out=None, dataset_dir=None,
         idx = {c: cols.index(c) for c in cols}
 
         def ratio(a, b, col):
-            """treatment CPI over control CPI"""
-            return (a[:, 0].sum() / a[:, idx[col]].sum()) / (b[:, 0].sum() / b[:, idx[col]].sum())
-        for col, key in (("install", "measured"), ("expected", "true")):
+            """treatment CPI over control CPI; for Ad ROAS, treatment ROAS
+            over control ROAS"""
+            r = (a[:, 0].sum() / a[:, idx[col]].sum()) / (b[:, 0].sum() / b[:, idx[col]].sum())
+            return 1 / r if roas else r
+        pairs = ((("revenue", "measured"), ("expected_revenue", "true")) if roas
+                 else (("install", "measured"), ("expected", "true"), ("caused", "incremental")))
+        for col, key in pairs:
             if col not in idx:
                 continue
             point = ratio(dev["treatment"], dev["control"], col)
@@ -587,7 +620,7 @@ def abtest(ledger_dir, experiment: str, sim_out=None, dataset_dir=None,
                     boot.append(ratio(a, b, col))
             boot = np.array(boot)
             boot = boot[np.isfinite(boot)]
-            out[key] = {"cpi_ratio": _r(point, 3),
+            out[key] = {"roas_ratio" if roas else "cpi_ratio": _r(point, 3),
                         "ci": [_r(np.quantile(boot, 0.025), 3), _r(np.quantile(boot, 0.975), 3)]}
     return out
 
@@ -603,10 +636,24 @@ def print_abtest(r: dict) -> None:
             print(f"  {arm:<11}{a['devices']:>9,}{a['impressions']:>9,}{a['spend']:>10,.2f}"
                   f"{a['installs']:>10,}{(a['cpi'] or 0):>8.2f}"
                   f"{a.get('expected_installs', 0):>10,.1f}{(a.get('true_cpi') or 0):>10.2f}")
-    for key, label in (("measured", "measured from installs"), ("true", "from the true install rates")):
+    if r["goal"] == "AD_ROAS":
+        for arm in ("control", "treatment"):
+            a = r["arms"].get(arm)
+            if a:
+                print(f"  {arm:<11}D3 ad revenue ${a['d3_revenue']:,.2f}, ROAS {a['roas']}"
+                      + (f", true ROAS {a['true_roas']}" if a.get("true_roas") is not None else ""))
+    if r["goal"] != "AD_ROAS" and any("true_icpi" in (r["arms"].get(a) or {}) for a in ("control", "treatment")):
+        for arm in ("control", "treatment"):
+            a = r["arms"].get(arm)
+            if a and a.get("true_icpi"):
+                print(f"  {arm:<11}installs our ads caused (truth): {a['caused_installs']:,.1f}, "
+                      f"cost per caused install {a['true_icpi']:.2f}")
+    for key, label in (("measured", "measured from postbacks"), ("true", "from the true rates and values"),
+                       ("incremental", "per caused install, from the truth")):
         if key in r:
             x = r[key]
-            print(f"  treatment CPI / control CPI, {label}: {x['cpi_ratio']} "
+            name, v = (("ROAS", x["roas_ratio"]) if "roas_ratio" in x else ("CPI", x["cpi_ratio"]))
+            print(f"  treatment {name} / control {name}, {label}: {v} "
                   f"(95% CI {x['ci'][0]}-{x['ci'][1]})")
 
 

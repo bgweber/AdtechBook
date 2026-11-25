@@ -6,6 +6,10 @@ This is the first chapter of Part III, the walk stage, where we build a DSP that
 
 The reference DSP grows with it. The same Go bidder and Python training code run Part III in a `walk` stage, against a bigger simulated market: tier-1 countries next to the low-CPM ones, a third exchange, and CPI, ROAS, and CPC campaigns, with an MMP that sends install and purchase postbacks when they would really arrive. Each chapter's results come from runs of it at its smallest scale, so the numbers are small, and the stories are the point. The book's repository has a walkthrough with the commands for each chapter, for Linux and macOS, with PowerShell versions for Windows.
 
+@fig-c13-dsp-stages shows what Part III changes, on the diagram from @fig-c5-dsp-stages. Almost every box changes, except parsing: the walk DSP predicts installs as well as clicks, prices for each goal, shades its bids, paces with a controller, and builds a pipeline, monitoring, and experiments around its models.
+
+![The reference DSP at the end of Part III. Shaded boxes are the ones this part changes.](../images/dsp-stage-part3.png){#fig-c13-dsp-stages width="100%" fig-alt="The same two columns as the Part II diagram, with every box shaded except parse and eligibility. The new versions include LightGBM click and install models, goal pricing with win models and bid shading, a PI pacing controller, as-of datasets with a pipeline and registry, and shadow mode, canaries, A/B tests, and incrementality."}
+
 In this chapter, we will look at what breaks in the crawl DSP when advertisers want installs, revisit the goal types and what each requires a DSP to predict, and write down the install equation that splits installs into click-through and view-through paths. We then cover MMP postbacks and attribution windows, label delay, attributed and non-attributed data, pooled models and the limits advertisers put on them, and the move to tier-1 geos that purchase models need.
 
 ## What Breaks at Crawl

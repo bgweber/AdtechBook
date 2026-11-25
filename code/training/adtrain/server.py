@@ -23,6 +23,9 @@ from .train import Params, train
 def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
           host: str = "0.0.0.0", port: int = 8090) -> None:
     lock = threading.Lock()
+    from . import deepui
+    out_root = Path(models_dir).parent  # /out in Docker
+    deep_jobs = deepui.Jobs(out_root)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -70,6 +73,52 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                 except Exception as err:
                     traceback.print_exc()
                     return self._json(500, {"error": str(err)})
+            if self.path.startswith("/deep/"):
+                # the console's Deep Models tab (Part IV)
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    req = json.loads(self.rfile.read(n) or b"{}")
+                    if self.path == "/deep/status":
+                        return self._json(200, deepui.status(out_root, deep_jobs))
+                    if self.path == "/deep/run":
+                        return self._json(200, deep_jobs.start(str(req.get("job") or "")))
+                    if self.path == "/deep/embeddings":
+                        return self._json(200, deepui.embeddings(out_root, str(req.get("source") or "coinstall"),
+                                                                 "pca" if req.get("layout") == "pca" else "tsne"))
+                except ValueError as err:
+                    return self._json(400, {"error": str(err)})
+                except Exception as err:
+                    traceback.print_exc()
+                    return self._json(500, {"error": str(err)})
+                return self._json(404, {"error": "not found"})
+            if self.path == "/rlpace":
+                # pacing policies in a logged-auction simulator (Chapter 34)
+                from . import rlpace
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    req = json.loads(self.rfile.read(n) or b"{}")
+                    out = rlpace.compare(ledger_dir, int(req["campaign_id"]), sim_out, log=lambda *_: None)
+                except Exception as err:
+                    traceback.print_exc()
+                    return self._json(400, {"error": str(err)})
+                return self._json(200, out)
+            if self.path in ("/explain", "/frontier"):
+                # the unified pricing equation (Chapter 33): read-only
+                from . import pricing
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    req = json.loads(self.rfile.read(n) or b"{}")
+                    num = lambda k: float(req[k]) if req.get(k) not in (None, "") else None
+                    if self.path == "/explain":
+                        out = pricing.explain(ledger_dir, req.get("request_id") or None,
+                                              int(req["campaign_id"]) if req.get("campaign_id") not in (None, "") else None)
+                    else:
+                        out = pricing.frontier(ledger_dir, int(req["campaign_id"]), num("budget"),
+                                               num("target_cpi"), num("target_roas"), sim_out=sim_out)
+                except Exception as err:
+                    traceback.print_exc()
+                    return self._json(400, {"error": str(err)})
+                return self._json(200, out)
             if self.path in ("/replay", "/ope", "/periods", "/abtest", "/shadow", "/shadetest", "/lift"):
                 # offline evaluation (Chapter 16): read-only, no lock needed
                 from . import evaluate as ev
@@ -83,7 +132,8 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                         out = ev.ope(ledger_dir, str(req.get("policy") or "uniform"),
                                      str(req.get("reward") or "click"))
                     elif self.path == "/abtest":
-                        out = ev.abtest(ledger_dir, str(req["experiment"]), sim_out)
+                        out = ev.abtest(ledger_dir, str(req["experiment"]), sim_out,
+                                        goal=str(req.get("goal") or "CPI").upper())
                     elif self.path == "/lift":
                         from . import lift
                         hs = req.get("holdout_share")
@@ -127,7 +177,7 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                     traceback.print_exc()
                     return self._json(400, {"error": str(err)})
                 return self._json(200, c)
-            if self.path not in ("/train", "/dataset", "/gbm", "/pipeline", "/win"):
+            if self.path not in ("/train", "/dataset", "/gbm", "/pipeline", "/win", "/uplift"):
                 return self._json(404, {"error": "not found"})
             n = int(self.headers.get("Content-Length") or 0)
             try:
@@ -147,7 +197,8 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                 with lock:
                     try:
                         df, m = datasets.build(ledger_dir, datasets.Settings(
-                            leak=bool(req.get("leak"))), log=log)
+                            leak=bool(req.get("leak")),
+                            sample_rate=float(req.get("sample_rate") or 1.0)), log=log)
                         d = datasets.write(df, m, datasets_dir)
                     except Exception as err:
                         traceback.print_exc()
@@ -161,7 +212,20 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                 with lock:
                     try:
                         _, rep = win.train(ledger_dir, models_dir, use_mtw=req.get("use_mtw", True),
-                                           sim_out=sim_out, log=log)
+                                           sim_out=sim_out, log=log,
+                                           curve=bool(req.get("curve") or req.get("curse")),
+                                           curse=bool(req.get("curse")),
+                                           sample_rate=float(req.get("sample_rate") or 1.0))
+                    except Exception as err:
+                        traceback.print_exc()
+                        return self._json(500, {"error": str(err), "log": lines})
+                return self._json(200, rep)
+            if self.path == "/uplift":
+                # uplift models from a lift study (Chapter 32)
+                from . import uplift
+                with lock:
+                    try:
+                        _, rep = uplift.train(ledger_dir, models_dir, sim_out, log=log)
                     except Exception as err:
                         traceback.print_exc()
                         return self._json(500, {"error": str(err), "log": lines})

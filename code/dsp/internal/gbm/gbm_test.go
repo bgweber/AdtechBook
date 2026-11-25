@@ -2,6 +2,7 @@ package gbm
 
 import (
 	"math"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -76,5 +77,31 @@ func TestPredictBatchMatchesPredict(t *testing.T) {
 				t.Fatalf("%s row %d: batch %g, single %g", target, i, out[i], want)
 			}
 		}
+	}
+}
+
+// A Tweedie value model (Chapter 30) predicts exp of the sum of its trees.
+func TestTweedieLink(t *testing.T) {
+	dir := t.TempDir()
+	dump := `{"max_feature_idx": 1, "objective": "tweedie tweedie_variance_power:1.2", "num_class": 1,
+	  "tree_info": [{"tree_structure": {"split_feature": 0, "threshold": 0.5, "decision_type": "<=",
+	    "default_left": true, "missing_type": "None",
+	    "left_child": {"leaf_value": -2.0}, "right_child": {"leaf_value": -1.0}}},
+	    {"tree_structure": {"leaf_value": 0.25}}]}`
+	path := filepath.Join(dir, "value.json")
+	if err := os.WriteFile(path, []byte(dump), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e, err := LoadEnsemble(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.Predict([]float64{0, 0}), math.Exp(-1.75); math.Abs(got-want) > 1e-12 {
+		t.Fatalf("left: got %v, want %v", got, want)
+	}
+	out := make([]float64, 1)
+	e.PredictBatch([][]float64{{1, 0}}, out)
+	if want := math.Exp(-0.75); math.Abs(out[0]-want) > 1e-12 {
+		t.Fatalf("batch right: got %v, want %v", out[0], want)
 	}
 }
