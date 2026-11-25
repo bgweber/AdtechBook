@@ -135,13 +135,6 @@ Tooling that records lineage, which datasets, embedding versions, and models wer
 
 [^c37-incidents]: Ben Weber, "Machine Learning Incidents in AdTech," *Towards Data Science*, January 29, 2025, <https://medium.com/data-science/machine-learning-incidents-in-adtech-e3f48d858054>
 
-::: {.callout-tip title="Try it on the simulator"}
-Run a multi-model incident: publish a new version of the pretrained device model with a subtle bug, and watch every downstream model's predictions shift at once. Use the dependency graph to group the alerts, roll back the set of versions that were promoted together, and trace the affected artifacts.
-
-*Status: planned. This exercise needs the companion model registry's dependency graph, which isn't built yet.*
-
-:::
-
 ## Conclusion
 
 In this chapter, we operated the state-of-the-art DSP. Drift comes in several kinds, including feedback loops through the DSP's own decisions, and the registry becomes the inventory of model families and their dependencies, so a change upstream is one incident rather than many. Layered experiments run at scale with automated checks, rollback acts on sets of versions, and exploration and outside signals keep feedback loops in check. Postmortems turn every incident into a guardrail, features and models have lifecycles, every model's training and serving cost is tracked against what it earns, and lineage traces bad data through every downstream artifact.
