@@ -64,6 +64,8 @@ type Deps struct {
 	Policy     *policy.Crawl       // the selection policy, switchable (Chapter 16)
 	Exp        *experiment.Manager // shadow, canary, A/B (Chapter 19)
 	Win        *gbm.Registry       // win rate models (Chapter 20)
+	Uplift     *gbm.Registry       // uplift models (Chapter 32)
+	Levers     string              // where the campaigns' levers are saved (Chapter 33)
 	// Serving latency (Chapter 17): live requests' stage timings, the load
 	// test's, and the file the load generator appends its runs to.
 	Latency, LoadLatency *latency.Recorder
@@ -608,6 +610,72 @@ func Handler(d Deps) http.Handler {
 		}
 		writeJSON(w, res)
 	})
+	// Uplift models (Chapter 32): GET lists them; POST /train trains one on
+	// the lift study's devices. They're tested with a tilt A/B test, not
+	// deployed.
+	mux.HandleFunc("/api/uplift", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"models": d.Uplift.List()})
+	})
+	mux.HandleFunc("/api/uplift/train", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		raw, err := d.Trainer.Call("uplift", body)
+		reply(w, raw, err)
+	})
+	// The unified pricing equation (Chapter 33): each campaign's levers, a
+	// logged bid explained term by term, and the consistency check.
+	mux.HandleFunc("/api/pricing/levers", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, d.Policy.Levers())
+			return
+		}
+		var req struct {
+			CampaignID int `json:"campaign_id"`
+			policy.Levers
+			Uplift *string `json:"uplift"`
+			Clear  bool    `json:"clear"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		cur := d.Policy.Levers()
+		next := &policy.LeverSet{Campaigns: map[int]policy.Levers{}, Uplift: cur.Uplift}
+		for k, v := range cur.Campaigns {
+			next.Campaigns[k] = v
+		}
+		if req.Clear {
+			delete(next.Campaigns, req.CampaignID)
+		} else {
+			if err := req.Levers.Check(); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			next.Campaigns[req.CampaignID] = req.Levers
+		}
+		if req.Uplift != nil && *req.Uplift != cur.Uplift {
+			if err := d.Uplift.Pin(*req.Uplift); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			next.Uplift = *req.Uplift
+		}
+		if err := d.Policy.SetLevers(next, d.Levers); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		d.Ops.Note(fmt.Sprintf("campaign %d levers: %+v", req.CampaignID, req.Levers), "console", 0)
+		writeJSON(w, next)
+	})
+	for _, name := range []string{"explain", "frontier", "rlpace"} {
+		name := name
+		mux.HandleFunc("/api/pricing/"+name, func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			raw, err := d.Trainer.Call(name, body)
+			reply(w, raw, err)
+		})
+	}
 	mux.HandleFunc("/api/win/undeploy", func(w http.ResponseWriter, r *http.Request) {
 		d.Win.Undeploy()
 		d.Ops.Note("win model switched off: fixed shade", "console", 0)

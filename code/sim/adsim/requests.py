@@ -35,6 +35,9 @@ FLOOR_BASE = {"rewarded_video": 6.0, "interstitial": 4.0,
 ZERO_IFA = "00000000-0000-0000-0000-000000000000"
 
 
+SURGE_EXTRA = 2  # extra requests per usual one during a surge (Chapter 34)
+
+
 def make_requests(world: World, installed: pd.DataFrame,
                   day: int) -> pd.DataFrame:
     cfg = world.cfg
@@ -70,6 +73,18 @@ def make_requests(world: World, installed: pd.DataFrame,
     utc_hour = (local_hour - offset) % 24
     ts = (day * DAY_MS + utc_hour * 3_600_000
           + rng.integers(0, 3_600_000, size=n))
+    if cfg.surge and day == cfg.start_day:
+        # a traffic surge (Chapter 34), on the run's first day: a large
+        # promotion triples the requests from 13:00 to 16:00 UTC, with
+        # devices and apps drawn from the day's own traffic
+        srng = np.random.default_rng([cfg.seed, 43, day])
+        lo, hi = day * DAY_MS + 13 * 3_600_000, day * DAY_MS + 16 * 3_600_000
+        extra = srng.choice(n, size=SURGE_EXTRA * int(((ts >= lo) & (ts < hi)).sum()))
+        dev_idx = np.concatenate([dev_idx, dev_idx[extra]])
+        app_id = np.concatenate([app_id, app_id[extra]])
+        ts = np.concatenate([ts, lo + srng.integers(0, hi - lo, size=len(extra))])
+        n = len(dev_idx)
+        geo = devs.geo.to_numpy()[dev_idx]
     # exchange, placement, floor
     ex = cfg.exchanges
     ex_idx = rng.choice(len(ex), size=n,

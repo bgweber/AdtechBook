@@ -139,3 +139,53 @@ func TestAuctionCap(t *testing.T) {
 		t.Fatalf("new campaign: priced %v", priced)
 	}
 }
+
+// The incrementality tilt (Chapter 32) multiplies an install campaign's
+// value and logs the ratio; CPC campaigns are left alone.
+func TestTilt(t *testing.T) {
+	p := DefaultCrawl()
+	p.ExploreShare, p.HoldoutPerMil = 0, 0
+	c := &campaigns.Campaign{Goal: "CPI", Target: 1.20}
+	cands := []campaigns.Candidate{{Campaign: c, Creatives: []campaigns.Creative{{ID: 1}}, Remaining: 1}}
+	pred := func(*campaigns.Campaign, campaigns.Creative) (Prediction, bool) {
+		return Prediction{PClick: 0.015, Version: "v", PInstallClick: 0.05, InstallRateFrom: "model"}, true
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	base := p.DecideWith(cands, "banner", "d", 0, rng, pred, nil, nil)
+	tilt := func(*campaigns.Campaign, campaigns.Creative) (float64, float64, bool) { return 0.5, 0.4, true }
+	d := p.DecideWith(cands, "banner", "d", 0, rng, pred, nil, nil, tilt)
+	if math.Abs(d.AdvertiserValue-0.5*base.AdvertiserValue) > 1e-12 || d.Tilt != 0.5 || d.Uplift != 0.4 {
+		t.Fatalf("tilted %+v, base value %v", d, base.AdvertiserValue)
+	}
+	c.Goal = "CPC"
+	if d := p.DecideWith(cands, "banner", "d", 0, rng, pred, nil, nil, tilt); d.Tilt != 0 {
+		t.Fatalf("a CPC campaign was tilted: %+v", d)
+	}
+}
+
+// Weighted goals (Chapter 33): a second CPI goal mixes into the value by
+// its weight, and the ledger gets both goals' terms.
+func TestWeightedGoals(t *testing.T) {
+	p := DefaultCrawl()
+	p.ExploreShare, p.HoldoutPerMil = 0, 0
+	c := &campaigns.Campaign{ID: 7, Goal: "ROAS", Target: 0.2}
+	cands := []campaigns.Candidate{{Campaign: c, Creatives: []campaigns.Creative{{ID: 1}}, Remaining: 1}}
+	pred := func(*campaigns.Campaign, campaigns.Creative) (Prediction, bool) {
+		return Prediction{PClick: 0.01, Version: "v", PInstallClick: 0.1, PInstallView: 0.001,
+			InstallRateFrom: "model", ValuePerInstall: 0.6, ValueFrom: "model"}, true
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	one := p.DecideWith(cands, "banner", "d", 0, rng, pred, nil, nil)
+	if err := p.SetLevers(&LeverSet{Campaigns: map[int]Levers{7: {SecondGoal: "CPI", SecondTarget: 3, Weight: 0.5}}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	two := p.DecideWith(cands, "banner", "d", 0, rng, pred, nil, nil)
+	pInst := 0.01*0.1 + 0.99*0.001
+	want := 0.5*one.AdvertiserValue + 0.5*3*pInst*1000
+	if math.Abs(two.AdvertiserValue-want) > 1e-9 || len(two.Goals) != 2 || two.Goals[1].Goal != "CPI" {
+		t.Fatalf("weighted value %v, want %v: %+v", two.AdvertiserValue, want, two.Goals)
+	}
+	if err := p.SetLevers(&LeverSet{Campaigns: map[int]Levers{7: {SecondGoal: "ROAS", SecondTarget: 1, Weight: 0.5}}}, ""); err == nil {
+		t.Fatal("a second ROAS goal was accepted")
+	}
+}

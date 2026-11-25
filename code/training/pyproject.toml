@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "adtrain"
-version = "0.10.0"
+version = "0.13.0"
 description = "Training, validation, and publishing for the reference DSP's click model (Machine Learning in Mobile AdTech, Part II)"
 requires-python = ">=3.10"
 license = "MIT"

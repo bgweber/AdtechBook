@@ -97,8 +97,9 @@ first simulated day of a live run:
   that never installed. Every postback carries a `match_type` field:
   `id_matching`, or `probabilistic` for these.
 
-One scenario changes the market rather than a day of it, so keep it on for
-every run of the same market, in live or offline mode:
+Two scenarios change the market rather than a day of it, so keep them on
+for every run of the same market, in live or offline mode (a third,
+`traffic-surge`, changes only the run's first day):
 
 - `--scenario ad-roas` (Chapter 30): hypercasual apps earn ad revenue, and
   the market gets six Ad ROAS campaigns for hypercasual apps, judged on
@@ -114,6 +115,17 @@ every run of the same market, in live or offline mode:
   table for impressions adds `expected_d3_ad_revenue` and
   `expected_d7_ad_revenue`. The other campaigns are the same as without
   the scenario.
+- `--scenario uplift` (Chapter 32): sure things. Heavy players find new
+  games on their own far more often: the organic install rate grows with
+  the cube of how much the device plays, relative to the median, and is
+  four times higher for its favorite genre, so many installs weren't
+  caused by any ad. Every advertiser shares its install data, as in a lift
+  study. The truth table for impressions already has each impression's
+  `lift`. Chapter 32 runs it with ad revenue: `--scenario ad-roas,uplift`.
+- `--scenario traffic-surge` (Chapter 34): three times the requests from
+  13:00 to 16:00 UTC on the run's first day, with devices and apps drawn
+  from that day's own traffic, as a large promotion might bring. Run it
+  for one day, then drop it.
 
 At the end of every live run, each simulated exchange also sends its
 invoice (`PUT /api/invoices`): what it billed, by day, exchange, and

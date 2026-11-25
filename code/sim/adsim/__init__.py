@@ -11,4 +11,4 @@ from .config import SimConfig, preset
 from .run import SimResult, simulate
 
 __all__ = ["SimConfig", "SimResult", "preset", "simulate"]
-__version__ = "0.4.0"
+__version__ = "0.6.0"

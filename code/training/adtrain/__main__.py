@@ -97,8 +97,36 @@ def main() -> None:
     ab.add_argument("--sim-out", default="out/sim")
     ab.add_argument("--dataset", default=None)
     ab.add_argument("--goal", default="CPI", help="the campaigns to read: CPI "
-                    "(cost per install), or AD_ROAS (D3 ad revenue per dollar, "
-                    "for a value A/B test, Chapter 30)")
+                    "(cost per install), AD_ROAS (D3 ad revenue per dollar, "
+                    "for a value A/B test, Chapter 30), or INSTALL (every install "
+                    "campaign, with the cost per caused install, Chapter 32)")
+    ex = sub.add_parser("explain", help="one logged bid, term by term (Chapter 33)")
+    ex.add_argument("--ledger", default="out/ledger")
+    ex.add_argument("--request", default=None, help="a request ID; default: the newest day's last bid")
+    ex.add_argument("--campaign", type=int, default=None)
+    ex.add_argument("--day", type=int, default=None)
+    fr = sub.add_parser("frontier", help="the consistency check: spend and cost per install "
+                        "over pacing multipliers, for one campaign (Chapter 33)")
+    fr.add_argument("--ledger", default="out/ledger")
+    fr.add_argument("--sim-out", default="out/sim")
+    fr.add_argument("--campaign", type=int, required=True)
+    fr.add_argument("--budget", type=float, default=None, help="default: the campaign's")
+    fr.add_argument("--target-cpi", type=float, default=None)
+    fr.add_argument("--target-roas", type=float, default=None)
+    fr.add_argument("--day", type=int, default=None)
+    rp = sub.add_parser("rlpace", help="pacing policies in a simulator built from logged "
+                        "auctions: PI, MPC, and Q-learning (Chapter 34)")
+    rp.add_argument("--ledger", default="out/ledger")
+    rp.add_argument("--sim-out", default="out/sim")
+    rp.add_argument("--campaign", type=int, required=True)
+    rp.add_argument("--test-day", type=int, default=None, help="default: the newest")
+    rp.add_argument("--train-day", type=int, default=None, help="default: the day before the test day")
+    rp.add_argument("--budget", type=float, default=None, help="default: the campaign's")
+    rp.add_argument("--episodes", type=int, default=10000, help="Q-learning's simulated days")
+    up = sub.add_parser("uplift", help="uplift models from a lift study (Chapter 32)")
+    up.add_argument("--ledger", default="out/ledger")
+    up.add_argument("--models", default="out/models")
+    up.add_argument("--sim-out", default="out/sim")
     wn = sub.add_parser("win", help="train a win rate model for bid "
                         "shading on the newest days (Chapter 20)")
     wn.add_argument("--ledger", default="out/ledger")
@@ -204,6 +232,25 @@ def main() -> None:
         from . import evaluate as ev
         ev.print_abtest(ev.abtest(a.ledger, a.experiment, a.sim_out, a.dataset,
                                   goal=a.goal.upper()))
+        return
+    if a.cmd == "explain":
+        from . import pricing
+        pricing.print_explain(pricing.explain(a.ledger, a.request, a.campaign, a.day))
+        return
+    if a.cmd == "frontier":
+        from . import pricing
+        pricing.print_frontier(pricing.frontier(a.ledger, a.campaign, a.budget, a.target_cpi,
+                                                a.target_roas, a.day, a.sim_out))
+        return
+    if a.cmd == "rlpace":
+        from . import rlpace
+        rlpace.print_compare(rlpace.compare(a.ledger, a.campaign, a.sim_out, a.test_day, a.train_day,
+                                            a.budget, a.episodes, log=lambda *_: None))
+        return
+    if a.cmd == "uplift":
+        from . import uplift
+        _, rep = uplift.train(a.ledger, a.models, a.sim_out, log=lambda *_: None)
+        uplift.print_report(rep)
         return
     if a.cmd == "win":
         from . import win

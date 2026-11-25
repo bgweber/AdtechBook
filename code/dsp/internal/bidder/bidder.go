@@ -99,6 +99,7 @@ type Bidder struct {
 	Conversion *gbm.Registry
 	Exp        *experiment.Manager // shadow, canary, and A/B tests (Chapter 19)
 	Win        *gbm.Registry       // win rate models for shading (Chapter 20)
+	Uplift     *gbm.Registry       // uplift models; the pinned one prices the campaigns' tilts (Chapter 33)
 
 	lastAdForTest map[string]string
 	Ops           *ops.Ops // kill switches, throttling, alerts (Chapter 12)
@@ -310,7 +311,7 @@ func (b *Bidder) bid(w http.ResponseWriter, r *http.Request) {
 					}
 					return pr, ok
 				}
-				if arm == campaigns.ArmTreatment && live.Bundle != nil {
+				if arm == campaigns.ArmTreatment && live.Bundle != nil && live.Kind != experiment.Tilt {
 					if live.Kind == experiment.Value {
 						// the champion's predictions, the challenger's value
 						pr, ok := b.predict(fv, ad, exchange, sw)
@@ -372,7 +373,43 @@ func (b *Bidder) bid(w http.ResponseWriter, r *http.Request) {
 					return cm.Curse.Kappa(media / price)
 				}
 			}
-			d = b.Policy.DecideWith(cands, n.Placement, n.IFA, n.Floor, rng, predict, shade, curse)
+			// the incrementality tilt (Chapter 32): in a tilt test's treatment
+			// arm, each install campaign's value times the uplift bundle's tilt
+			var tilt policy.Tilt
+			if ub := b.Uplift.Pinned(); ub != nil && !(live != nil && live.Kind == experiment.Tilt) {
+				// the campaigns' own tilts (Chapter 33): each opts in with its alpha
+				lv := b.Policy.Levers()
+				tilt = func(c *campaigns.Campaign, cr campaigns.Creative) (float64, float64, bool) {
+					alpha := lv.Campaigns[c.ID].TiltAlpha
+					if alpha <= 0 {
+						return 1, 0, false
+					}
+					t0 := time.Now()
+					defer func() { modelsD += time.Since(t0) }()
+					r, ok := ub.Uplift(fv, features.Ad(c, cr))
+					if !ok {
+						return 1, 0, false
+					}
+					return ub.Tilt(r, alpha), r, true
+				}
+			}
+			if live != nil && live.Kind == experiment.Tilt && arm == campaigns.ArmTreatment && live.Bundle != nil {
+				ub, alpha := live.Bundle, live.Alpha
+				tilt = func(c *campaigns.Campaign, cr campaigns.Creative) (float64, float64, bool) {
+					t0 := time.Now()
+					defer func() { modelsD += time.Since(t0) }()
+					r, ok := ub.Uplift(fv, features.Ad(c, cr))
+					if !ok {
+						return 1, 0, false
+					}
+					return ub.Tilt(r, alpha), r, true
+				}
+			}
+			d = b.Policy.DecideWith(cands, n.Placement, n.IFA, n.Floor, rng, predict, shade, curse, tilt)
+			// a lift study's control arm (Chapter 32): ghost bids only
+			if live != nil && live.Kind == experiment.Study && arm == campaigns.ArmControl && d.Action == "bid" {
+				d.Action, d.Reason = "ghost", "study"
+			}
 			if loadTest && d.Capped > 0 && rng.Float64() < CapAuditSample {
 				audit = func() { b.Policy.AuditCap(cands, n.Placement, n.Floor, rng, predict, shade, curse) }
 			}

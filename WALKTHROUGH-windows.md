@@ -157,3 +157,64 @@ cd code\dsp; $env:GBM_WIN_BUNDLE="..\..\out\models\win\win-0001"; go test ./inte
 ```
 
 The `docker compose exec trainer ...` commands run as written.
+
+## Chapter 32: Uplift Modeling
+
+Starting over on the market with sure things, with the bidder and trainer first:
+
+```powershell
+docker compose down; Remove-Item -Recurse -Force out
+$env:ADSIM_PRESET="walk"; $env:BIDDER_STAGE="walk"; $env:ADSIM_SCENARIO="ad-roas,uplift"
+docker compose build
+docker compose up -d bidder trainer
+```
+
+After **Start a lift study 50/50**, the nine days:
+
+```powershell
+$env:ADSIM_DAYS=9; docker compose run --rm sim
+```
+
+The tilt test's three days, twice (once before **Stop**, once after):
+
+```powershell
+$env:ADSIM_DAYS=3; docker compose run --rm sim
+```
+
+The `docker compose exec trainer ...` commands run as written.
+
+## Chapter 33: The Unified Pricing Equation
+
+Continuing Chapter 32's market, with its variables still set:
+
+```powershell
+docker compose build
+docker compose up -d bidder trainer
+```
+
+After saving campaign 16's levers on the Pricing tab, the three days:
+
+```powershell
+$env:ADSIM_DAYS=3; docker compose run --rm sim
+```
+
+The `docker compose exec trainer ...` commands run as written.
+
+## Chapter 34: Pacing with Reinforcement Learning
+
+Continuing Chapter 33's market, with its variables still set:
+
+```powershell
+docker compose build
+docker compose up -d bidder trainer
+```
+
+After clicking **PI controller** on the Pricing tab, a normal day, then a day with a surge:
+
+```powershell
+$env:ADSIM_DAYS=1; docker compose run --rm sim
+$env:ADSIM_SCENARIO="ad-roas,uplift,traffic-surge"; docker compose run --rm sim
+$env:ADSIM_SCENARIO="ad-roas,uplift"
+```
+
+The last line sets the scenario back, so later runs don't surge. The `docker compose exec trainer ...` commands run as written.

@@ -1,6 +1,6 @@
 # Run the Simulator: A Chapter-by-Chapter Walkthrough
 
-Part II of the book builds a working demand-side platform (DSP): a Go bidder that buys ads on a simulated mobile ad market, a training pipeline that learns a click model from the bidder's own logs, and a web console to watch it all. Part III grows it into a competitive DSP on a bigger market: LightGBM conversion models, a pipeline and registry, experiments, bid shading, pricing for goals, pacing, incrementality, serving performance, and operations. Part IV, in progress, adds the state of the art, starting with value prediction and win curves. This page gives the commands for each chapter's "Try it on the simulator" box, and shows what you should see. The book's chapters tell the story of the same runs, with the reasoning behind each result.
+Part II of the book builds a working demand-side platform (DSP): a Go bidder that buys ads on a simulated mobile ad market, a training pipeline that learns a click model from the bidder's own logs, and a web console to watch it all. Part III grows it into a competitive DSP on a bigger market: LightGBM conversion models, a pipeline and registry, experiments, bid shading, pricing for goals, pacing, incrementality, serving performance, and operations. Part IV, in progress, adds the state of the art, starting with value prediction, win curves, uplift, the unified pricing equation, and pacing with reinforcement learning. This page gives the commands for each chapter's "Try it on the simulator" box, and shows what you should see. The book's chapters tell the story of the same runs, with the reasoning behind each result.
 
 You need [Docker](https://docs.docker.com/get-docker/) with Compose v2 (`docker compose version` should work). Nothing else: the simulator, the bidder, and the training code all run in containers.
 
@@ -612,6 +612,103 @@ docker compose exec trainer python -m adtrain abtest exp-0001 --goal AD_ROAS --l
 In ours, the treatment spent 20% less on CPI campaigns for 40 installs against 44: a CPI 0.88 times the control's measured (95% interval 0.55 to 1.43), and 0.79 times from the true install rates (0.67 to 0.93). On the Ad ROAS campaigns, its ROAS was 1.27 times the control's measured, 1.12 times from the true values.
 
 **Scaling up is yours.** On the laptop scale, see whether the measured table finds the slope by margin that the truth shows, and compare the table with a single markdown for every win.
+
+## Chapter 32: Uplift Modeling
+
+Bidder 0.17 runs **lift studies** and prices with an **incrementality tilt**. The simulator's `uplift` scenario adds sure things: heavy players install games on their own far more often, so many installs weren't caused by any ad, and every advertiser shares its install data. It changes the market, so start over. This time, build every image (the simulator's too: `up` alone would build only the bidder and trainer), and start the bidder and trainer first, so the study covers every day:
+
+```bash
+docker compose down; rm -rf out
+export ADSIM_PRESET=walk BIDDER_STAGE=walk ADSIM_SCENARIO=ad-roas,uplift
+docker compose build
+docker compose up -d bidder trainer
+```
+
+On the Experiments tab, under **Uplift**, click **Start a lift study 50/50**: half the devices get our ads, the other half only ghost bids. Play nine days (about five minutes):
+
+```bash
+ADSIM_DAYS=9 docker compose run --rm sim
+```
+
+Click **Stop**. On the Conversions tab, build a dataset, train LightGBM on it, and deploy the bundle. Then, under **Uplift**, click **Train uplift models**, or:
+
+```bash
+docker compose exec trainer python -m adtrain uplift --ledger /out/ledger --models /out/models --sim-out /out/sim
+```
+
+The trainer's output has the Qini curves on held-out devices, the share of installs caused among the installs credited to us, and the comparison by fifth of how much the device plays. In our run, from 99,517 device-app-days, the share of all installs our ads caused fell from 0.75 for the lightest players to 0.20 for the heaviest (0.84 and 0.20 in the truth), but the T-learner's Qini coefficient was 0.03, no better than random targeting (0.05), and the attributed install model's was 0.20.
+
+![An uplift bundle from a lift study](images/ch32-console-uplift.png)
+
+Click **Tilt A/B 50/50** on the bundle: the treatment multiplies install campaigns' values by each device's incrementality ratio over its average, and each arm gets half of every budget. Play three days, click **Stop**, play three more, build a dataset, and click **Read out** on the test, or:
+
+```bash
+ADSIM_DAYS=3 docker compose run --rm sim
+docker compose exec trainer python -m adtrain abtest exp-0002 --goal INSTALL --ledger /out/ledger --sim-out /out/sim
+```
+
+In ours, the tilt lost: the treatment spent $311 against $290, and our ads caused 255 installs in its arm against 292, a cost per caused install 1.23 times the control's (95% interval 1.04 to 1.42). Of the installs credited to us, 85% were caused, so there was little for the tilt to correct, and its noise cost money. The chapter explains why.
+
+**Scaling up is yours.** On the laptop scale, see how many randomized installs it takes for the uplift ranking to beat the attributed model, and try the tilt with a smaller alpha.
+
+## Chapter 33: The Unified Pricing Equation
+
+Bidder 0.18 adds the levers of the unified pricing equation, a bid ledger with every term, a bid explainer, and the consistency check. Continue Chapter 32's market, with the same variables set, and rebuild:
+
+```bash
+docker compose build
+docker compose up -d bidder trainer
+```
+
+On the Pricing tab, under **Campaign levers**, give campaign 16 (a hypercasual Ad ROAS campaign) a second goal, CPI at $0.60 with weight 0.5, and a tilt alpha of 0.3 with uplift bundle `upl-0001`, and click **Save**. Play three days (about two minutes):
+
+```bash
+ADSIM_DAYS=3 docker compose run --rm sim
+```
+
+Under **Explain a bid**, enter campaign 16 and click the button: the newest day's last bid for it, term by term, from the ledger, with the media value the terms multiply to next to the one logged. Ours went from an Ad ROAS goal value of $17.57 and a CPI goal value of $9.00, to $13.29 weighted, $12.25 tilted, $9.80 after the margin, and a bid of $6.86. Under **Consistency check**, enter campaign 16 and click the button for its own budget and target; then try a budget of 88 at a ROAS of 0.5.
+
+![The unified pricing equation on the console](images/ch33-console-pricing.png)
+
+The check from the first of the three days also compares its forecast with the next day:
+
+```bash
+docker compose exec trainer python -m adtrain frontier --ledger /out/ledger --sim-out /out/sim --campaign 16 --day 15
+docker compose exec trainer python -m adtrain frontier --ledger /out/ledger --sim-out /out/sim --campaign 16 --day 15 --budget 88 --target-roas 0.5
+docker compose exec trainer python -m adtrain explain --ledger /out/ledger --campaign 16
+```
+
+In ours, its own settings were consistent, and twice the budget at a ROAS of 0.5 wasn't: spending $88 needed a multiplier of 1.65, at a forecast ROAS of 0.41. The next day, the campaign spent $44.21 of its $44.22 budget, but the check had forecast 99 installs at that spend, and 35 were credited: the install model runs high on the impressions we win (Chapter 31), and some installs our ads drove went to other networks.
+
+**Scaling up is yours.** A week at the laptop scale against the frontier, an A/B test of unified against Part III pricing, and the margin controller.
+
+## Chapter 34: Pacing with Reinforcement Learning
+
+Adsim 0.6 adds the `traffic-surge` scenario: three times the requests from 13:00 to 16:00 UTC on the run's first day. Continue Chapter 33's market, with the same variables set, and rebuild every image:
+
+```bash
+docker compose build
+docker compose up -d bidder trainer
+```
+
+On the Pricing tab, under **Pacing**, click **PI controller**. Play a normal day, then a day with a surge (about two minutes):
+
+```bash
+ADSIM_DAYS=1 docker compose run --rm sim
+ADSIM_SCENARIO=ad-roas,uplift,traffic-surge ADSIM_DAYS=1 docker compose run --rm sim
+```
+
+Under **Pacing policies in a simulator from logged auctions**, enter campaign 21 (a hypercasual Ad ROAS campaign) and click the button (about half a minute), or:
+
+```bash
+docker compose exec trainer python -m adtrain rlpace --ledger /out/ledger --sim-out /out/sim --campaign 21
+```
+
+It builds a simulator from the campaign's logged bids on the normal day and the surge day, checks it by replaying the multipliers the bidder used, and compares the PI controller, MPC, and a Q-learning policy on the surge day. In ours, PI ran out of budget at 16:30 and won $76.32 of value; MPC cut its multiplier when the surge ate its budget, lasted until 19:45, and won $89.10, 17% more for the same spend; Q-learning won $74.48 and moved its multiplier about fourteen times as much.
+
+![Pacing policies compared on the surge day](images/ch34-console-rlpace.png)
+
+**Scaling up is yours.** A week of training days, a richer state or a small network for the learned policy, MPC in the bidder against PI in a budget-split A/B test, and a policy from the logged-auction simulator tested against the companion simulator itself.
 
 ## Running without Docker
 

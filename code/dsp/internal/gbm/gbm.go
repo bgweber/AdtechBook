@@ -44,6 +44,10 @@ type Spec struct {
 	// location CurveOffset + the curve model's sum and scale CurveScale.
 	CurveOffset float64 `json:"curve_offset,omitempty"`
 	CurveScale  float64 `json:"curve_scale,omitempty"`
+	// An uplift bundle (Chapter 32): models of the install rate of devices
+	// we bid on (mu1), of held-out devices (mu0), and of installs credited to
+	// us (mu_attr), and the average incrementality ratio over the bids made.
+	UpliftMean float64 `json:"uplift_mean,omitempty"`
 }
 
 // Bundle is a loaded set of models that share one Spec.
@@ -209,9 +213,10 @@ func Load(dir string) (*Bundle, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", t, err)
 		}
-		// the value model also reads the derived inputs; the others don't
+		// the value and uplift models also read the derived inputs; the
+		// others don't
 		n := len(b.Spec.Categorical) + len(b.Spec.Numeric)
-		if t == "value" {
+		if t == "value" || t == "mu1" || t == "mu0" || t == "mu_attr" {
 			n += len(b.Spec.Derived)
 		}
 		if e.NumFeatures != n {

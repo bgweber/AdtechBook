@@ -26,6 +26,7 @@
   .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
   .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; margin-top: 12px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .card h3 { font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
   .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
              color: var(--muted); margin: 0 0 8px; font-weight: 600; }
   .big { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -473,6 +474,19 @@
       <th>At half the bid: true</th><th>predicted</th><th>Curve AUC</th><th>Curse: below 1x → above 3x</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
   </div>
   <div class="card wide">
+    <h2>Uplift: lift studies and the incrementality tilt</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <button id="ustudy">Start a lift study 50/50</button>
+      <button id="utrain">Train uplift models</button>
+      <span class="sub" id="ustate">A lift study (Chapter 32) bids as usual for half the devices and only ghost-bids for the
+        other half, so whether a device sees our ads is random. Uplift models learn from it which installs the ads cause:
+        the install rate of devices we bid on, of held-out devices, and of installs credited to us. A tilt A/B test
+        multiplies install campaigns' values by each device's predicted incrementality, over its average.</span>
+    </div>
+    <table id="uplmodels"><thead><tr><th>Version</th><th>Days</th><th>Device-app-days</th><th>Installs: bid on / held out</th>
+      <th>Qini: uplift</th><th>attributed</th><th>random</th><th>Share of installs our ads cause, lightest → heaviest players</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card wide">
     <h2>Running: <span id="xid">none</span></h2>
     <div style="display:flex; gap:8px; align-items:center">
       <button id="xstop">Stop</button>
@@ -497,6 +511,51 @@
 </section>
 
 <section id="tab-pricing" hidden>
+  <div class="card wide">
+    <h2>The unified pricing equation</h2>
+    <div class="sub">Every bid is one equation (Chapter 33): each goal's value with its calibration and weight, the winner's
+      curse correction, the incrementality tilt, the pacing multiplier, and the margin give the media value, which is
+      shaded, explored, and checked against the floor and cap. A campaign's levers act on its terms.</div>
+    <h3>Campaign levers</h3>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <label>Campaign <input id="lvc" size="4"></label>
+      <label>second goal: CPI at $<input id="lvt" size="5"></label>
+      <label>weight <input id="lvw" size="4" value="0.5"></label>
+      <label>tilt alpha <input id="lva" size="4" value="0"></label>
+      <label>with uplift bundle <input id="lvu" size="9" placeholder="none"></label>
+      <button id="lvsave">Save</button><button id="lvclear">Clear</button>
+      <span class="sub" id="lvstate"></span>
+    </div>
+    <table id="lvt_"><thead><tr><th>Campaign</th><th>Second goal</th><th>Weight</th><th>Tilt alpha</th></tr></thead><tbody></tbody></table>
+    <h3>Explain a bid</h3>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <label>Campaign <input id="exc" size="4"></label><label>or request ID <input id="exr" size="16"></label>
+      <button id="exgo">Explain the newest day's last bid</button>
+      <span class="sub" id="exstate"></span>
+    </div>
+    <table id="ext"><thead><tr><th>Term</th><th>CPM after it</th><th style="width:40%"></th><th>How</th></tr></thead><tbody></tbody></table>
+    <h3>Consistency check</h3>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <label>Campaign <input id="fcc" size="4"></label><label>budget $<input id="fcb" size="6" placeholder="its own"></label>
+      <label>target CPI $<input id="fct" size="5"></label><label>or ROAS <input id="fcr" size="5"></label>
+      <button id="fcgo">Check against the newest day's bids</button>
+    </div>
+    <div class="sub" id="fcstate">Replays the newest day's bids for the campaign at pacing multipliers from 0.3 to 2, and
+      forecasts spend and predicted installs at each. With no budget or target, the campaign's own.</div>
+    <table id="fct_"><thead><tr><th>Gamma</th><th>Spend</th><th>Installs (predicted)</th><th>CPI</th><th>ROAS</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card wide">
+    <h2>Pacing policies in a simulator from logged auctions</h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <label>Campaign <input id="rlc" size="4"></label>
+      <button id="rlgo">Compare PI, MPC, and Q-learning on the newest day</button>
+      <span class="sub" id="rlstate">Replays the campaign's newest day from its logged bids and the day's win curves
+        (Chapter 34), with three pacing policies: the PI controller, MPC re-planning from the day before's traffic,
+        and a Q-learning policy trained on randomized versions of the day before. Takes about half a minute.</span>
+    </div>
+    <table id="rlt"><thead><tr><th>Policy</th><th>Spend</th><th>Value won</th><th>Value per $</th><th>Delivery</th>
+      <th>Tracking error</th><th>Volatility</th><th>Budget out at</th><th>Gamma every two hours (UTC)</th></tr></thead><tbody></tbody></table>
+  </div>
   <div class="card wide">
     <h2>Pacing</h2>
     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
@@ -1108,6 +1167,7 @@ const simt = ms => { const d = Math.floor(ms / 86400000), m = Math.floor(ms % 86
 let lastPast = null;
 async function loadExperiments() {
   loadWins();
+  loadUplift();
   const b = (await api("api/conversion").catch(() => ({bundles: []}))).bundles || [];
   const keep = $("xchal").value;
   $("xchal").innerHTML = b.filter(x => !x.deployed).map(x => `<option>${esc(x.version)}</option>`).join("");
@@ -1146,6 +1206,7 @@ async function loadExperiments() {
     <td>${p.config.kind === "ab" ? `<button onclick="readAB('${esc(p.id)}')">Read out</button>` :
       p.config.kind === "value" ? `<button onclick="readAB('${esc(p.id)}', 'AD_ROAS')">Read out</button>` :
       p.config.kind === "curse" ? `<button onclick="readAB('${esc(p.id)}')">Read out</button>` :
+      p.config.kind === "tilt" ? `<button onclick="readAB('${esc(p.id)}', 'INSTALL')">Read out</button>` :
       p.config.kind === "shadow" ? `<button onclick="readShadow('${esc(p.id)}')">Check parity</button>` :
       p.config.kind === "shading" ? `<button onclick="readShading('${esc(p.id)}')">Read out</button>` : ""}</td></tr>`).join("");
   if (pastHTML !== lastPast) { rows("xpast", pastHTML); lastPast = pastHTML; }
@@ -1184,6 +1245,102 @@ async function xstartShading(version) {
   catch (e) { $("wstate").textContent = e.message; }
   loadExperiments();
 }
+async function loadUplift() {
+  const w = (await api("api/uplift").catch(() => ({models: []}))).models || [];
+  const html = w.map(m => { const r = m.report || {}, q = r.qini || {}, i = r.installs || {},
+    f = (r.by_requests_per_day || []).map(b => b.measured_share_all == null ? "–" : b.measured_share_all.toFixed(2)).join(" "),
+    ft = (r.by_requests_per_day || []).map(b => b.true_share_all == null ? "–" : b.true_share_all.toFixed(2)).join(" ");
+    return `<tr><td>${esc(m.version)}</td><td>${r.days ? r.days[0] + "–" + r.days[1] : "–"}</td><td>${fmt(r.rows)}</td>
+      <td>${fmt(i.treated)} / ${fmt(i.control)}</td>
+      <td>${f3((q["uplift (T-learner)"] || {}).coefficient)}</td><td>${f3((q["attributed install model"] || {}).coefficient)}</td>
+      <td>${f3((q.random || {}).coefficient)}</td>
+      <td>${f}${ft ? ` <span class="sub">(true ${ft})</span>` : ""}</td>
+      <td><button onclick="xstartTilt('${esc(m.version)}')">Tilt A/B 50/50</button></td></tr>`; }).join("");
+  if (html !== lastUplift) { rows("uplmodels", html); lastUplift = html; }
+}
+let lastUplift = null;
+$("ustudy").onclick = async () => {
+  try { await api("api/experiment/start", {kind: "study", share: 0.5});
+    $("ustate").textContent = "Started a lift study: half the devices get only ghost bids. Train uplift models after a few days."; }
+  catch (e) { $("ustate").textContent = e.message; }
+  loadExperiments();
+};
+$("utrain").onclick = async () => {
+  $("utrain").disabled = true; $("ustate").textContent = "Training on the newest lift study…";
+  try { const r = await api("api/uplift/train", {}); if (r.error) throw new Error(r.error);
+    $("ustate").textContent = `${r.version}: ${fmt(r.rows)} device-app-days from days ${r.days[0]}–${r.days[1]}.`; }
+  catch (e) { $("ustate").textContent = e.message; }
+  $("utrain").disabled = false; lastUplift = null; loadUplift();
+};
+async function xstartTilt(version) {
+  try { await api("api/experiment/start", {kind: "tilt", challenger: version, share: 0.5, budget_split: true, alpha: 1});
+    $("ustate").textContent = `Started an incrementality tilt A/B test with ${version}, each arm on half of each budget.`; }
+  catch (e) { $("ustate").textContent = e.message; }
+  loadExperiments();
+}
+// ---------------------------------------------------- unified pricing (Chapter 33)
+async function loadLevers() {
+  const s = await api("api/pricing/levers").catch(() => ({campaigns: {}}));
+  rows("lvt_", Object.entries(s.campaigns || {}).map(([id, l]) => `<tr><td>${esc(id)}</td>
+    <td>${l.second_goal ? `CPI at $${l.second_target}` : "–"}</td><td>${l.weight || "–"}</td>
+    <td>${l.tilt_alpha ? l.tilt_alpha + (s.uplift ? ` (${esc(s.uplift)})` : "") : "–"}</td></tr>`).join(""));
+}
+async function saveLevers(clear) {
+  const num = id => $(id).value === "" ? 0 : Number($(id).value);
+  const body = {campaign_id: Number($("lvc").value), clear,
+    second_goal: num("lvt") > 0 ? "CPI" : "", second_target: num("lvt"),
+    weight: num("lvt") > 0 ? num("lvw") : 0, tilt_alpha: num("lva")};
+  if ($("lvu").value) body.uplift = $("lvu").value;
+  try { await api("api/pricing/levers", body); $("lvstate").textContent = clear ? "Cleared." : "Saved: the next bids use them."; }
+  catch (e) { $("lvstate").textContent = e.message; }
+  loadLevers();
+}
+$("lvsave").onclick = () => saveLevers(false);
+$("lvclear").onclick = () => saveLevers(true);
+$("exgo").onclick = async () => {
+  $("exstate").textContent = "Reading the ledger…";
+  try {
+    const r = await api("api/pricing/explain", {campaign_id: $("exc").value, request_id: $("exr").value});
+    if (r.error) throw new Error(r.error);
+    const top = Math.max(...r.steps.map(s => s.value), 1e-9);
+    rows("ext", r.steps.map(s => `<tr><td>${esc(s.term)}</td><td>$${s.value.toFixed(2)}</td>
+      <td><div style="background:var(--accent, #4a7bd0); height:10px; width:${Math.max(1, 100 * s.value / top).toFixed(1)}%"></div></td>
+      <td class="sub">${esc(s.detail)}</td></tr>`).join(""));
+    $("exstate").textContent = `${r.request_id}, campaign ${r.campaign_id} (${r.goal}), day ${r.day}: ` +
+      Object.entries(r.predictions).map(([k, v]) => `${k} ${Number(v).toPrecision(3)}`).join(", ") +
+      `. Media value from the terms $${r.media_value_from_terms.toFixed(2)}, logged $${r.media_value_logged.toFixed(2)}.`;
+  } catch (e) { $("exstate").textContent = e.message; }
+};
+$("fcgo").onclick = async () => {
+  $("fcstate").textContent = "Replaying the newest day's bids…";
+  try {
+    const r = await api("api/pricing/frontier", {campaign_id: $("fcc").value, budget: $("fcb").value,
+      target_cpi: $("fct").value, target_roas: $("fcr").value});
+    if (r.error) throw new Error(r.error);
+    rows("fct_", r.frontier.filter((_, i) => i % 3 === 0).map(p => `<tr><td>${p.gamma.toFixed(2)}</td>
+      <td>$${p.spend.toFixed(2)}</td><td>${p.installs.toFixed(1)}</td><td>${p.cpi == null ? "–" : "$" + p.cpi.toFixed(2)}</td>
+      <td>${p.roas == null ? "–" : p.roas.toFixed(3)}</td></tr>`).join(""));
+    $("fcstate").innerHTML = `<span class="badge ${r.consistent ? "ok" : "bad"}">${r.consistent ? "consistent" : "inconsistent"}</span> ` +
+      esc(`Campaign ${r.campaign_id} (${r.goal}), day ${r.day}'s ${fmt(r.bids)} bids; budget $${r.budget}, target ` +
+        (r.target_cpi != null ? `CPI $${r.target_cpi}` : `ROAS ${r.target_roas}`) + ". " +
+        r.verdict.replace(/^(in)?consistent: /, "").replace(/^./, c => c.toUpperCase()) + ".");
+  } catch (e) { $("fcstate").textContent = e.message; }
+};
+loadLevers();
+$("rlgo").onclick = async () => {
+  $("rlgo").disabled = true; $("rlstate").textContent = "Training and replaying…";
+  try {
+    const r = await api("api/pricing/rlpace", {campaign_id: $("rlc").value});
+    if (r.error) throw new Error(r.error);
+    rows("rlt", Object.entries(r.policies).map(([n, p]) => `<tr><td>${esc(n)}</td><td>$${p.spend.toFixed(2)}</td>
+      <td>$${p.value.toFixed(2)}</td><td>${p.value_per_dollar.toFixed(2)}</td><td>${(100 * p.delivery).toFixed(0)}%</td>
+      <td>${(100 * p.tracking_error).toFixed(1)}%</td><td>${p.volatility.toFixed(3)}</td><td>${p.budget_out_at || "–"}</td>
+      <td class="sub">${[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22].map(h => p.trajectory[h * 4].gamma.toFixed(2)).join(" ")}</td></tr>`).join(""));
+    $("rlstate").textContent = `Campaign ${r.campaign_id}, budget $${r.budget}: trained on day ${r.train_day}, tested on day ${r.test_day}. ` +
+      `Checking the simulator: the bidder's own multipliers, replayed, spend $${r.check.replayed_spend.toFixed(2)}; it spent $${r.check.actual_spend.toFixed(2)}.`;
+  } catch (e) { $("rlstate").textContent = e.message; }
+  $("rlgo").disabled = false;
+};
 async function xstartCurse(version) {
   try { await api("api/experiment/start", {kind: "curse", challenger: version, share: 0.5, budget_split: true});
     $("wstate").textContent = `Started a winner's curse A/B test with ${version}'s table, each arm on half of each budget.`; }
@@ -1240,10 +1397,13 @@ async function readAB(id, goal) {
         <td>${fmt(x.installs)}</td><td>${x.cpi == null ? "–" : "$" + x.cpi.toFixed(2)}</td>
         <td>${x.expected_installs == null ? "–" : x.expected_installs.toFixed(1)}</td>
         <td>${x.true_cpi == null ? "–" : "$" + x.true_cpi.toFixed(2)}</td></tr>`; }).join(""));
-    const m = r.measured, t = r.true;
-    $("xread").textContent = `${id}, ${r.goal} campaigns, from ${r.dataset}; ${Math.round(100 * r.share_final)}% of its impressions have final installs, and only those count. ` +
+    const m = r.measured, t = r.true, inc = r.incremental;
+    const caused = r.goal === "INSTALL" && inc ? ` Installs our ads caused, from the truth: ` +
+      ["control", "treatment"].filter(a => r.arms[a]).map(a => `${a} ${r.arms[a].caused_installs.toFixed(1)}, $${r.arms[a].true_icpi.toFixed(2)} each`).join("; ") +
+      `. Treatment cost per caused install over control: ${inc.cpi_ratio} (${inc.ci[0]} to ${inc.ci[1]}).` : "";
+    $("xread").textContent = `${id}, ${r.goal === "INSTALL" ? "install" : r.goal} campaigns, from ${r.dataset}; ${Math.round(100 * r.share_final)}% of its impressions have final installs, and only those count. ` +
       (m ? `Treatment CPI over control: ${m.cpi_ratio} (95% CI ${m.ci[0]} to ${m.ci[1]}) measured from installs` : "") +
-      (t ? `; ${t.cpi_ratio} (${t.ci[0]} to ${t.ci[1]}) from the simulator's true install rates.` : ".");
+      (t ? `; ${t.cpi_ratio} (${t.ci[0]} to ${t.ci[1]}) from the simulator's true install rates.` : ".") + caused;
   } catch (e) { $("xread").textContent = e.message; }
 }
 async function readShadow(id) {

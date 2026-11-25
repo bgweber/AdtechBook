@@ -58,3 +58,34 @@ def test_ad_revenue_matches_truth():
         assert abs(real.sum() / exp.sum() - 1) < 0.05, days
         # and it's learnable: the truth explains much of the variation
         assert np.corrcoef(real, exp)[0, 1] > 0.5, days
+
+
+def test_uplift_raises_heavy_players_organic_rate():
+    """The uplift scenario (Chapter 32): heavy players install on their own
+    far more often, light players less."""
+    base = make_world(preset("walk", "tiny", seed=7))
+    up = make_world(preset("walk", "tiny", seed=7).with_(uplift=True))
+    adv = np.flatnonzero(base.apps.is_advertiser.to_numpy())[:5]
+    act = base.devices.activity.to_numpy()
+    heavy, light = np.argsort(act)[-50:], np.argsort(act)[:50]
+    for devs, more in ((heavy, True), (light, False)):
+        d = np.repeat(devs, len(adv))
+        a = np.tile(adv, len(devs))
+        r = truth.organic_rate(up, d, a).sum() / truth.organic_rate(base, d, a).sum()
+        assert (r > 5) if more else (r < 0.5)
+
+
+def test_traffic_surge_triples_the_afternoon():
+    from adsim.history import make_history
+    from adsim.requests import make_requests
+    counts = []
+    for s in (False, True):
+        cfg = preset("walk", "tiny", seed=7, days=1).with_(start_day=5, surge=s)
+        w = make_world(cfg)
+        _, inst = make_history(w)
+        r = make_requests(w, inst, 5)
+        h = ((r.ts_ms - 5 * 86_400_000) // 3_600_000).to_numpy()
+        counts.append(np.bincount(h, minlength=24))
+        assert r.request_id.is_unique
+    assert (counts[1][13:16] > 2.5 * counts[0][13:16]).all()
+    assert (counts[1][:13] == counts[0][:13]).all()

@@ -70,6 +70,34 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                 except Exception as err:
                     traceback.print_exc()
                     return self._json(500, {"error": str(err)})
+            if self.path == "/rlpace":
+                # pacing policies in a logged-auction simulator (Chapter 34)
+                from . import rlpace
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    req = json.loads(self.rfile.read(n) or b"{}")
+                    out = rlpace.compare(ledger_dir, int(req["campaign_id"]), sim_out, log=lambda *_: None)
+                except Exception as err:
+                    traceback.print_exc()
+                    return self._json(400, {"error": str(err)})
+                return self._json(200, out)
+            if self.path in ("/explain", "/frontier"):
+                # the unified pricing equation (Chapter 33): read-only
+                from . import pricing
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    req = json.loads(self.rfile.read(n) or b"{}")
+                    num = lambda k: float(req[k]) if req.get(k) not in (None, "") else None
+                    if self.path == "/explain":
+                        out = pricing.explain(ledger_dir, req.get("request_id") or None,
+                                              int(req["campaign_id"]) if req.get("campaign_id") not in (None, "") else None)
+                    else:
+                        out = pricing.frontier(ledger_dir, int(req["campaign_id"]), num("budget"),
+                                               num("target_cpi"), num("target_roas"), sim_out=sim_out)
+                except Exception as err:
+                    traceback.print_exc()
+                    return self._json(400, {"error": str(err)})
+                return self._json(200, out)
             if self.path in ("/replay", "/ope", "/periods", "/abtest", "/shadow", "/shadetest", "/lift"):
                 # offline evaluation (Chapter 16): read-only, no lock needed
                 from . import evaluate as ev
@@ -128,7 +156,7 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                     traceback.print_exc()
                     return self._json(400, {"error": str(err)})
                 return self._json(200, c)
-            if self.path not in ("/train", "/dataset", "/gbm", "/pipeline", "/win"):
+            if self.path not in ("/train", "/dataset", "/gbm", "/pipeline", "/win", "/uplift"):
                 return self._json(404, {"error": "not found"})
             n = int(self.headers.get("Content-Length") or 0)
             try:
@@ -167,6 +195,16 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                                            curve=bool(req.get("curve") or req.get("curse")),
                                            curse=bool(req.get("curse")),
                                            sample_rate=float(req.get("sample_rate") or 1.0))
+                    except Exception as err:
+                        traceback.print_exc()
+                        return self._json(500, {"error": str(err), "log": lines})
+                return self._json(200, rep)
+            if self.path == "/uplift":
+                # uplift models from a lift study (Chapter 32)
+                from . import uplift
+                with lock:
+                    try:
+                        _, rep = uplift.train(ledger_dir, models_dir, sim_out, log=log)
                     except Exception as err:
                         traceback.print_exc()
                         return self._json(500, {"error": str(err), "log": lines})

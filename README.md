@@ -25,6 +25,29 @@ equations garbled, so on Kindle, read the chapters with equations online.
 > docker compose up --build    # then open http://localhost:8081
 > ```
 
+## A simulated market to work in
+
+The heart of this repo is a simulated mobile ad market. You run a real bidder against it, train models on what the bidder logged, and check every model against the truth, which only a simulator knows. The market includes:
+
+- **Users and their devices**, each with a country, a phone model, how much they play, tastes for game genres, and the apps already installed. They click, install, keep playing, buy, and earn ad revenue.
+- **Publisher apps**: the supply, with their ad placements, ad density, price floors, and popularity.
+- **Three ad exchanges** with their own quirks, running first-price auctions, sending win, loss, and billing notices, reporting the minimum bid to win, and sending invoices.
+- **Competing bidders**, who set the price to beat in each auction, with a shared component, which is what makes the winner's curse.
+- **A measurement partner (MMP)** that attributes installs by last touch, with click and view windows, and sends postbacks with delays, losses, and duplicates.
+- **Other ad networks** that touch the same devices, so some installs our ads drove are credited elsewhere.
+- **Organic installs**, which happen with no ad at all, including people who play so many games that they would have found the app without our ad.
+- **Advertisers** with campaigns, budgets, targets, and creatives, some of whom share their full install data.
+- **Fraud**: bot devices and fraudulent publisher apps.
+- **Traffic patterns**: daily cycles by time zone, and scenarios for failures, bad labels, hypercasual ad revenue, and traffic surges.
+- **The ground truth**: the true probability behind every click, install, and win, and the lift of every impression, so every model, forecast, and A/B test can be checked against what really happened.
+
+<p align="center">
+  <img src="images/sim-architecture.png" alt="Diagram of the setup: adsim, the simulated market, sends bid requests, notices, clicks, postbacks, campaigns, and invoices to the Go bidder, which returns bids; the bidder's console asks adtrain, the training service, to train and evaluate. adsim writes out/sim, the bidder logs to out/ledger, adtrain reads the ledger and the truth and publishes to out/models, and the bidder loads and deploys from out/models. The truth is read only to check, never by the bidder." width="800">
+  <br><em>The simulated market, the bidder, and the training service, with the events between them and the files each one writes and reads.</em>
+</p>
+
+Everything the market does shows up on the bidder's console, as it would in a real DSP:
+
 <p align="center">
   <img src="images/ch05-console-live.png" alt="The bidder's live console: requests, bids, wins, impressions, clicks, latency, and a table of campaigns with spend, win rate, and predicted against actual click rates" width="800">
   <br><em>The bidder's live console: requests, bids, wins, and spend for every campaign in the simulated market (Chapter 5).</em>

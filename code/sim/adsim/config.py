@@ -87,6 +87,8 @@ class SimConfig:
     bad_labels: bool = False  # the MMP credits false installs on the first day (Chapter 24)
     ad_revenue: bool = False  # hypercasual apps earn ad revenue, with Ad ROAS campaigns (Chapter 30)
     ad_roas_campaigns: int = 6  # Ad ROAS campaigns added when ad_revenue is on
+    uplift: bool = False  # heavy players find games of their favorite genre on their own (Chapter 32)
+    surge: bool = False  # the run's first day has a traffic surge, 13:00-16:00 UTC (Chapter 34)
     late_launch_share: float = 0.0  # campaigns that start after day 0
     late_launch_days: tuple = (3, 10)  # their first day, uniform in this range
     creatives_per_campaign: int = 3

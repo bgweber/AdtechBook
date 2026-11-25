@@ -31,6 +31,14 @@ CLICK_BASE = {"rewarded_video": -3.2, "interstitial": -3.6,
 VIEW_BASE = {"rewarded_video": -5.6, "interstitial": -6.5,
              "banner": -8.5, "native": -7.5}
 ORGANIC_DAILY = 5e-4  # scale of the organic install rate per device-app
+# With uplift on (Chapter 32): heavy players, who play far more than most,
+# find new games of their favorite genre on their own, through the store,
+# friends, and cross-promotion. They install them whether or not they see
+# our ad, and they see many of our ads, so the MMP often credits us anyway:
+# sure things that an attributed install model ranks near the top.
+UPLIFT_ORGANIC = 1.0  # the organic rate's scale
+UPLIFT_ACTIVITY_POW = 3.0  # and its growth with how much the device plays
+UPLIFT_FAVORITE = 4.0  # for apps of the device's favorite genre
 BOT_CTR = 0.25
 
 
@@ -98,6 +106,11 @@ def organic_rate(world: World, dev, adv_app) -> np.ndarray:
     taste = _taste(world, dev, adv_app)
     rate = (ORGANIC_DAILY * pop * taste * d.install_prop.to_numpy()[dev]
             * np.exp(apps.appeal.to_numpy()[adv_app]))
+    if world.cfg.uplift:
+        act = d.activity.to_numpy()
+        fav = d.favorite_genre.to_numpy()[dev] == apps.genre.to_numpy()[adv_app]
+        rate = rate * UPLIFT_ORGANIC * (act[dev] / np.median(act)) ** UPLIFT_ACTIVITY_POW \
+            * np.where(fav, UPLIFT_FAVORITE, 1.0)
     return rate
 
 
