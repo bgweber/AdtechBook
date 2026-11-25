@@ -6,6 +6,7 @@ import time
 
 from . import openrtb
 from .config import preset
+from .history import DAY_MS
 from .live import HttpPolicy
 from .run import simulate
 
@@ -54,7 +55,11 @@ def main() -> None:
                         "their favorite genre on their own, so many credited "
                         "installs weren't caused, Chapter 32; keep it on too), "
                         "traffic-surge (three times the requests from 13:00 to "
-                        "16:00 UTC on the run's first day, Chapter 34)")
+                        "16:00 UTC on the run's first day, Chapter 34), "
+                        "full-share (every advertiser shares its install data, "
+                        "for the Part IV dataset; keep it on), "
+                        "new-game (at 12:00 UTC on the run's first day, a new hypercasual hit "
+                        "takes over the genre's audience; Chapter 29)")
     p.add_argument("--workers", type=int, default=32,
                    help="concurrent connections to the bidder in live mode")
     a = p.parse_args()
@@ -73,8 +78,17 @@ def main() -> None:
     # traffic-surge triples the requests from 13:00 to 16:00 UTC on the
     # run's first day (Chapter 34)
     surge = "traffic-surge" in scen
+    # full-share: every advertiser shares its install data (the Part IV
+    # dataset, Chapters 25-29); keep it on for every run of the market
+    full_share = "full-share" in scen
+    # new-game: at 12:00 UTC on the run's first day, a new hypercasual hit
+    # (not ours) takes over the genre's audience, and the genre's games get
+    # 40% of their installs from then on (Chapter 29); run the shifted days
+    # in one command
+    new_game = "new-game" in scen
     scen = tuple(x for x in scen
-                 if x not in ("creative-test", "bad-labels", "ad-roas", "uplift", "traffic-surge"))
+                 if x not in ("creative-test", "bad-labels", "ad-roas", "uplift", "traffic-surge",
+                              "full-share", "new-game"))
     if scen and not a.bidder:
         p.error("--scenario needs --bidder")
     policy = (HttpPolicy(a.bidder, workers=a.workers, admin_url=a.bidder_admin,
@@ -89,9 +103,11 @@ def main() -> None:
     else:
         start = int(a.start_day)
     cfg = preset(a.preset, a.scale, seed=a.seed, days=a.days).with_(
-        start_day=start, creative_test=creative_test, ad_revenue=ad_roas, uplift=uplift)
-    if uplift:
-        # a lift study's advertisers share their full install data
+        start_day=start, creative_test=creative_test, ad_revenue=ad_roas, uplift=uplift,
+        new_game_ms=(start * DAY_MS + 12 * 3_600_000) if new_game else -1)
+    if uplift or full_share:
+        # a lift study's advertisers share their full install data, and so
+        # do all of them in the Part IV dataset's market
         cfg = cfg.with_(nonattributed_sharing=1.0)
     settle = a.settle or ("run" if a.preset == "crawl" else "day")
     if policy is not None and settle == "day" and a.days > 1:

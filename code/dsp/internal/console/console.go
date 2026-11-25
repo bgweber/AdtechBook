@@ -21,8 +21,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/bgweber/adtechbook/code/dsp/internal/campaigns"
+	"github.com/bgweber/adtechbook/code/dsp/internal/deep"
 	"github.com/bgweber/adtechbook/code/dsp/internal/features"
 	"github.com/bgweber/adtechbook/code/dsp/internal/gbm"
 	"github.com/bgweber/adtechbook/code/dsp/internal/latency"
@@ -70,6 +72,9 @@ type Deps struct {
 	// test's, and the file the load generator appends its runs to.
 	Latency, LoadLatency *latency.Recorder
 	LoadTests            string
+	// Part IV (the Deep Models tab): the folder adtrain export writes, where
+	// the bidder checks the exported deep model (Chapter 28)
+	DeepDir string
 }
 
 // Handler returns the admin console's routes.
@@ -676,6 +681,33 @@ func Handler(d Deps) http.Handler {
 			reply(w, raw, err)
 		})
 	}
+	// The Deep Models tab (Part IV): the training service reports what's in
+	// the output folder and runs the chapters' commands; the bidder runs the
+	// Go side of Chapter 28 itself.
+	for _, name := range []string{"status", "run", "embeddings"} {
+		name := name
+		mux.HandleFunc("/api/deep/"+name, func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body)
+			raw, err := d.Trainer.Call("deep/"+name, body)
+			reply(w, raw, err)
+		})
+	}
+	var deepMu sync.Mutex
+	mux.HandleFunc("/api/deep/check", func(w http.ResponseWriter, r *http.Request) {
+		if !deepMu.TryLock() {
+			http.Error(w, "a check is already running", http.StatusConflict)
+			return
+		}
+		defer deepMu.Unlock()
+		var out strings.Builder
+		rep, err := deep.Check(d.DeepDir, 500, &out)
+		if err != nil {
+			http.Error(w, err.Error()+" (run the Chapter 28 export first)", http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"report": rep, "output": out.String()})
+	})
 	mux.HandleFunc("/api/win/undeploy", func(w http.ResponseWriter, r *http.Request) {
 		d.Win.Undeploy()
 		d.Ops.Note("win model switched off: fixed shade", "console", 0)

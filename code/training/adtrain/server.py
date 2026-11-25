@@ -23,6 +23,9 @@ from .train import Params, train
 def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
           host: str = "0.0.0.0", port: int = 8090) -> None:
     lock = threading.Lock()
+    from . import deepui
+    out_root = Path(models_dir).parent  # /out in Docker
+    deep_jobs = deepui.Jobs(out_root)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -70,6 +73,24 @@ def serve(ledger_dir: str, models_dir: str, sim_out: str | None = None,
                 except Exception as err:
                     traceback.print_exc()
                     return self._json(500, {"error": str(err)})
+            if self.path.startswith("/deep/"):
+                # the console's Deep Models tab (Part IV)
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    req = json.loads(self.rfile.read(n) or b"{}")
+                    if self.path == "/deep/status":
+                        return self._json(200, deepui.status(out_root, deep_jobs))
+                    if self.path == "/deep/run":
+                        return self._json(200, deep_jobs.start(str(req.get("job") or "")))
+                    if self.path == "/deep/embeddings":
+                        return self._json(200, deepui.embeddings(out_root, str(req.get("source") or "coinstall"),
+                                                                 "pca" if req.get("layout") == "pca" else "tsne"))
+                except ValueError as err:
+                    return self._json(400, {"error": str(err)})
+                except Exception as err:
+                    traceback.print_exc()
+                    return self._json(500, {"error": str(err)})
+                return self._json(404, {"error": "not found"})
             if self.path == "/rlpace":
                 # pacing policies in a logged-auction simulator (Chapter 34)
                 from . import rlpace

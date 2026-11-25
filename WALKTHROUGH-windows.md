@@ -118,6 +118,35 @@ Recounting the device profiles:
 Invoke-RestMethod -Method Post http://localhost:8081/api/profiles/recount
 ```
 
+## The Part IV Dataset
+
+To download it, unzip `part4-dataset.zip` from the releases into `out\`. To build it instead:
+
+```powershell
+docker compose down; Remove-Item -Recurse -Force out
+$env:ADSIM_PRESET="walk"; $env:BIDDER_STAGE="walk"; $env:ADSIM_SCENARIO="ad-roas,full-share"
+docker compose build
+docker compose up -d bidder trainer
+$env:ADSIM_DAYS=7; docker compose run --rm sim
+```
+
+After deploying the conversion bundle on the Conversions tab, the second week:
+
+```powershell
+docker compose run --rm sim
+```
+
+The `docker compose exec trainer ...` and `docker compose run --rm --no-deps trainer ...` commands run as written.
+
+## Chapter 29: Retraining and Real-Time Learning
+
+To download the shift dataset, unzip `part4-shift.zip` from the releases into `out\`. To build it instead, on the Part IV market with the bidder and trainer up:
+
+```powershell
+$env:ADSIM_SCENARIO="ad-roas,full-share,new-game"; $env:ADSIM_DAYS=4; docker compose run --rm sim
+docker compose exec trainer python -m adtrain snapshot --ledger /out/ledger --sim-out /out/sim --out /out/snapshot-shift
+```
+
 ## Chapter 30: Value Prediction
 
 Starting over on the market with ad revenue, and keeping the variables set for the rest of the chapter:

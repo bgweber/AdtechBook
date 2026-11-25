@@ -6,6 +6,8 @@ You need [Docker](https://docs.docker.com/get-docker/) with Compose v2 (`docker 
 
 The commands are for a Linux shell, bash, and run as written in the macOS Terminal (zsh) too. On Windows, run them in a WSL 2 terminal, the setup Docker Desktop recommends, or use the PowerShell versions in [WALKTHROUGH-windows.md](WALKTHROUGH-windows.md).
 
+Working with an AI coding agent? [AGENTS.md](AGENTS.md) tells it how to guide you through these exercises, check your results, and get you unstuck.
+
 Your numbers won't match the screenshots exactly. The simulator is seeded, but how far your run has got, and what you've clicked on the console, changes what you see. The shapes and the stories should match.
 
 ## Before you start
@@ -551,7 +553,96 @@ Also built, without a drill: the pacing controller now starts each day at a gamm
 
 ## Part IV: A State-of-the-Art DSP
 
-Part IV is in progress. Its exercises run on the smallest market, so each run takes a few minutes; every chapter leaves scaling up, more traffic and more days, to you.
+Part IV is in progress. Its exercises run on the smallest market, so each run takes a few minutes; every chapter leaves scaling up, more traffic and more days, to you. The code is complete and scales; the compute is yours.
+
+**The Deep models tab.** Chapters 25 to 29 also run from the console. With the bidder and trainer up (`docker compose up -d bidder trainer`), open the **Deep models** tab: it shows which datasets are in `out/`, has a **Run** button for each chapter's command, and shows each chapter's latest report, whether it ran from the tab or from a terminal. Its **embedding viewer** maps the vectors the chapters learned, colored by genre: the install-together vectors, the DCNv2's app embeddings (Chapter 26), the transformer's app table and its device states (Chapter 27). Pick a genre to highlight, and click an app to see its nearest neighbors. Run Chapters 25 to 27 first, so there's something to map.
+
+## The Part IV Dataset
+
+Chapters 25 to 29 share one dataset: a frozen snapshot of a simulated market, so each chapter's models train in minutes on the same rows. Get it one of two ways.
+
+**Download it** (fastest, and the book's numbers): from the [releases](https://github.com/bgweber/AdtechBook/releases), download `part4-dataset.zip` and unzip it into `out/`, so the files are in `out/snapshot/`.
+
+**Or build it** (about twenty minutes): a fresh fourteen-day walk market with ad revenue, where every advertiser shares its install data, with the conversion models deployed after the first week.
+
+```bash
+docker compose down; rm -rf out
+export ADSIM_PRESET=walk BIDDER_STAGE=walk ADSIM_SCENARIO=ad-roas,full-share
+docker compose build
+docker compose up -d bidder trainer
+ADSIM_DAYS=7 docker compose run --rm sim
+```
+
+On the Conversions tab, build a dataset, train LightGBM, and deploy the bundle. Then play the second week and write the snapshot:
+
+```bash
+ADSIM_DAYS=7 docker compose run --rm sim
+docker compose exec trainer python -m adtrain snapshot --ledger /out/ledger --sim-out /out/sim --out /out/snapshot
+```
+
+Ours had 211,540 impressions from 1,860 devices over fourteen days: nine days to train on, two to validate, two to test, and the newest, whose installs aren't final. A larger market or more days make a bigger dataset, for scaling up.
+
+## Chapters 25 and 26: Where Trees Stop, and Deep Models with Embeddings
+
+One command trains a small multi-task DCNv2 in PyTorch and LightGBM on the same rows, and compares them against the true rates (about half a minute, on the CPU):
+
+```bash
+docker compose run --rm --no-deps trainer deep --snapshot /out/snapshot
+```
+
+For Chapter 25, the output compares the two models overall and where trees should struggle, and their time per prediction. In ours, LightGBM was slightly ahead everywhere at this scale: an error against the true click rate of 0.55 against 0.58 overall, and 0.47 against 0.52 on rare advertiser apps. For Chapter 26, it has each head's AUC and calibration against the truth, the embedding rows training never touched and what zeroing them does, and whether the app embeddings group apps by genre: in ours, 12% of each app's nearest neighbors shared its genre, no better than random, against 57% for app vectors learned from which devices install apps together.
+
+**Scaling up is yours.** Build a bigger dataset, and on a GPU, train wider and longer, and find where the deep model passes the trees.
+
+## Chapter 27: Sequences and Transformers
+
+One command pretrains a small transformer on the dataset's device histories, predicting each device's next install, and adds what it learned to the LightGBM install models (Design A), against the true rates (about three minutes, on the CPU):
+
+```bash
+docker compose run --rm --no-deps trainer pretrain --snapshot /out/snapshot
+```
+
+The output has the pretraining loss against popularity alone, next-install prediction against popularity over the last 7 days, the leakage check, each signal's correlation with the true install rate within each advertised app, and the error of each variant against the truth, by how many installs the device had. The app vectors, the daily device states, and the report go to `out/pretrain`. In ours, a pooled profile of each device's installs, from co-install vectors, cut the error against the true install-after-view rate from 0.87 to 0.81, while the transformer barely moved it (0.86 and 0.88): with about four installs per device, it learned which campaigns were running, not what each device wants.
+
+**Scaling up is yours.** Give devices longer histories (the installs each device gets before the run are set in adsim's `history.py`), build a bigger dataset, and find where pretraining passes the pooled profile.
+
+## Chapter 28: Serving Deep Models
+
+Two commands: the trainer exports Chapter 26's DCNv2 to ONNX and to a bundle for the Go bidder, with golden vectors, and copies Chapter 27's app vectors and device states (run `pretrain` first for those); then the bidder's image checks the bundle in pure Go and benchmarks it (under a minute in all):
+
+```bash
+docker compose build
+docker compose run --rm --no-deps trainer export --snapshot /out/snapshot --out /out/export --pretrain /out/pretrain
+docker compose run --rm --no-deps --entrypoint deepcheck bidder -dir /out/export
+```
+
+The first reports the ONNX parity check against PyTorch (in ours, the largest logit difference was 3.8e-06). The second reports Go's parity with the golden vectors, the time per request with 1, 10, and 50 candidates, with and without the request's share of the first layers done once, the time for dot products, and a version rollover: device records from a version with no tables loaded are refused, and scored once both versions' tables are loaded. Times vary by machine; in ours, one candidate took 27 µs and fifty about 1.3 ms. Everything goes to `out/export`.
+
+**Scaling up is yours.** Serve the network in the live bid path, and load-test it as in Chapter 17.
+
+## Chapter 29: Retraining and Real-Time Learning
+
+This chapter has a dataset of its own, the Part IV market with a shift: four more days with the `new-game` scenario, where at 12:00 UTC on the first, a new hypercasual hit takes over the genre's audience, and the genre's games get 40% of their installs from then on. It also records when each install's postback arrived.
+
+**Download it:** from the releases, download `part4-shift.zip` and unzip it into `out/`, so the files are in `out/snapshot-shift/`.
+
+**Or build it,** on the market you built for the Part IV dataset, with the bidder and trainer up and the variables still set (about eight minutes). The four days must run in one command:
+
+```bash
+ADSIM_SCENARIO=ad-roas,full-share,new-game ADSIM_DAYS=4 docker compose run --rm sim
+docker compose exec trainer python -m adtrain snapshot --ledger /out/ledger --sim-out /out/sim --out /out/snapshot-shift
+```
+
+Then one command replays the shift: a model retrained daily, the same with an hourly calibration multiplier per advertised app, and models retrained every 6 hours with naive labels and with importance weights for the installs not reported yet, each trained only on the postbacks that had arrived by then (about two minutes):
+
+```bash
+docker compose build
+docker compose run --rm --no-deps trainer retrain --snapshot /out/snapshot-shift
+```
+
+The output has each model's calibration against the true install rate, for the hypercasual games and the rest, from the day before the shift to the third day after it, and the calibration multiplier for the hypercasual apps. Hour by hour, they go to `out/retrain`. In ours, the daily model overpredicted hypercasual installs by 2.6 times until its next retrain, the multiplier fixed most of that a day sooner, the naive 6-hour model sat at two-thirds of the truth, and the weighted one was within 14% of it from 6 hours after the shift.
+
+**Scaling up is yours.** Retrain every 2 hours, update a model online, and try other shifts.
 
 ## Chapter 30: Value Prediction
 

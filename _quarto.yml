@@ -6,7 +6,7 @@ project:
     - scripts/polish_epub.py
 
 # Code cells are executed once locally and the results are committed in
-# _freeze/. CI reuses those results, so GPU chapters never need a GPU in CI.
+# _freeze/. CI reuses those results instead of running the code again.
 execute:
   freeze: auto
 

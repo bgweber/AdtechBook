@@ -126,6 +126,14 @@ for every run of the same market, in live or offline mode (a third,
   13:00 to 16:00 UTC on the run's first day, with devices and apps drawn
   from that day's own traffic, as a large promotion might bring. Run it
   for one day, then drop it.
+- `--scenario full-share`: every advertiser shares its install data,
+  for the Part IV dataset of Chapters 25 to 29. Keep it on for every run
+  of the market.
+- `--scenario new-game` (Chapter 29): at 12:00 UTC on the run's first
+  day, a new hypercasual hit that isn't one of the bidder's advertisers
+  takes over the genre's audience, and the genre's games get 40% of the
+  installs they did before, on every later day of the run. Run all the
+  shifted days in one command.
 
 At the end of every live run, each simulated exchange also sends its
 invoice (`PUT /api/invoices`): what it billed, by day, exchange, and

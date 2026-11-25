@@ -35,7 +35,7 @@ import (
 	"github.com/bgweber/adtechbook/code/dsp/internal/stats"
 )
 
-const version = "0.19.0"
+const version = "0.21.0"
 
 func main() {
 	bidAddr := flag.String("bid-addr", ":8080", "bid port, for exchanges")
@@ -186,6 +186,7 @@ func main() {
 		Postbacks: postbacks, Models: models, Conversion: conv, Ops: opsys, Policy: pol, Exp: exp, Win: winReg,
 		Uplift: upReg, Levers: leversPath, Latency: b.Lat, LoadLatency: b.LoadLat, LoadTests: filepath.Join(*opsDir, "loadtest.json"),
 		Datasets: filepath.Join(filepath.Dir(*modelsDir), "datasets"),
+		DeepDir:  filepath.Join(filepath.Dir(*modelsDir), "export"),
 		Trainer:  &console.Trainer{URL: *trainerURL, Models: models}}
 	adminSrv := &http.Server{Addr: *adminAddr, Handler: console.Handler(deps)}
 	console.StartDaily(deps) // the daily parity check (Chapter 24)

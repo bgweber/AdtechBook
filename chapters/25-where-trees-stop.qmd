@@ -6,7 +6,7 @@ This chapter opens the run stage of the book. Before building deep models, it's 
 
 In this chapter, we will look at what LightGBM can't learn, the options for serving deep models and what they cost, and the idea that organizes all of Part IV: every model sits on a price-performance curve. We then cover CPU and GPU training and a GPU training workflow, how to write technical specs and partner with bidder engineering, how to run a migration from a classic model to a deep one, and the two designs for deep models in a DSP that the rest of Part IV builds side by side.
 
-A note on what you can run in this part. Parts II and III are meant to be fully runnable on the companion simulator. Part IV is only partly runnable: the simulator has the non-attributed installs, bid stream histories, and ground truth that small versions of these models need, so you can train a small DCNv2 model or a small transformer on a laptop and compare it with LightGBM against the true rates. But the serving designs, the scale arguments, and the production details describe a reference design, drawn from published work and my own experience, not something the simulator reproduces. Each chapter's "Try it on the simulator" box says which is which.
+A note on what you can run in this part. Parts II and III are meant to be fully runnable on the companion simulator. Part IV's exercises run too, but small: on a small market, for a few simulated days, on a laptop's CPU, in minutes. Deep models are the part of this book where scale matters most, and at that size they show how each method works, not how much it can gain. The companion code is complete and scales: on a bigger market, with more days, wider embeddings, and a GPU, the same code trains better models. The book provides the code, not the compute. The serving designs, the scale arguments, and the production details describe a reference design, drawn from published work and my own experience, and each chapter's "Try it on the simulator" box says what runs and what scaling up is yours.
 
 ## What LightGBM Can't Learn
 
@@ -44,7 +44,7 @@ Endpoints are the easier place to start from Go, because existing tools handle m
 
 Compare serving options on two numbers: p99 latency per request at the bidder's real candidate counts, and cost per million requests, from @sec-serving-models-in-the-bid-path. A third, harder-to-measure cost is operational: another service to deploy, monitor, and keep in sync with the bidder, or another native dependency to build and upgrade. For a small team, that cost often decides the choice.
 
-<!-- RESULT: p99 latency and cost per million requests for each serving option on the reference DSP, for the Part IV models. -->
+On the reference DSP, @sec-serving-deep-models measures the Part IV DCNv2 served in pure Go inside the bidder: 27 µs for one candidate at the median on one core, and 1.3 ms for fifty. In CPU time, fifty candidates per request come to about 1,300 core-seconds per million requests, against 76 for scoring 2,000 campaign vectors with dot products, and the cost per million requests follows from the price of a core-second.
 
 ## Every Model on a Price-Performance Curve
 
@@ -82,10 +82,20 @@ A few operational realities come up quickly:
 - **Host memory limits the data loader.** Size the machine for the loader, not just for the GPU.
 - **Use preemptible or spot capacity** with checkpointing, and track GPU utilization as a cost metric, as in @sec-operating-at-scale.
 
-::: {.callout-tip title="Try it on the simulator"}
-Train the deep model from @sec-deep-models-with-embeddings on a GPU and on a CPU on the simulator's data, and compare training time, cost, and GPU utilization.
+## Trees and a Deep Model on the Part IV Dataset
 
-*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
+The deep model chapters, from here through @sec-retraining-and-real-time-learning, share one dataset: a frozen snapshot of a simulated market, so each chapter's models train in minutes on the same rows, and their results can be compared. It comes from a fourteen-day run of the walk market with ad revenue, on the reference DSP with its conversion models deployed after the first week, and it holds 211,540 billed impressions from 1,860 devices, with their logged features, labels, and device histories, split by day into training, validation, and test days. The simulator's true rates are in a separate file, used only to check models.
+
+On it, a small multi-task DCNv2 from @sec-deep-models-with-embeddings and LightGBM trained on the same rows end up close, with LightGBM slightly ahead on every head, and also on the slices where trees should struggle. Measured as the average error against the true click rate, LightGBM was 0.55 and the DCNv2 0.58 overall; 0.47 and 0.52 on the rarest quarter of advertiser apps; and 0.63 and 0.69 on device and app pairs that never appeared in training. With 117,000 training impressions and 1,000 installs, trees aren't the limit. The deep model's advantages, sharing across related values and learning crosses, need far more data than this, and so does its cost: it trained in about five seconds, as LightGBM did, and on two CPU threads it scored an impression in 2 µs in batches of a thousand, against 17 µs for LightGBM in Python, but in about 350 µs one at a time, as a bid path would call it, against about 115 µs. The bidder serves its trees natively in Go, in tens of microseconds per bid, which is why @sec-serving-deep-models keeps the deep model out of the per-candidate path. Where trees stop depends on the data, and this dataset is the place to find it, at a larger scale.
+
+::: {.callout-tip title="Try it on the simulator"}
+Get the Part IV dataset, by downloading the book's from the releases or by building it from a fourteen-day run, and train LightGBM and the deep model from @sec-deep-models-with-embeddings on it. Compare them against the true rates, overall and on rare advertiser apps, unseen device and app pairs, and devices with installs, and compare their training time and their time per prediction.
+
+Scaling up is yours: build a larger dataset, on the laptop-scale market and with more days, and find where the deep model passes the trees. If you have a GPU, train on it and compare training time and GPU utilization with the CPU.
+
+The exercises of Chapters 25 to 29 also run from the console's **Deep models** tab, which shows each chapter's latest report and maps the embeddings the chapters learn.
+
+*Status: runs with the companion code (adtrain 0.14, adsim 0.7), on the Part IV dataset: about half a minute on a laptop's CPU, or about twenty minutes to build the dataset first. Scaling up and the GPU are yours. Commands are in `WALKTHROUGH.md`, under this chapter.*
 
 :::
 

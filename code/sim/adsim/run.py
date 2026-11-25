@@ -29,6 +29,8 @@ from .policy import CrawlPolicy, standardize
 from .requests import make_requests
 from .world import make_world
 
+NEW_GAME_SHARE = 0.4  # installs of the genre's games after a new hit launches (Chapter 29)
+
 PUBLIC_REQUEST_COLS = [
     "request_id", "ts_ms", "exchange", "tmax", "at", "ifa", "os", "osv",
     "make", "model", "connectiontype", "country", "bundle", "placement",
@@ -111,6 +113,13 @@ def simulate(cfg: SimConfig, policy=None, keep_requests: bool = True,
                                imp.adv_app_id.to_numpy(),
                                imp.creative_id.to_numpy().astype(int),
                                n_seen)
+            if cfg.new_game_ms >= 0:
+                # a new game takes over a genre's audience (Chapter 29): its
+                # players install the genre's other games far less often
+                hit = ((imp.imp_ts_ms.to_numpy() >= cfg.new_game_ms)
+                       & (world.apps.genre.to_numpy()[imp.adv_app_id.to_numpy()] == cfg.new_game_genre))
+                for k in ("p_install_click", "p_install_view"):
+                    p[k] = np.where(hit, p[k] * NEW_GAME_SHARE, p[k])
             for k, v in p.items():
                 imp[k] = v
             for c, cost in zip(cid, imp.price.to_numpy() / 1000):

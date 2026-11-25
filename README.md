@@ -16,14 +16,19 @@ The EPUB's equations need a reader with math (MathML) support, such as Apple
 Books, Thorium Reader, or Calibre. Kindle doesn't support it and shows the
 equations garbled, so on Kindle, read the chapters with equations online.
 
-> **Run the simulator:** start a simulated ad market, a Go bidder, and its console with one command,
-> then follow the book chapter by chapter. The **[walkthrough](WALKTHROUGH.md)** has the commands for
-> the exercises in Parts II and III and screenshots of what you'll see. The commands are for Linux and
-> macOS; on Windows, use WSL 2 or the [PowerShell versions](WALKTHROUGH-windows.md).
->
-> ```bash
-> docker compose up --build    # then open http://localhost:8081
-> ```
+**Run the simulator:** start a simulated ad market, a Go bidder, and its console with one command,
+then follow the book chapter by chapter. The **[walkthrough](WALKTHROUGH.md)** has the commands for
+the exercises in Parts II to IV and screenshots of what you'll see. The commands are for Linux and
+macOS; on Windows, use WSL 2 or the [PowerShell versions](WALKTHROUGH-windows.md).
+
+```bash
+docker compose up --build    # then open http://localhost:8081
+```
+
+**We encourage you to work through the examples with an AI coding agent,** such as Claude Code,
+Codex, or Cursor, open in this repo. It can give you each chapter's commands for your machine,
+check your output against the book, and help when a step fails. [AGENTS.md](AGENTS.md) tells
+it how; the walkthrough stays the reference for people.
 
 ## A simulated market to work in
 
@@ -63,6 +68,11 @@ Everything the market does shows up on the bidder's console, as it would in a re
   <br><em>Monitoring models in production: hourly mean predictions against their baselines, with deploys and alerts marked (Chapter 24).</em>
 </p>
 
+<p align="center">
+  <img src="images/ch26-console-embeddings.png" alt="The embedding viewer on the console's Deep models tab: a t-SNE map of the DCNv2's app embeddings with the hypercasual apps highlighted, scattered across the map, and one app's five nearest neighbors ringed, none of them hypercasual" width="800">
+  <br><em>The embedding viewer: the deep model's app embeddings, with one genre highlighted and an app's nearest neighbors ringed. On this small market, they haven't learned genres (Chapter 26).</em>
+</p>
+
 ## The companion code
 
 The book comes with a simulated mobile ad market, **adsim**, and the code
@@ -80,10 +90,10 @@ What exists today and what's planned:
 | `code/training/`: adtrain 0.8, training, validation, publishing | **Parts II and III complete.** Datasets from the bidder's ledger with automated checks, an FTRL click model with hashed tokens and crosses, LightGBM conversion and win models, out-of-time validation and readouts, publishing with golden examples, lift and pacing analysis, label quarantine, train/serve parity jobs, and ONNX export for the serving comparison. See [`code/training/README.md`](code/training/README.md) |
 | `compose.yaml`: Docker Compose | **Works.** The bidder, the training service, and the simulator, plus a `loadtest` profile for the load generator. Infrastructure services are planned |
 
-Parts II and III run end to end: the **[walkthrough](WALKTHROUGH.md)** has
-every command. Part IV is in progress. Each chapter's "Try it on the
-simulator" box says whether its exercise runs on adsim 0.3 today or what it
-still needs.
+Parts II and III run end to end, and so do Part IV's exercises through
+Chapter 34: the **[walkthrough](WALKTHROUGH.md)** has every command, and
+[AGENTS.md](AGENTS.md) helps an AI coding agent guide you through them. Each
+chapter's "Try it on the simulator" box says what its exercise runs on.
 
 Quick start, no Docker needed:
 
@@ -164,30 +174,19 @@ Still planned, roughly in this order:
 
 ## Docker
 
-The simulator, the bidder, and the training service already run with
-Docker Compose (`compose.yaml`), and the load generator runs with
-`--profile loadtest`. As the book grows, more services will join them,
-grouped into Compose profiles so you start only what a chapter needs.
-Planned profiles:
+The simulator, the bidder, and the training service run with Docker
+Compose (`compose.yaml`), and the load generator runs with
+`--profile loadtest`. The simulator alone also runs without Docker (the
+quick start above), and so does rendering the book.
 
-| Profile | Services |
-|---|---|
-| `core` | The simulator, the Go bidder |
-| `ml` | Training and validation pipelines, experiment tracking, a model registry |
-| `streaming` | An event stream and online feature store, for real-time learning |
-| `gpu` | Deep model training and serving on an NVIDIA GPU |
+### Deep models on the CPU
 
-The simulator alone keeps working without Docker (the quick start
-above), and so will rendering the book.
-
-### GPU training
-
-Part IV trains deep models: multi-task networks, embeddings, and
-transformers over device histories. The training code uses PyTorch, fits in
-4 GB of GPU memory, and falls back to CPU at smaller scales. The `gpu`
-profile needs an NVIDIA GPU and the NVIDIA Container Toolkit, on Linux or on
-Windows with WSL 2. Docker on macOS can't use the GPU, so Macs run the CPU
-fallback.
+Part IV's deep models (Chapters 25 to 29) are PyTorch, built for a laptop's
+CPU: the training image installs the CPU build, and each chapter's command
+runs in a few minutes on the Part IV dataset. The code doesn't use a GPU.
+To scale up, with bigger datasets, wider models, and longer histories,
+install the CUDA build of PyTorch and move the models and their inputs to
+the GPU: the book provides the code, not the compute.
 
 ## Contributing
 
@@ -271,15 +270,12 @@ Build one edition:
 quarto render --to pdf
 ```
 
-## Code execution and GPU chapters
+## Code execution
 
-Code cells run when a chapter renders. `execute: freeze: auto` saves the
-results in `_freeze/`, and CI reuses them instead of running the code again.
-CI has no GPU, so for any chapter with GPU code:
-
-1. Render it locally on a machine with an NVIDIA GPU:
-   `quarto render chapters/NN-name.qmd`
-2. Commit the updated `_freeze/` folder along with the chapter.
+The chapters have no code cells that run when the book renders: the
+companion code runs on its own, with the commands in `WALKTHROUGH.md`.
+`execute: freeze: auto` in `_quarto.yml` is there for any that are added
+later; it saves their results in `_freeze/`, and CI reuses them.
 
 ## Publishing
 

@@ -174,10 +174,41 @@ An embedding learned from traffic only exists for values that have traffic. A ne
 
 Content embeddings matter beyond cold start. Meta's LLaTTE work found that content embeddings were a prerequisite for the steeper scaling curves of its sequence models, which we look at in the next chapter.[^c26-llatte]
 
-::: {.callout-tip title="Try it on the simulator"}
-Train a multi-task DCNv2 model with click, install-after-click, and install-after-view heads on simulated impressions. Find the embedding rows that never changed during training, and compare the model's calibration with and without zeroing them. Then compare its calibration with the LightGBM models from Part III, against the true rates.
+## A Deep Conversion Model in the Reference DSP
 
-*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
+The reference DSP's deep conversion model is a small multi-task DCNv2 in PyTorch, trained on the Part IV dataset from @sec-where-trees-stop. It has three heads, click, install after a click, and install after a view, the targets of the LightGBM models in @sec-gradient-boosted-conversion-models, each trained on the impressions its label applies to. Every ID field gets an eight-dimensional embedding, and apps share one table, whether an app is the publisher, the advertiser, or one of the device's twenty most recent apps, which are mean-pooled into one vector. Two cross layers and a two-layer MLP sit on top, for 48,710 parameters in all. It trains with Adam in batches of 1,024, for up to four epochs with early stopping on the validation days, in about five seconds on a laptop's CPU. Validation loss was lowest after the second epoch and rose after it, the memorizing this chapter warns about.
+
+On the two test days, against the true rates and against LightGBM trained on the same rows:
+
+| Head | Model | AUC | Mean prediction over true rate |
+|---|---|---|---|
+| Click | LightGBM | 0.772 | 1.05 |
+| | DCNv2 | 0.766 | 1.04 |
+| Install after a click | LightGBM | 0.867 | 0.81 |
+| | DCNv2 | 0.848 | 0.96 |
+| Install after a view | LightGBM | 0.796 | 0.67 |
+| | DCNv2 | 0.771 | 0.77 |
+
+LightGBM ranks a little better on every head, and the DCNv2's level is closer to the truth on installs. Platt scaling fitted on the validation days didn't help on the test days: it moved the install heads to 0.85 and 0.65, because the two pairs of days differed, which is why calibration is checked on later days than it's fitted on.
+
+The vocabularies come from the whole dataset, as a pipeline that rebuilds them daily would, so a campaign and three creatives that first appeared on the validation and test days had embedding rows that training never touched: their weights were still random. They appeared in 977 test impressions. Zeroing the untouched rows, the check this chapter recommends, cut the error against the true click rate on those impressions from 0.65 to 0.62.
+
+The simulator also knows each app's genre, which makes possible a check that production data doesn't allow: do apps with similar embeddings share a genre? For the 51 apps with enough impressions, 12% of each app's five nearest neighbors had its genre, the same as random pairs. @fig-c26-embeddings shows them on the console's embedding viewer. The conversion model's app vectors learned what its loss asked for, which apps' impressions get clicked and installed, and not which apps are alike. Apps embedded instead from which devices install them together, a few lines of matrix factorization on the dataset's install histories, put 57% of each app's nearest neighbors in its genre, against 12% for random pairs. That signal, learned from behavior and fed to the trees, is where @sec-sequences-and-transformers goes next.
+
+::: {.content-visible when-format="html"}
+![The DCNv2's app embeddings on the reference DSP's embedding viewer, mapped with t-SNE. The hypercasual apps are highlighted and scattered across the map, and the five nearest neighbors of one of them, cashgarden, are ringed: none is hypercasual.](../images/ch26-console-embedding-map.png){#fig-c26-embeddings width="85%" fig-alt="A scatter plot of 51 apps as dots. Seven hypercasual apps, labeled cashgarden, cashroyal, starpop, cozymerge, queststar, wordrace, and slotmerge, are darker and spread over the whole map. Lines run from cashgarden to five ringed neighbors, slotfarm, blockhero, wordcraft, jellyrace, and one more, none of them hypercasual."}
+:::
+
+::: {.content-visible unless-format="html"}
+![The DCNv2's app embeddings on the reference DSP's embedding viewer, mapped with t-SNE. The hypercasual apps are highlighted and scattered across the map, and the five nearest neighbors of one of them, cashgarden, are ringed: none is hypercasual.](../images/ch26-console-embedding-map-print.png){#fig-c26-embeddings width="85%" fig-alt="A scatter plot of 51 apps as dots. Seven hypercasual apps, labeled cashgarden, cashroyal, starpop, cozymerge, queststar, wordrace, and slotmerge, are darker and spread over the whole map. Lines run from cashgarden to five ringed neighbors, slotfarm, blockhero, wordcraft, jellyrace, and one more, none of them hypercasual."}
+:::
+
+::: {.callout-tip title="Try it on the simulator"}
+Train a multi-task DCNv2 model with click, install-after-click, and install-after-view heads on the Part IV dataset. Find the embedding rows that never changed during training, and compare the model's error with and without zeroing them. Then compare its ranking and calibration with LightGBM trained on the same rows, against the true rates, and check whether its app embeddings group apps by genre.
+
+Scaling up is yours: wider embeddings, more epochs, and a bigger dataset on a GPU, sparse optimizers for the embedding tables, two seeds of every model, and content embeddings for cold start. On more data, see when the deep model passes the trees, and when its app vectors start to group genres.
+
+*Status: runs with the companion code (adtrain 0.14, adsim 0.7), on the Part IV dataset: about half a minute on a laptop's CPU. Scaling up is yours. Commands are in `WALKTHROUGH.md`, under this chapter.*
 
 :::
 

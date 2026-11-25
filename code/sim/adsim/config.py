@@ -89,6 +89,8 @@ class SimConfig:
     ad_roas_campaigns: int = 6  # Ad ROAS campaigns added when ad_revenue is on
     uplift: bool = False  # heavy players find games of their favorite genre on their own (Chapter 32)
     surge: bool = False  # the run's first day has a traffic surge, 13:00-16:00 UTC (Chapter 34)
+    new_game_ms: int = -1  # from this time on, a new hit takes over a genre's audience (Chapter 29)
+    new_game_genre: str = "hypercasual"
     late_launch_share: float = 0.0  # campaigns that start after day 0
     late_launch_days: tuple = (3, 10)  # their first day, uniform in this range
     creatives_per_campaign: int = 3

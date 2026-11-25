@@ -218,6 +218,9 @@ def build(ledger_dir, settings: Settings | None = None, log=print, quarantine=No
             "install": int(inst is not None),
             "install_click": int(inst is not None and inst[0] == "click"),
             "install_view": int(inst is not None and inst[0] == "view"),
+            # when the install's postback arrived: when a model trained at a
+            # given time could first know the label (Chapter 29)
+            "install_received_ts_ms": int(inst[2]) if inst is not None else -1,
             "d7_revenue": round(rev, 2),
             "d3_revenue": round(rev3, 4),
             "click_final": t + s.click_window_s * 1000 <= now,

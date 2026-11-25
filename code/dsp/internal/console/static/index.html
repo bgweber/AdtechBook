@@ -116,6 +116,7 @@
   <a href="#experiments" id="nav-experiments">Experiments</a>
   <a href="#pricing" id="nav-pricing">Pricing</a>
   <a href="#serving" id="nav-serving">Serving</a>
+  <a href="#deep" id="nav-deep">Deep models</a>
   <a href="#controls" id="nav-controls">Controls <span id="alertcount"></span></a>
 </nav>
 <main>
@@ -651,6 +652,77 @@
   </div>
 </section>
 
+<section id="tab-deep" hidden>
+  <style>
+    #tab-deep .viz { --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --base:#c9c9c4; }
+    #tab-deep .chapter h2 { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    #tab-deep .chapter h2 span.sub { font-weight:400; text-transform:none; letter-spacing:0; }
+    #tab-deep .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+    #tab-deep td.l, #tab-deep th.l { text-align: left; }
+    #tab-deep .best { font-weight: 700; }
+    #embsrc button.sel { background: var(--navy); color:#fff; border-color: var(--navy); }
+    #embmap { width: 100%; max-width: 720px; height: auto; background: #fcfcfb; border: 1px solid var(--line); border-radius: 6px; cursor: crosshair; }
+    #embmap circle { cursor: pointer; }
+    #embside { min-width: 240px; flex: 1; font-size: 13px; }
+    #embside .nb { display:flex; justify-content:space-between; gap:8px; padding:3px 0; border-bottom:1px solid var(--line); }
+    #embtip { position: fixed; pointer-events: none; background: var(--navy); color: #fff; font-size: 12px;
+              padding: 4px 8px; border-radius: 4px; display: none; z-index: 5; white-space: nowrap; }
+    #deepout { max-height: 260px; overflow: auto; background: #f6f6f4; padding: 8px; font-size: 11px; white-space: pre; }
+  </style>
+  <div class="card wide">
+    <h2>Part IV: deep models</h2>
+    <div class="sub">Chapters 25 to 29 run on frozen datasets in the out folder, not on the live market, so every
+      run sees the same rows. Each button runs the chapter's command on the training service, as
+      <code>docker compose run --rm --no-deps trainer ...</code> does from a terminal, and this tab shows the latest
+      report either way. The code is built for a laptop's CPU; scaling up is yours.</div>
+    <table id="deepdata" style="margin-top:8px"><thead><tr><th class="l">Dataset</th><th class="l">Folder</th><th>Days</th>
+      <th>Impressions</th><th>Devices</th><th>Train / valid / test days</th><th class="l">Built with</th></tr></thead><tbody></tbody></table>
+    <div id="deepjob" class="sub" style="margin-top:8px"></div>
+    <details id="deepoutbox" style="margin-top:6px" hidden><summary class="sub">The run's printed report</summary><pre id="deepout"></pre></details>
+  </div>
+
+  <div class="card wide viz">
+    <h2>Embedding viewer <span class="sub" id="embnote"></span></h2>
+    <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center" id="embsrc">
+      <button data-src="coinstall">Install-together vectors</button>
+      <button data-src="dcn">DCNv2 app embeddings (Ch 26)</button>
+      <button data-src="transformer">Transformer app table (Ch 27)</button>
+      <button data-src="devices">Device states (Ch 27)</button>
+    </div>
+    <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:8px">
+      <span class="sub">Highlight a genre</span> <select id="embgenre"></select>
+      <span style="margin-left:12px" class="sub">Map</span>
+      <select id="emblayout"><option value="tsne">t-SNE</option><option value="pca">PCA</option></select>
+    </div>
+    <div id="embsum" class="sub" style="margin:8px 0"></div>
+    <div style="display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start">
+      <svg id="embmap" viewBox="0 0 720 520" role="img" aria-label="Embedding map"></svg>
+      <div id="embside"></div>
+    </div>
+    <div class="legend" id="emblegend"></div>
+    <div id="embtip"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card chapter">
+      <h2>Ch 25-26: trees and a DCNv2 <button data-job="deep">Run</button></h2>
+      <div id="dp-deep" class="empty">Not run yet.</div>
+    </div>
+    <div class="card chapter">
+      <h2>Ch 27: pretraining <button data-job="pretrain">Run</button></h2>
+      <div id="dp-pretrain" class="empty">Not run yet.</div>
+    </div>
+    <div class="card chapter">
+      <h2>Ch 28: serving <span><button data-job="export">Run the export</button> <button id="deepcheckbtn">Check in the bidder</button></span></h2>
+      <div id="dp-export" class="empty">Not run yet.</div>
+    </div>
+    <div class="card chapter viz">
+      <h2>Ch 29: retraining through a market shift <button data-job="retrain">Run</button></h2>
+      <div id="dp-retrain" class="empty">Not run yet.</div>
+    </div>
+  </div>
+</section>
+
 <section id="tab-controls" hidden>
   <div class="card">
     <h2>Alerts</h2>
@@ -855,9 +927,9 @@ boot(); setInterval(refresh, 1000);
 // ---------------------------------------------------------------- tabs
 function route() {
   const tab = {"#models": "models", "#labels": "labels", "#conversions": "conversions",
-    "#evaluate": "evaluate", "#experiments": "experiments", "#pricing": "pricing", "#serving": "serving",
+    "#evaluate": "evaluate", "#experiments": "experiments", "#pricing": "pricing", "#serving": "serving", "#deep": "deep",
     "#controls": "controls"}[location.hash] || "live";
-  for (const t of ["live", "models", "labels", "conversions", "evaluate", "experiments", "pricing", "serving", "controls"]) {
+  for (const t of ["live", "models", "labels", "conversions", "evaluate", "experiments", "pricing", "serving", "deep", "controls"]) {
     $("tab-" + t).hidden = tab !== t; $("nav-" + t).className = tab === t ? "on" : "";
   }
   if (tab === "models") loadModels();
@@ -867,6 +939,7 @@ function route() {
   if (tab === "experiments") loadExperiments();
   if (tab === "pricing") loadPricing();
   if (tab === "serving") loadServing();
+  if (tab === "deep") loadDeep();
 }
 window.addEventListener("hashchange", route);
 route();
@@ -1892,6 +1965,303 @@ async function loadOps() {
 }
 setInterval(loadOps, 2000);
 loadOps();
+
+// ------------------------------------------------------- deep models (Part IV)
+var deepData = null, deepPolling = null, embData = null, embSel = null, embSrc = "coinstall", embGenre = "", embLayout = "tsne";
+var embFont = 11, embDot = 1;  // label size and dot scale, larger for print
+const f2 = x => x == null ? "–" : x.toFixed(2);
+const us = x => x == null ? "–" : (x >= 100 ? fmt(Math.round(x)) : x.toFixed(1)) + " µs";
+const ago = r => r && r.written ? `<span class="sub">${esc(r.written)}</span>` : "";
+
+async function loadDeep() {
+  let d;
+  try { d = await api("api/deep/status", {}); } catch (e) {
+    $("deepjob").innerHTML = `<span class="warn">${esc(e.message)}</span>`; return;
+  }
+  deepData = d;
+  const ds = d.datasets || {};
+  const label = {"snapshot": "The Part IV dataset (Ch 25-28)", "snapshot-shift": "The shift dataset (Ch 29)"};
+  rows("deepdata", ["snapshot", "snapshot-shift"].map(k => {
+    const m = ds[k];
+    if (!m) return `<tr><td class="l">${label[k]}</td><td class="l"><code>out/${k}</code></td><td colspan="5" class="l sub">
+      Not here: download ${k === "snapshot" ? "part4-dataset.zip" : "part4-shift.zip"} from the releases and unzip it into out/,
+      or build it (WALKTHROUGH.md).</td></tr>`;
+    const sp = m.by_split || {}, n = s => (sp[s] || {}).days ?? "–";
+    return `<tr><td class="l">${label[k]}</td><td class="l"><code>out/${k}</code></td><td>${m.days ? m.days[0] + "-" + m.days[1] : "–"}</td>
+      <td>${fmt((m.rows || {}).impressions || 0)}</td><td>${fmt(m.devices || 0)}</td><td>${n("train")} / ${n("valid")} / ${n("test")}</td>
+      <td class="l sub">adtrain ${esc(m.adtrain_version || "?")}, adsim ${esc(m.adsim_version || "?")}</td></tr>`;
+  }).join(""));
+  const j = d.job || {};
+  if (j.state === "running") {
+    $("deepjob").innerHTML = `<span class="badge live">running</span> ${esc(j.title)}, since ${esc(j.started)}. The report appears below when it finishes.`;
+    if (!deepPolling) deepPolling = setInterval(() => { if (location.hash === "#deep") loadDeep(); }, 3000);
+  } else {
+    if (deepPolling) { clearInterval(deepPolling); deepPolling = null; }
+    $("deepjob").innerHTML = j.state === "done" ? `<span class="badge ok">done</span> ${esc(j.title)} in ${j.seconds} s.`
+      : j.state === "failed" ? `<span class="badge bad">failed</span> ${esc(j.title)}: ${esc(j.error)}` : "";
+  }
+  $("deepoutbox").hidden = !j.output;
+  $("deepout").textContent = j.output || "";
+  document.querySelectorAll("#tab-deep button[data-job]").forEach(b => {
+    b.disabled = j.state === "running";
+    b.onclick = async () => {
+      try { await api("api/deep/run", {job: b.dataset.job}); } catch (e) { alert(e.message); }
+      loadDeep();
+    };
+  });
+  $("deepcheckbtn").onclick = deepCheck;
+  const R = d.reports || {};
+  showDeep(R.deep); showPretrain(R.pretrain); showServing(R.export, R.deepcheck); showRetrain(R.retrain);
+  if (!embData) loadEmb(embSrc);
+}
+
+function showDeep(x) {
+  if (!x) return;
+  const r = x.report, h = r.heads, name = {click: "Click", install_click: "Install after click", install_view: "Install after view"};
+  const cell = (m, other, key, lower) => {
+    const better = lower ? m[key] <= other[key] : m[key] >= other[key];
+    return `<td class="${better ? "best" : ""}">${m[key].toFixed(3)}</td>`;
+  };
+  const g = r.genre_neighbors, gc = r.genre_neighbors_coinstall;
+  $("dp-deep").className = "";
+  $("dp-deep").innerHTML = `<div class="sub">${fmt(r.params)} parameters, trained in ${r.train_seconds.dcnv2} s
+      (LightGBM ${r.train_seconds.lightgbm} s), on the test days, against the simulator's true rates. ${ago(x)}</div>
+    <table><thead><tr><th class="l">Head</th><th>AUC trees</th><th>DCNv2</th><th>Error trees</th><th>DCNv2</th><th>Calib. trees</th><th>DCNv2</th></tr></thead><tbody>` +
+    Object.keys(name).map(k => { const a = h[k].lightgbm, b = h[k].dcnv2;
+      return `<tr><td class="l">${name[k]}</td>${cell(a, b, "auc")}${cell(b, a, "auc")}${cell(a, b, "error_vs_truth", true)}${cell(b, a, "error_vs_truth", true)}
+        <td>${f2(a.calibration_vs_truth)}</td><td>${f2(b.calibration_vs_truth)}</td></tr>`; }).join("") +
+    `</tbody></table>
+    <table style="margin-top:8px"><thead><tr><th class="l">Click error by slice (Ch 25)</th><th>Rows</th><th>Trees</th><th>DCNv2</th></tr></thead><tbody>` +
+    r.slices.map(s => `<tr><td class="l">${esc(s.slice)}</td><td>${fmt(s.rows)}</td><td>${f2(s.click_lightgbm)}</td><td>${f2(s.click_dcnv2)}</td></tr>`).join("") +
+    `</tbody></table>
+    <p class="sub">App embeddings: ${pct(g.same_genre_neighbors)} of each app's ${g.k} nearest neighbors share its genre, against
+      ${pct(g.same_genre_random)} at random (${g.apps} apps); install-together vectors: ${pct(gc.same_genre_neighbors)}.
+      See them in the viewer above. Time per prediction: DCNv2 ${us(r.cost.dcnv2_one_us)} alone, ${us(r.cost.dcnv2_batch_us)} in batches;
+      LightGBM in Python ${us(r.cost.lightgbm_one_us)} and ${us(r.cost.lightgbm_batch_us)}.</p>`;
+}
+
+function showPretrain(x) {
+  if (!x) return;
+  const r = x.report, w = r["transformer, warm start"], n = r.next_install;
+  const vars = Object.entries(r.design_a);
+  const bestIv = Math.min(...vars.map(([, v]) => v.install_view.error_vs_truth));
+  $("dp-pretrain").className = "";
+  $("dp-pretrain").innerHTML = `<div class="sub">${fmt(w.params)} parameters, ${fmt(w.targets)} next-install targets from
+      ${fmt(r.devices)} devices (${r.installs_per_device} installs each), trained in ${w.seconds} s. Version ${esc(r.version || "")}. ${ago(x)}</div>
+    <table><thead><tr><th class="l">Design A: LightGBM with</th><th>Install after view AUC</th><th>Error</th><th>Install after click error</th><th>Click error</th></tr></thead><tbody>` +
+    vars.map(([k, v]) => `<tr><td class="l">${esc(k)}</td><td>${v.install_view.auc.toFixed(3)}</td>
+      <td class="${v.install_view.error_vs_truth === bestIv ? "best" : ""}">${v.install_view.error_vs_truth.toFixed(3)}</td>
+      <td>${v.install_click.error_vs_truth.toFixed(3)}</td><td>${v.click.error_vs_truth.toFixed(3)}</td></tr>`).join("") +
+    `</tbody></table>
+    <p class="sub">Pretraining loss ${w.loss} against ${w.loss_popularity_only} for popularity alone. Next install in the top ${n.k}:
+      transformer ${pct(n["transformer, warm start"])}, popularity over the last 7 days ${pct(n["popularity, last 7 days"])},
+      overall popularity ${pct(n.popularity)}. Within each advertised app, rank correlation with the true install rate:
+      pooled profile ${f2(r.within_app["pooled co-install"])}, transformer ${f2(r.within_app["transformer, warm start"])}.
+      With about ${Math.round(r.installs_per_device)} installs per device, the transformer learns the market, not the devices;
+      longer histories are the exercise.</p>`;
+}
+
+function showServing(x, c) {
+  if (!x && !c) return;
+  let h = "";
+  if (x) {
+    const r = x.report, o = r.onnx || {};
+    h += `<div class="sub">Export ${esc(r.version)}: ${fmt(r.params)} parameters, ${r.golden} golden vectors
+      (${r.edge_cases} edge cases). ONNX: ${o.max_abs_diff != null ? `largest logit difference ${o.max_abs_diff.toExponential(1)},
+      <span class="badge ${o.parity === "ok" ? "ok" : "bad"}">${esc(o.parity)}</span>` : esc(o.parity || "–")}. ${ago(x)}</div>`;
+  }
+  if (c) {
+    const r = c.report, cd = r.candidates || {}, v = r.vectors;
+    h += `<p class="sub">In the bidder, in pure Go: golden vectors match PyTorch within ${r.golden_max_diff.toExponential(1)}. ${ago(c)}</p>
+      <table><thead><tr><th class="l">Per request, one core</th><th>p50</th><th>p99</th></tr></thead><tbody>
+      <tr><td class="l">DCNv2, one candidate</td><td>${us(r.one_candidate.p50_us)}</td><td>${us(r.one_candidate.p99_us)}</td></tr>` +
+      Object.entries(cd).map(([n, t]) => `<tr><td class="l">${n} candidate${n === "1" ? "" : "s"}, whole network</td><td>${us(t.per_candidate.p50_us)}</td><td>${us(t.per_candidate.p99_us)}</td></tr>
+        <tr class="sub"><td class="l">the request's share once</td><td>${us(t.request_share_once.p50_us)}</td><td>${us(t.request_share_once.p99_us)}</td></tr>`).join("") +
+      (r.topk_2000 ? `<tr><td class="l">2,000 campaign vectors, top 10</td><td>${us(r.topk_2000.p50_us)}</td><td>${us(r.topk_2000.p99_us)}</td></tr>` : "") +
+      `</tbody></table>` +
+      (v ? `<p class="sub">Vectors ${esc(v.version)}: ${fmt(v.affinities)} affinities, ${v.dot_p50_us} µs each. Rollover with half the
+        records from a new version: ${fmt(v.rollover_refused)} refused with one version's tables, ${fmt(v.rollover_both_loaded_scored)} scored with both.</p>`
+         : `<p class="sub">No app vectors: run Chapter 27 before the export.</p>`);
+  }
+  $("dp-export").className = "";
+  $("dp-export").innerHTML = h || "Not run yet.";
+}
+
+async function deepCheck() {
+  const b = $("deepcheckbtn");
+  b.disabled = true; b.textContent = "Checking…";
+  try { await api("api/deep/check", {}); } catch (e) { alert(e.message); }
+  b.disabled = false; b.textContent = "Check in the bidder";
+  loadDeep();
+}
+
+function showRetrain(x) {
+  if (!x || !x.report) return;
+  const r = x.report, arms = (x.hourly || {}).arms || [], hc = r.phases.hypercasual || [];
+  const cols = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)"];
+  let chartSvg = "";
+  if (x.hourly) {
+    const rowsH = x.hourly.rows.filter(z => z.group === "hypercasual"), den = x.hourly.truth;
+    // trailing 6 hours, so an hour's handful of installs doesn't swamp the line
+    const series = arms.map((a, i) => {
+      const pts = [];
+      for (let k = 0; k < rowsH.length; k++) {
+        const win = rowsH.slice(Math.max(0, k - 5), k + 1);
+        const t = win.reduce((s, z) => s + z[den], 0), p = win.reduce((s, z) => s + (z[a] || 0), 0);
+        if (k >= 5 && t > 0) pts.push([rowsH[k].hour, p / t]);
+      }
+      return {name: a, color: cols[i], pts};
+    });
+    chartSvg = calChart(series);
+  }
+  $("dp-retrain").className = "";
+  $("dp-retrain").innerHTML = `<div class="sub">A new hypercasual hit takes over the genre's audience at 12:00 on day ${r.shift_day};
+      the genre's games get 40% of their installs from then on. Predicted installs over true installs times the share credited to us,
+      over the trailing 6 hours: 1.0 is right. ${ago(x)}</div>${chartSvg}
+    <div class="legend">${arms.map((a, i) => `<span><i style="border-color:${["#2a78d6", "#eb6834", "#1baf7a", "#eda100"][i]}"></i>${esc(a)}</span>`).join("")}</div>
+    <table style="margin-top:8px"><thead><tr><th class="l">Hypercasual</th>${arms.map(a => `<th>${esc(a)}</th>`).join("")}</tr></thead><tbody>` +
+    hc.map(p => `<tr><td class="l">${esc(p.phase)}</td>${arms.map(a => `<td class="${Math.abs(p[a] - 1) <= 0.15 ? "best" : ""}">${f2(p[a])}</td>`).join("")}</tr>`).join("") +
+    `</tbody></table>
+    <p class="sub">Installs are reported ${r.install_delay_hours["50"]} h after the impression at the median; ${pct(r.share_reported_within_6h)} within 6 hours.
+      Bold: within 15% of the truth.</p>`;
+}
+
+// calibration by hour, hours from the shift on x, with the shift and 1.0 marked
+function calChart(series) {
+  const W = 560, H = 250, L = 40, R = 12, T = 10, B = 34;
+  const xs = series.flatMap(s => s.pts.map(p => p[0]));
+  if (!xs.length) return "";
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y1 = 3.5;
+  const X = v => L + (W - L - R) * (v - x0) / (x1 - x0), Y = v => H - B - (H - T - B) * Math.min(v, y1) / y1;
+  let g = "";
+  for (const v of [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5])
+    g += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#ececE8"/><text class="tick" x="${L - 6}" y="${Y(v) + 3}" text-anchor="end">${v.toFixed(1)}</text>`;
+  for (let v = Math.ceil(x0 / 12) * 12; v <= x1; v += 12)
+    g += `<text class="tick" x="${X(v)}" y="${H - B + 14}" text-anchor="middle">${v > 0 ? "+" : ""}${v}h</text>`;
+  g += `<line x1="${L}" x2="${W - R}" y1="${Y(1)}" y2="${Y(1)}" stroke="#9a9a96" stroke-width="1.5" stroke-dasharray="4 4"/>`;
+  g += `<line x1="${X(0)}" x2="${X(0)}" y1="${T}" y2="${H - B}" stroke="#6b7280" stroke-width="1"/><text class="tick" x="${X(0) + 4}" y="${T + 10}">the shift</text>`;
+  for (const s of series)
+    g += `<polyline fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" points="${s.pts.map(p => X(p[0]).toFixed(1) + "," + Y(p[1]).toFixed(1)).join(" ")}"/>`;
+  // hover: one invisible column per hour, with every series' value
+  const hours = series[0].pts.map(p => p[0]);
+  for (let i = 0; i < hours.length; i++) {
+    const tip = `${hours[i] > 0 ? "+" : ""}${hours[i]}h: ` + series.map(s => `${s.name} ${(s.pts[i] || [0, NaN])[1].toFixed(2)}`).join(", ");
+    const w = (W - L - R) / hours.length;
+    g += `<rect x="${X(hours[i]) - w / 2}" y="${T}" width="${w}" height="${H - T - B}" fill="transparent"><title>${esc(tip)}</title></rect>`;
+  }
+  g += `<text class="axis-label" x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">hours from the shift</text>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px" role="img" aria-label="Calibration by hour through the shift">${g}</svg>`;
+}
+
+// ------------------------------------------------------- the embedding viewer
+document.querySelectorAll("#embsrc button[data-src]").forEach(b => b.onclick = () => loadEmb(b.dataset.src));
+$("embgenre").onchange = () => { embGenre = $("embgenre").value; drawEmb(); };
+$("emblayout").onchange = () => { embLayout = $("emblayout").value; loadEmb(embSrc); };
+
+async function loadEmb(src) {
+  embSrc = src; embSel = null;
+  document.querySelectorAll("#embsrc button[data-src]").forEach(b => b.className = b.dataset.src === src ? "sel" : "");
+  $("embsum").textContent = "Loading…";
+  try { embData = await api("api/deep/embeddings", {source: src, layout: embLayout}); } catch (e) {
+    embData = {points: [], error: e.message}; $("embsum").innerHTML = `<span class="warn">${esc(e.message)}</span>`;
+    $("embmap").innerHTML = ""; $("embside").innerHTML = ""; $("emblegend").innerHTML = ""; return;
+  }
+  const counts = {};
+  for (const p of embData.points) counts[p.genre] = (counts[p.genre] || 0) + 1;
+  const genres = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b));
+  if (!counts[embGenre]) embGenre = genres[0] || "";
+  $("embgenre").innerHTML = genres.map(g => `<option value="${esc(g)}"${g === embGenre ? " selected" : ""}>${esc(g)} (${counts[g]})</option>`).join("");
+  const d = embData;
+  $("embsum").innerHTML = `<b>${esc(d.title)}.</b> ${fmt(d.n)} ${d.source === "devices" ? "devices" : "apps"}, ${d.dim} dimensions${d.version ? ", version " + esc(d.version) : ""}.
+    Nearest neighbors sharing a genre: <b>${d.same_genre_neighbors == null ? "–" : pct(d.same_genre_neighbors)}</b>, against
+    ${d.same_genre_random == null ? "–" : pct(d.same_genre_random)} at random. ${d.layout === "pca"
+      ? `The map is the first two principal components (${pct(d.explained)} of the variance)`
+      : "The map is t-SNE, which keeps each point's neighbors near it; distances between far-apart groups mean little"};
+    neighbors are by cosine in all ${d.dim} dimensions. ${esc(d.note.charAt(0).toUpperCase() + d.note.slice(1))}.`;
+  $("embnote").textContent = "";
+  drawEmb();
+}
+
+function drawEmb() {
+  const d = embData;
+  if (!d || !d.points) return;
+  const W = 720, H = 520, P = 28, dev = d.source === "devices";
+  const ext = k => { const v = d.points.map(p => p[k]); return [Math.min(...v), Math.max(...v)]; };
+  const [xa, xb] = ext("x"), [ya, yb] = ext("y");  // each axis fills the frame
+  const X = v => P + (W - 2 * P - 90) * (v - xa) / ((xb - xa) || 1), Y = v => H - P - (H - 2 * P) * (v - ya) / ((yb - ya) || 1);
+  const sel = embSel != null ? d.points[embSel] : null;
+  const nb = new Set(sel ? sel.neighbors.map(n => n[0]) : []);
+  const r = (dev ? 3 : 6) * embDot;
+  let base = "", hi = "", lines = "";
+  d.points.forEach((p, i) => {
+    const on = p.genre === embGenre;
+    const c = `<circle data-i="${i}" cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${on ? r + (dev ? 0 : 1) : r}"
+      fill="${on ? "var(--s1)" : "var(--base)"}" fill-opacity="${dev && !on ? 0.5 : 1}" stroke="#fcfcfb" stroke-width="${dev ? 0.5 : 2}"/>`;
+    if (on) hi += c; else base += c;
+  });
+  if (sel) {
+    for (const n of sel.neighbors) {
+      const q = d.points.find(z => z.key === n[0]);
+      if (q) lines += `<line x1="${X(sel.x)}" y1="${Y(sel.y)}" x2="${X(q.x)}" y2="${Y(q.y)}" stroke="var(--s2)" stroke-width="1.5" stroke-opacity="0.8"/>`;
+    }
+    for (const n of sel.neighbors) {
+      const q = d.points.find(z => z.key === n[0]);
+      if (q) lines += `<circle cx="${X(q.x)}" cy="${Y(q.y)}" r="${r + 3}" fill="none" stroke="var(--s2)" stroke-width="2"/>`;
+    }
+    lines += `<circle cx="${X(sel.x)}" cy="${Y(sel.y)}" r="${r + 4}" fill="var(--s2)" stroke="#fcfcfb" stroke-width="2"/>`;
+  }
+  let labels = "";
+  if (!dev) {  // direct labels for the highlighted genre's apps and the selection, skipping any that would overlap
+    const placed = [];
+    const rank = ([p, i]) => i === embSel ? 0 : nb.has(p.key) ? 1 : 2;  // the selection and its neighbors first
+    const want = d.points.map((p, i) => [p, i]).filter(([p, i]) => p.genre === embGenre || i === embSel || nb.has(p.key))
+      .sort((a, b) => rank(a) - rank(b));
+    const fs = embFont, gap = r + 4;
+    const hit = (x, y, w) => placed.some(b => x < b[0] + b[2] && b[0] < x + w && Math.abs(y - b[1]) < fs + 1);
+    for (const [p] of want) {  // to the right of the dot, or else to its left
+      const t = p.key.split(".").pop(), w = 0.57 * fs * t.length, y = Y(p.y) + fs / 3;
+      let x = X(p.x) + gap;
+      if (hit(x, y, w)) x = X(p.x) - gap - w;
+      if (hit(x, y, w)) continue;
+      placed.push([x, y, w]);
+      labels += `<text x="${x}" y="${y}" font-size="${fs}" fill="#3b3b3b">${esc(t)}</text>`;
+    }
+  }
+  let mark = "";
+  if (sel) {  // the selection on top of everything
+    const i = lines.lastIndexOf("<circle");
+    mark = lines.slice(i); lines = lines.slice(0, i);
+  }
+  $("embgenre").value = embGenre;
+  $("embmap").innerHTML = `${base}${hi}${lines}${mark}${labels}`;
+  const dot = c => `<i style="display:inline-block;width:10px;height:10px;border:0;border-radius:50%;background:${c};margin-right:6px;vertical-align:middle"></i>`;
+  $("emblegend").innerHTML = `<span>${dot("#2a78d6")}${esc(embGenre)}</span><span>${dot("#c9c9c4")}other genres</span>
+    <span>${dot("#eb6834")}the selected ${dev ? "device" : "app"} and its ${sel ? sel.neighbors.length : 5} nearest neighbors (ringed)</span>`;
+  if (!sel) {
+    $("embside").innerHTML = `<div class="sub">Click a point to list its nearest neighbors. Apps that devices install together
+      should sit together; an embedding that learned genres puts each genre in one place.</div>`;
+  } else {
+    const same = sel.neighbors.filter(n => n[1] === sel.genre).length;
+    $("embside").innerHTML = `<div><b>${esc(sel.key)}</b></div><div class="sub" style="margin-bottom:6px">${esc(sel.genre)}${dev ? " (the genre it installed most)" : ""};
+      ${same} of ${sel.neighbors.length} neighbors share it</div>` +
+      sel.neighbors.map(n => `<div class="nb"><span>${esc(dev ? n[0].slice(0, 13) + "…" : n[0])}</span>
+        <span class="${n[1] === sel.genre ? "pos" : "sub"}">${esc(n[1])} · ${n[2].toFixed(2)}</span></div>`).join("");
+  }
+}
+
+$("embmap").addEventListener("click", ev => {
+  const c = ev.target.closest("circle[data-i]");
+  embSel = c ? +c.dataset.i : null;
+  drawEmb();
+});
+$("embmap").addEventListener("mousemove", ev => {
+  const c = ev.target.closest("circle[data-i]"), tip = $("embtip");
+  if (!c || !embData) { tip.style.display = "none"; return; }
+  const p = embData.points[+c.dataset.i];
+  tip.textContent = `${p.key} · ${p.genre}`;
+  tip.style.display = "block"; tip.style.left = (ev.clientX + 12) + "px"; tip.style.top = (ev.clientY + 12) + "px";
+});
+$("embmap").addEventListener("mouseleave", () => { $("embtip").style.display = "none"; });
 
 </script>
 </body>

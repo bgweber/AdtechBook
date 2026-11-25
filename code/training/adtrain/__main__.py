@@ -114,6 +114,29 @@ def main() -> None:
     fr.add_argument("--target-cpi", type=float, default=None)
     fr.add_argument("--target-roas", type=float, default=None)
     fr.add_argument("--day", type=int, default=None)
+    dp = sub.add_parser("deep", help="a multi-task DCNv2 with embeddings against LightGBM, on "
+                        "the Part IV dataset (Chapters 25 and 26)")
+    dp.add_argument("--snapshot", default="out/snapshot")
+    pt = sub.add_parser("pretrain", help="a transformer pretrained on install histories, its "
+                        "signals in the LightGBM install models (Chapter 27)")
+    pt.add_argument("--snapshot", default="out/snapshot")
+    pt.add_argument("--out", default=None, help="default: pretrain, next to the snapshot folder")
+    ex = sub.add_parser("export", help="the Chapter 26 DCNv2 exported for the bidder, to ONNX and to Go, "
+                        "with golden vectors (Chapter 28)")
+    ex.add_argument("--snapshot", default="out/snapshot")
+    ex.add_argument("--out", default=None, help="default: export, next to the snapshot folder")
+    ex.add_argument("--pretrain", default=None, help="Chapter 27's vectors and device states; default: "
+                    "pretrain, next to the snapshot folder")
+    rt = sub.add_parser("retrain", help="daily, kappa, and 6-hourly retraining through a market shift, "
+                        "with delayed labels (Chapter 29)")
+    rt.add_argument("--snapshot", default="out/snapshot-shift")
+    rt.add_argument("--out", default=None, help="default: retrain, next to the snapshot folder")
+    rt.add_argument("--shift-day", type=int, default=None, help="default: the fourth day from the end")
+    sn = sub.add_parser("snapshot", help="the Part IV dataset: a frozen snapshot of the market "
+                        "for the deep model chapters (25-29)")
+    sn.add_argument("--ledger", default="out/ledger")
+    sn.add_argument("--sim-out", default="out/sim")
+    sn.add_argument("--out", default="out/snapshot")
     rp = sub.add_parser("rlpace", help="pacing policies in a simulator built from logged "
                         "auctions: PI, MPC, and Q-learning (Chapter 34)")
     rp.add_argument("--ledger", default="out/ledger")
@@ -241,6 +264,31 @@ def main() -> None:
         from . import pricing
         pricing.print_frontier(pricing.frontier(a.ledger, a.campaign, a.budget, a.target_cpi,
                                                 a.target_roas, a.day, a.sim_out))
+        return
+    if a.cmd == "deep":
+        from . import deep
+        deep.print_report(deep.run(a.snapshot, log=lambda *_: None))
+        return
+    if a.cmd == "pretrain":
+        from . import pretrain
+        from pathlib import Path
+        out = a.out or str(Path(a.snapshot).parent / "pretrain")  # /out/pretrain in Docker
+        pretrain.print_report(pretrain.run(a.snapshot, out, log=lambda *_: None))
+        return
+    if a.cmd == "export":
+        from . import export
+        from pathlib import Path
+        base = Path(a.snapshot).parent  # /out in Docker
+        export.print_report(export.run(a.snapshot, a.out or str(base / "export"), a.pretrain or str(base / "pretrain"),
+                                       log=lambda *_: None))
+        return
+    if a.cmd == "retrain":
+        from . import retrain
+        retrain.print_report(retrain.run(a.snapshot, a.out, a.shift_day, log=lambda *_: None))
+        return
+    if a.cmd == "snapshot":
+        from . import snapshot
+        snapshot.print_manifest(snapshot.build(a.ledger, a.sim_out, a.out, log=lambda *_: None))
         return
     if a.cmd == "rlpace":
         from . import rlpace

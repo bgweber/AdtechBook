@@ -89,3 +89,23 @@ def test_traffic_surge_triples_the_afternoon():
         assert r.request_id.is_unique
     assert (counts[1][13:16] > 2.5 * counts[0][13:16]).all()
     assert (counts[1][:13] == counts[0][:13]).all()
+
+
+def test_new_game_cuts_the_genres_installs_after_noon():
+    # Chapter 29: from the shift on, the genre's games get 40% of their
+    # installs; everything else, and everything before, is unchanged
+    from adsim.run import NEW_GAME_SHARE
+    base = preset("walk", "tiny", seed=7, days=1).with_(ad_revenue=True)
+    noon = 12 * 3_600_000
+    ra, rb = simulate(base), simulate(base.with_(new_game_ms=noon))
+    a = ra.truth["impressions"].merge(ra.logs["impressions"][["impression_id", "imp_ts_ms"]], on="impression_id")
+    b = rb.truth["impressions"]
+    m = a.merge(b, on="impression_id", suffixes=("", "_shift"))
+    apps = make_world(base).apps
+    hc = apps.genre.to_numpy()[m.adv_app_id.to_numpy()] == "hypercasual"
+    late = m.imp_ts_ms.to_numpy() >= noon
+    pos = m.p_install_view.to_numpy() > 0  # bots install nothing
+    r = np.where(pos, m.p_install_view_shift / np.where(pos, m.p_install_view, 1), 1.0)
+    assert np.allclose(r[hc & late & pos], NEW_GAME_SHARE)
+    assert np.allclose(r[~(hc & late)], 1.0)
+    assert np.allclose(m.p_click, m.p_click_shift)
