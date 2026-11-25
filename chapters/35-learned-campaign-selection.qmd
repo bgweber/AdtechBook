@@ -110,10 +110,34 @@ Changing how campaigns are selected changes which impressions the DSP buys, so i
 
 The estimate is only reliable where the logging policy explored. The crawl DSP's weighted random selection explored widely, which is why it was worth starting with. Later policies, such as the internal auction, are more deterministic, so keep a small share of traffic with randomized selection, and log its propensities, to keep offline evaluation possible. Use the offline estimate to choose which policies are worth an online test, not to replace the test.
 
-::: {.callout-tip title="Try it on the simulator"}
-Score every eligible campaign with the full pipeline on a 1% sample of simulated requests, and train a two-tower bid predictor on those scores. Plot recall at $k$ against the full ranking's winner, and value recall, for $k$ from 5 to 50, overall and for new campaigns. Then compare the predictor with the walk candidate cap and with install-affinity retrieval, offline with logged propensities and online on the simulator.
+## Learned Selection in the Reference DSP
 
-*Status: the simulator already produces the data for this exercise (adsim 0.3). The companion code and exact commands are in progress.*
+The companion code runs this chapter's exercise on the Part IV dataset from @sec-where-trees-stop, a market of 22 campaigns with about 12 eligible for each request, once each campaign's start day and countries are applied. The teacher is the full pipeline offline: LightGBM click and install models, trained on the training days, score every eligible campaign on 20,000 sampled training requests and 5,000 test requests, and each campaign's goal turns its probabilities into a value per impression: $p(\text{install})$ times the target for CPI, $p(\text{click})$ times the target for CPC, and the app's revenue per install over the target return for ROAS and Ad ROAS. The student is a two-tower bid predictor with 11,648 parameters. Its user tower reads the request's context and the device's recent apps, and its campaign tower reads the campaign's ID, dropped 30% of the time in training, the advertised app from a shared app table, the goal, the format, and the target. It trains in a few seconds with the listwise loss above, a softmax over each request's eligible campaigns against the teacher's values.
+
+Its order matches the teacher's closely, with an average rank correlation of 0.97 per request. @tbl-c35-results has recall on the test days.
+
+| Retrieval | Recall at 1 | at 2 | at 3 | at 5 |
+|---|---|---|---|---|
+| Bid predictor | 88% | 99% | 100% | 100% |
+| Bid predictor and install affinity, 80% and 20% of the slots | 88% | 91% | 99% | 100% |
+| The walk cap: each campaign's value in the segment | 88% | 97% | 97% | 97% |
+| Install affinity | 12% | 27% | 41% | 60% |
+| Random | 8% | 17% | 25% | 42% |
+
+: Recall at $k$ on 5,000 test requests: the share whose teacher winner is among the top $k$ retrieved. {#tbl-c35-results tbl-colwidths="[52,12,12,12,12]"}
+
+On this market, retrieval is easy for everyone. The Ad ROAS campaigns, hypercasual apps that convert well, win 96% of the teacher's auctions, so a cap that knows which campaigns win in each segment finds the winner almost as often as the predictor. The difference is in the requests where the device matters. When the teacher's winner is a CPC campaign, whose value depends on how likely this device is to click, the walk cap has it in its top 2 for 3% of requests, and the predictor for 94%. For devices with no installs, the cap's recall at 2 falls to 56%, and the predictor's stays at 93%. That's the personalization the chapter promised, on the 4% of requests where it changes the answer.
+
+Campaign 9 starts on day 9, after the training days, so neither the teacher nor the predictor has seen it, and the predictor scores it with its ID dropped. On the test days, among about 10 eligible campaigns, the teacher puts it at an average rank of 6.1 and the predictor at 7.1, within one place of the teacher on 74% of requests. Install-affinity retrieval rarely finds the teacher's winner, because it ranks by what devices install, not by what the pipeline bids, which is its job: of the 416 installs on the test days, it had the installed campaign in the device's top 3 for 47%, a different set of candidates to send to the heavy models. Merged into the predictor's slots, it costs recall at small $k$, where it takes one of only two slots, and nothing from $k = 3$ on.
+
+The scale is the limit here. With a dozen eligible campaigns, the bidder can afford to score them all, and retrieval only starts to pay with hundreds. A market with thousands of campaigns, and the offline and online evaluation of the selection policy, are the exercise.
+
+::: {.callout-tip title="Try it on the simulator"}
+Score every eligible campaign with the full pipeline on a sample of requests from the Part IV dataset, and train a two-tower bid predictor on those scores with a listwise loss. Compare its recall at $k$ against the full ranking's winner, and value recall, with the walk candidate cap, install-affinity retrieval, and the two merged, overall, for each goal, for devices without installs, and for a campaign that starts after the training days.
+
+Scaling up is yours: a market with hundreds of campaigns, where recall at 20 matters; offline evaluation of the selection policy with logged propensities, and an online test on the simulator; the device states of @sec-sequences-and-transformers in the user tower; and serving the towers in the bidder.
+
+*Status: runs with the companion code (adtrain 0.19), on the Part IV dataset: about half a minute on a laptop's CPU. Scaling up is yours. Commands are in `WALKTHROUGH.md`, under this chapter.*
 
 :::
 

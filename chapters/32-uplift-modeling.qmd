@@ -2,6 +2,8 @@
 
 In @sec-measuring-incrementality, we measured how many of the DSP's attributed installs it actually caused, with ghost bids on a device holdout, and estimated incrementality ratios by segment. A segment ratio says that, on average, a share $r$ of the attributed installs in a segment were caused by the ads. It doesn't say which impressions those were. Two devices in the same segment can differ completely: one was about to install the game from a friend's recommendation, and the ad only collected the credit, and the other would never have found the game without it.
 
+So far, incrementality has been measured alongside the bidder. The bidder still prices every impression on its predicted attributed installs, and the holdouts tell us afterward how much of that was real. This chapter brings the causal estimate into the bid itself: not only measuring which impressions caused installs, but using that to decide what an impression is worth. @sec-the-unified-pricing-equation then puts it in the same equation as every other pricing term.
+
 **Uplift modeling** predicts the lift for each impression: the difference between the chance of an install with the ad and without it. It's the per-impression version of the incrementality ratio, and it lets the DSP bid on what an impression causes rather than on what it gets credit for. It's also one of the hardest models in the book, because the label it predicts is never observed for any single impression. We only see one of the two outcomes.
 
 In this chapter, we will build uplift models, from two separate models to a shared base with an uplift head, evaluate them with Qini curves, look at the signals that predict lift, and price on incremental value.

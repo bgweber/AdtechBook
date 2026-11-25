@@ -132,6 +132,14 @@ def main() -> None:
     rt.add_argument("--snapshot", default="out/snapshot-shift")
     rt.add_argument("--out", default=None, help="default: retrain, next to the snapshot folder")
     rt.add_argument("--shift-day", type=int, default=None, help="default: the fourth day from the end")
+    se = sub.add_parser("select", help="learned campaign selection: a two-tower bid predictor distilled "
+                        "from the full pipeline, against the walk cap and install affinity (Chapter 35)")
+    se.add_argument("--snapshot", default="out/snapshot")
+    se.add_argument("--out", default=None, help="default: select, next to the snapshot folder")
+    cv = sub.add_parser("creatives", help="personalized creative selection, replayed on the simulated market's "
+                        "creative truth (Chapter 36)")
+    cv.add_argument("--snapshot", default="out/snapshot")
+    cv.add_argument("--out", default=None, help="default: creatives, next to the snapshot folder")
     sn = sub.add_parser("snapshot", help="the Part IV dataset: a frozen snapshot of the market "
                         "for the deep model chapters (25-29)")
     sn.add_argument("--ledger", default="out/ledger")
@@ -285,6 +293,14 @@ def main() -> None:
     if a.cmd == "retrain":
         from . import retrain
         retrain.print_report(retrain.run(a.snapshot, a.out, a.shift_day, log=lambda *_: None))
+        return
+    if a.cmd == "select":
+        from . import selection
+        selection.print_report(selection.run(a.snapshot, a.out, log=lambda *_: None))
+        return
+    if a.cmd == "creatives":
+        from . import creatives
+        creatives.print_report(creatives.run(a.snapshot, a.out, log=lambda *_: None))
         return
     if a.cmd == "snapshot":
         from . import snapshot

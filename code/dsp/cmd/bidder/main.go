@@ -35,7 +35,7 @@ import (
 	"github.com/bgweber/adtechbook/code/dsp/internal/stats"
 )
 
-const version = "0.21.0"
+const version = "0.23.0"
 
 func main() {
 	bidAddr := flag.String("bid-addr", ":8080", "bid port, for exchanges")

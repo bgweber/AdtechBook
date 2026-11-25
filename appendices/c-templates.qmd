@@ -2,9 +2,7 @@
 
 This appendix collects the documents the book recommends writing, as templates that can be copied into a repository or a wiki. Each one is short on purpose. A template that takes an hour to fill in gets skipped, and one that takes ten minutes gets used. Delete sections that don't apply rather than writing "N/A", and link to dashboards, queries, and code rather than pasting them.
 
-The templates are written in Markdown so they can live next to the code they describe. The same files are in the book's repository under `templates/`.
-
-<!-- TODO: add the templates/ folder to the repo once the code pass starts. -->
+The templates are written in Markdown so they can live next to the code they describe.
 
 ## Model Spec
 

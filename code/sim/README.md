@@ -181,6 +181,20 @@ MMP's own vocabulary, in each source's own format.
 | `installs` | Every install: organic or ad, caused or not, and who the MMP credited |
 | `events` | Every purchase and D1 open |
 
+**Creative truth** (Chapter 36). Choosing a creative needs the outcomes of
+creatives that weren't shown. `python -m adsim.creative_truth --snapshot
+out/snapshot` rebuilds the world of a Part IV snapshot (with its preset,
+scale, seed, and scenarios; walk, tiny, 7, and `ad-roas,full-share` by
+default), checks the rebuilt rates against the snapshot's truth for the
+creatives that were shown, and refuses if they don't match. It then writes
+two tables into the snapshot and records them in its manifest:
+`creatives.parquet`, each creative's campaign, format, style, orientation,
+and length, what a content embedding would see; and
+`creative_truth.parquet`, the true p_click and p_install of every creative
+of the campaign, for each impression from the first validation day on,
+with the device's fatigue as it was. The style preferences and qualities
+stay hidden.
+
 ## How the market works
 
 Each generator matches a row of the "Generators to Build" table in the

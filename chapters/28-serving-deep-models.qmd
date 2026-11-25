@@ -200,10 +200,10 @@ A few design choices make this reliable:
 - **Freshness monitoring.** Track the lag between event time and availability time per feature, because training should reflect the lag the bidder actually experienced.
 - **Log what was served anyway.** Even with a feature store, have the bidder log the values it read and their timestamps. The log is the ground truth for parity checks against the offline store.
 
-On Google Cloud, a simple version is an offline store in BigQuery with timestamped rows and an online store in Bigtable, written by the same Dataflow or batch job. Managed options include the Feature Store in Google's Gemini Enterprise Agent Platform, which replaced the Vertex AI brand in April 2026,[^c28-agent-platform] and open source options include Feast.[^c28-feast] Commercial platforms such as Tecton add streaming materialization and a registry.
+On Google Cloud, a simple version is an offline store in BigQuery with timestamped rows and an online store in Bigtable, written by the same Dataflow or batch job. Managed options include the Feature Store in Google's Gemini Enterprise Agent Platform, which replaced the Vertex AI brand in April 2026,[^c28-agent-platform] and open-source options include Feast.[^c28-feast] Commercial platforms such as Tecton add streaming materialization and a registry.
 
 [^c28-agent-platform]: "Google Announces New Gemini Enterprise Agent Platform," *THE Journal*, May 4, 2026. Most of the former Vertex AI services, including Feature Store, Pipelines, and Model Registry, continue under the Agent Platform name.
-[^c28-feast]: Feast, an open source feature store, <https://feast.dev/>
+[^c28-feast]: Feast, an open-source feature store, <https://feast.dev/>
 
 ### Choosing an Approach for Your Team
 

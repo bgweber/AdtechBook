@@ -209,14 +209,14 @@ scaling up to the reader: the code scales, the compute is theirs. Expect
 honest results at this scale: trees often beat deep models, and the
 chapters say so.
 
-- **The Deep models tab** on the console runs Chapters 25 to 29 with a button each and shows their latest
+- **The Deep models tab** on the console runs Chapters 25 to 29, 35, and 36 with a button each and shows their latest
   reports, from the tab or a terminal, and has an embedding viewer for the vectors Chapters 26 and 27 learn.
   It needs the bidder and trainer up (`docker compose up -d bidder trainer`) and the datasets in `out/`.
   A job that fails shows its error on the tab; the trainer's log (`docker compose logs trainer`) has the
   traceback.
 - **The Part IV dataset.** Download `part4-dataset.zip` from the releases and
   unzip it into `out/` (files in `out/snapshot/`), or build it (about twenty
-  minutes). Chapters 25 to 28 read it; Chapter 29 has its own,
+  minutes). Chapters 25 to 28, 35, and 36 read it; Chapter 29 has its own,
   `part4-shift.zip`, in `out/snapshot-shift/`. Numbers from the downloads
   should match the book.
 - **25 and 26, Trees and deep models.** `trainer deep`: LightGBM against a
@@ -244,7 +244,17 @@ chapters say so.
   dataset built, and then **Read out**. On the tiny market, many readouts
   can't tell the arms apart; the walkthrough says when the laptop scale is
   needed.
-- **35 and 36** have no exercises yet. **37 to 41** have none by design.
+- **35, Learned campaign selection.** `trainer select` on the Part IV dataset, about half a minute, or the
+  Chapter 35 card on the Deep models tab. The predictor and the walk cap should be close overall (the Ad
+  ROAS campaigns win almost every auction); the difference is for CPC winners and devices without installs.
+- **36, Personalized creative selection.** `trainer creatives` on the Part IV dataset, about a minute, or the
+  Chapter 36 card. It needs `creative_truth.parquet` in the snapshot: an older download lacks it, so
+  re-download, or run `docker compose run --rm --no-deps --entrypoint python sim -m adsim.creative_truth
+  --snapshot /out/snapshot`, which refuses if the rebuilt world doesn't match the logged rates (a snapshot
+  built with other settings needs `--preset`, `--scale`, `--seed`, and `--scenario` to match). Personalized
+  sampling should be about twice per-campaign sampling's gain and close to the best fixed creative, with the
+  gap on devices with more history; it captures under a third of the oracle's gain at this scale.
+- **37 to 41** have no exercises, by design.
 
 ## When the code is wrong
 

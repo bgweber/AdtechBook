@@ -213,6 +213,12 @@ def load(path="out/snapshot", check=True) -> dict:
         if check and hashlib.sha256(f.read_bytes()).hexdigest() != m["sha256"][name]:
             print(f"warning: {f} doesn't match the manifest's checksum")
         out[name] = pd.read_parquet(f)
+    for name, sha in (m.get("extra") or {}).items():  # tables added later, such as the creative truth (Chapter 36)
+        f = p / f"{name}.parquet"
+        if f.exists():
+            if check and hashlib.sha256(f.read_bytes()).hexdigest() != sha:
+                print(f"warning: {f} doesn't match the manifest's checksum")
+            out[name] = pd.read_parquet(f)
     if check and m.get("adtrain_version", "").split(".")[:2] != __version__.split(".")[:2]:
         print(f"note: the snapshot was built with adtrain {m.get('adtrain_version')}, this is {__version__}")
     return out

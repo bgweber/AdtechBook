@@ -111,9 +111,7 @@ A recent line of research treats a campaign's bidding over a day as a sequence t
 
 ![A decision transformer for bidding. Each step is three tokens, the return to go, the state, and the action. The model predicts the next action, conditioned on the value the campaign still wants to win.](../images/p4-decision-transformer.png){#fig-c34-dt width="100%" fig-alt="A causal transformer reads a sequence of tokens in groups of three, return to go, state and action, for each step, and predicts the next action, the pacing multiplier."}
 
-It's the same idea as the next-install transformer in @sec-sequences-and-transformers, applied to the campaign's day rather than a device's history, and it learns from logged trajectories without a reward model or a simulator. AIGB generates bidding trajectories with a conditional diffusion model,[^c34-aigb] and GAS combines a generative model with search after training to refine its decisions.[^c34-gas] These methods were built for advertising platforms that run their own auctions, and they're evaluated on benchmarks such as AuctionNet.
-
-<!-- TODO: R11 to R13 were located but not read in full; check each paper's method and results before describing them in more detail. -->
+It's the same idea as the next-install transformer in @sec-sequences-and-transformers, applied to the campaign's day rather than a device's history, and it learns from logged trajectories without a reward model or a simulator. AIGB generates a campaign's whole bidding trajectory with a conditional diffusion model, conditioned on the return it should reach, and reported 2.81% more GMV in an online A/B test on Alibaba's advertising platform.[^c34-aigb] GAS refines a generative policy's output after training, with small critics for different advertiser preferences and a search inspired by Monte Carlo tree search, and was tested online on Kuaishou's platform.[^c34-gas] These methods were built for advertising platforms that run their own auctions. AuctionNet, built from Alibaba's advertising data with second-price auctions, lets them be compared offline against baselines such as a PID controller and online linear programming.
 
 They're the current research frontier, not the state of practice for a DSP. Adapting them to a DSP means accounting for first-price auctions on outside exchanges, competition the DSP can't observe, and delayed outcomes. They're worth watching, and worth trying on the simulator, before anyone puts one in charge of a budget.
 
@@ -168,9 +166,9 @@ In this chapter, we learned pacing policies. Budget-constrained bidding is a seq
 Pacing decides how much each campaign bids. Next, we learn which campaigns get scored at all, and personalize that choice for each device.
 
 
-[^c34-auctionnet]: "AuctionNet: A Novel Benchmark for Decision-Making in Large-Scale Games," NeurIPS 2024 Datasets and Benchmarks, arXiv:2412.10798, <https://arxiv.org/abs/2412.10798>
+[^c34-auctionnet]: Kefan Su et al., "AuctionNet: A Novel Benchmark for Decision-Making in Large-Scale Games," NeurIPS 2024 Datasets and Benchmarks, arXiv:2412.10798, <https://arxiv.org/abs/2412.10798>
 
 [^c34-aigb]: Jiayan Guo et al., "AIGB: Generative Auto-bidding via Conditional Diffusion Modeling," KDD, 2024, arXiv:2405.16141, <https://arxiv.org/abs/2405.16141>
 
-[^c34-gas]: "GAS: Generative Auto-bidding with Post-training Search," WWW, 2025, arXiv:2412.17018, <https://arxiv.org/abs/2412.17018>
+[^c34-gas]: Yewen Li, Shuai Mao, et al., "GAS: Generative Auto-bidding with Post-training Search," Companion Proceedings of the ACM Web Conference (WWW), 2025, arXiv:2412.17018, <https://arxiv.org/abs/2412.17018>
 [^c34-wu]: Di Wu et al., "Budget Constrained Bidding by Model-free Reinforcement Learning in Display Advertising," CIKM, 2018, <https://arxiv.org/abs/1802.08365>

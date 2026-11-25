@@ -100,7 +100,7 @@ Every network call in the bid path is a chance to blow the latency budget. The r
 
 Data that's small and the same for every request stays in memory: app metadata, vocabularies, segment rates, calibration tables, and campaign configuration. It's loaded at startup and refreshed in the background as versioned snapshots, the same way as models.
 
-Data that's per device lives in the profile store. Choosing that store is a tradeoff between latency, schema flexibility, cost, and how the bidder talks to it. Options range from in-memory stores such as Redis, to Aerospike, which is popular in ad tech for its low latency on SSDs, to managed wide-column stores such as Bigtable.[^c17-nosql] Whichever you choose, the read gets a strict timeout, and a timeout is treated as a missing profile, as in @sec-parsing-bid-requests-and-eligibility. A slow store should make a few bids less accurate, never late.[^c17-intent]
+Data that's per device lives in the profile store. Choosing that store is a tradeoff between latency, schema flexibility, cost, and how the bidder talks to it. Options range from in-memory stores such as Redis, to Aerospike, which ad tech companies such as Nativo use as a profile store for its low latency at high request rates,[^c17-aerospike] to managed wide-column stores such as Bigtable. Whichever you choose, the read gets a strict timeout, and a timeout is treated as a missing profile, as in @sec-parsing-bid-requests-and-eligibility. A slow store should make a few bids less accurate, never late.[^c17-intent]
 
 ## Degrading Gracefully
 
@@ -156,8 +156,6 @@ With several models in the bid path and more on the way, a daily training script
 
 [^c17-golang]: Ben Weber, "Options for ML Serving with Golang," *Medium*, May 7, 2026, <https://medium.com/@bgweber/options-for-ml-serving-with-golang-3b1afa3a6182>
 
-<!-- TODO: verify that B14/B11 support the NoSQL trade-off claim; Aerospike-in-ad-tech is general knowledge, cite a source or soften. -->
-
-[^c17-nosql]: Ben Weber, "Technologies for Applied Data Science," *Towards Data Science*, June 2021, <https://medium.com/data-science/technologies-for-applied-data-science-f806f88d4b61>
+[^c17-aerospike]: Aerospike, "Nativo Serves 1.4 T Monthly Bid Requests with Aerospike," customer story, <https://aerospike.com/resources/customer-stories/nativo/>. Nativo keeps frequency caps and audience segments, used to decide which ads to bid on, in Aerospike.
 
 [^c17-intent]: Ben Weber, "Pretrained Deep Learning Intent Signals for Mobile DSPs," *Medium*, October 3, 2026, <https://bgweber.medium.com/pretrained-deep-learning-intent-signals-for-mobile-dsps-2eb1834c62db>

@@ -6,6 +6,21 @@ This chapter opens the run stage of the book. Before building deep models, it's 
 
 In this chapter, we will look at what LightGBM can't learn, the options for serving deep models and what they cost, and the idea that organizes all of Part IV: every model sits on a price-performance curve. We then cover CPU and GPU training and a GPU training workflow, how to write technical specs and partner with bidder engineering, how to run a migration from a classic model to a deep one, and the two designs for deep models in a DSP that the rest of Part IV builds side by side.
 
+Part IV improves the DSP in three layers, and then operates the result, as @tbl-c25-roadmap shows. Each chapter changes one layer, so it helps to keep the whole bidder in mind: better representations feed every prediction, better predictions feed every pricing decision, and better selection decides which campaigns and creatives those decisions are made for.
+
+| Layer | Chapters | What changes |
+|---|---|---|
+| Representations | 26 to 29 | Embeddings and sequence models, served and kept current |
+| Decisions | 30 to 34 | Value, win curves, uplift, one pricing equation, learned pacing |
+| Selection | 35 and 36 | Learned campaign retrieval and personalized creatives |
+| Operations | 37 | Many model families at scale, with checks and lineage |
+
+: A roadmap of Part IV. {#tbl-c25-roadmap tbl-colwidths="[20,14,66]"}
+
+@fig-c25-dsp-stages shows the same changes on the diagram from @fig-c5-dsp-stages and @fig-c13-dsp-stages. Parsing and logging stay as they are; every model and decision in the bid path changes, and so do training and operations around them.
+
+![The reference DSP at the end of Part IV. Shaded boxes are the ones this part changes.](../images/dsp-stage-part4.png){#fig-c25-dsp-stages width="100%" fig-alt="The same two columns, with parse and eligibility and logs and labels unshaded. The new versions include embeddings and pretrained device states, two-tower retrieval and personalized creatives, DCNv2 and sequence models served in the bidder, value models, win curves, uplift and one pricing equation, MPC and reinforcement learning pacing, retraining every few hours, many model families with lineage, and layered experiments."}
+
 A note on what you can run in this part. Parts II and III are meant to be fully runnable on the companion simulator. Part IV's exercises run too, but small: on a small market, for a few simulated days, on a laptop's CPU, in minutes. Deep models are the part of this book where scale matters most, and at that size they show how each method works, not how much it can gain. The companion code is complete and scales: on a bigger market, with more days, wider embeddings, and a GPU, the same code trains better models. The book provides the code, not the compute. The serving designs, the scale arguments, and the production details describe a reference design, drawn from published work and my own experience, and each chapter's "Try it on the simulator" box says what runs and what scaling up is yours.
 
 ## What LightGBM Can't Learn
@@ -84,7 +99,7 @@ A few operational realities come up quickly:
 
 ## Trees and a Deep Model on the Part IV Dataset
 
-The deep model chapters, from here through @sec-retraining-and-real-time-learning, share one dataset: a frozen snapshot of a simulated market, so each chapter's models train in minutes on the same rows, and their results can be compared. It comes from a fourteen-day run of the walk market with ad revenue, on the reference DSP with its conversion models deployed after the first week, and it holds 211,540 billed impressions from 1,860 devices, with their logged features, labels, and device histories, split by day into training, validation, and test days. The simulator's true rates are in a separate file, used only to check models.
+The deep model chapters, from here through @sec-serving-deep-models, and the selection chapters, @sec-learned-campaign-selection and @sec-personalized-creative-selection, share one dataset: a frozen snapshot of a simulated market, so each chapter's models train in minutes on the same rows, and their results can be compared. It comes from a fourteen-day run of the walk market with ad revenue, on the reference DSP with its conversion models deployed after the first week, and it holds 211,540 billed impressions from 1,860 devices, with their logged features, labels, and device histories, split by day into training, validation, and test days. The simulator's true rates are in a separate file, used only to check models, and a second one has the true rates of every creative the campaign could have shown, for creative selection. @sec-retraining-and-real-time-learning continues the same market for four more days, through a market shift, in a dataset of its own.
 
 On it, a small multi-task DCNv2 from @sec-deep-models-with-embeddings and LightGBM trained on the same rows end up close, with LightGBM slightly ahead on every head, and also on the slices where trees should struggle. Measured as the average error against the true click rate, LightGBM was 0.55 and the DCNv2 0.58 overall; 0.47 and 0.52 on the rarest quarter of advertiser apps; and 0.63 and 0.69 on device and app pairs that never appeared in training. With 117,000 training impressions and 1,000 installs, trees aren't the limit. The deep model's advantages, sharing across related values and learning crosses, need far more data than this, and so does its cost: it trained in about five seconds, as LightGBM did, and on two CPU threads it scored an impression in 2 µs in batches of a thousand, against 17 µs for LightGBM in Python, but in about 350 µs one at a time, as a bid path would call it, against about 115 µs. The bidder serves its trees natively in Go, in tens of microseconds per bid, which is why @sec-serving-deep-models keeps the deep model out of the per-candidate path. Where trees stop depends on the data, and this dataset is the place to find it, at a larger scale.
 

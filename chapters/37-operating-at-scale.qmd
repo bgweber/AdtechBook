@@ -139,7 +139,7 @@ Tooling that records lineage, which datasets, embedding versions, and models wer
 
 In this chapter, we operated the state-of-the-art DSP. Drift comes in several kinds, including feedback loops through the DSP's own decisions, and the registry becomes the inventory of model families and their dependencies, so a change upstream is one incident rather than many. Layered experiments run at scale with automated checks, rollback acts on sets of versions, and exploration and outside signals keep feedback loops in check. Postmortems turn every incident into a guardrail, features and models have lifecycles, every model's training and serving cost is tracked against what it earns, and lineage traces bad data through every downstream artifact.
 
-With that, the state-of-the-art DSP is built. Part V goes beyond the bidder, starting with what changes when device IDs aren't available.
+With that, the state-of-the-art DSP is built. Part V moves from building the bidder to the constraints around it: privacy, starting with what changes when device IDs aren't available, the team and culture that run the system, and the direction of the industry.
 
 [^c37-moloco]: Moloco, "Inside Moloco's CARA: the AI that compounds," Moloco blog, 2026, <https://www.moloco.com/blog/inside-molocos-cara-the-ai-that-compounds>
 

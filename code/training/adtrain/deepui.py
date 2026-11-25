@@ -5,7 +5,7 @@ embedding viewer's data.
 The training service serves these to the bidder's console:
 
     POST /deep/status       the datasets, the reports, and the running job
-    POST /deep/run          {"job": "deep" | "pretrain" | "export" | "retrain"}
+    POST /deep/run          {"job": "deep" | "pretrain" | "export" | "retrain" | "select" | "creatives"}
     POST /deep/embeddings   {"source": "dcn" | "transformer" | "coinstall" | "devices"}
 
 The commands write the same files as on the command line, so a chapter run
@@ -29,6 +29,8 @@ JOBS = {
     "pretrain": ("Chapter 27: pretraining on install histories", "snapshot"),
     "export": ("Chapter 28: export for the bidder", "snapshot"),
     "retrain": ("Chapter 29: retraining through a market shift", "snapshot-shift"),
+    "select": ("Chapter 35: learned campaign selection", "snapshot"),
+    "creatives": ("Chapter 36: personalized creative selection", "snapshot"),
 }
 SOURCES = {
     "dcn": "DCNv2 app embeddings (Chapter 26), learned from attributed impressions",
@@ -95,6 +97,12 @@ def run(name: str, snap: Path, root: Path) -> None:
     elif name == "retrain":
         from . import retrain
         retrain.print_report(retrain.run(str(snap), str(root / "retrain"), log=quiet))
+    elif name == "select":
+        from . import selection
+        selection.print_report(selection.run(str(snap), str(root / "select"), log=quiet))
+    elif name == "creatives":
+        from . import creatives
+        creatives.print_report(creatives.run(str(snap), str(root / "creatives"), log=quiet))
 
 
 def _read(p: Path):
@@ -119,10 +127,11 @@ def status(root: Path, jobs: Jobs | None = None) -> dict:
         m = _read(root / name / "manifest.json")
         if m:
             out["datasets"][name] = {k: m.get(k) for k in ("adtrain_version", "adsim_version", "days", "rows",
-                                                          "by_split", "devices", "apps")}
+                                                          "by_split", "devices", "apps", "creative_truth")}
     files = {"deep": root / "deep" / "report.json", "pretrain": root / "pretrain" / "report.json",
              "export": root / "export" / "export.json", "deepcheck": root / "export" / "deepcheck.json",
-             "retrain": root / "retrain" / "report.json"}
+             "retrain": root / "retrain" / "report.json", "select": root / "select" / "report.json",
+             "creatives": root / "creatives" / "report.json"}
     for k, p in files.items():
         r = _read(p)
         if r is not None:

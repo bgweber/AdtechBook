@@ -4,7 +4,7 @@ The book's working examples run on `adsim`, a simulated mobile ad market in the 
 
 The simulator writes two sets of tables. The **logs** are what a DSP would see: bid requests, its own bid decisions, notifications, impressions, clicks, and postbacks. The **truth** tables hold what no DSP can see: each device's hidden traits, the true probability of every outcome, the highest competing bid in every auction, and whether each install was caused by our ad. Models train on the logs, and the truth tables let us check their calibration, lift estimates, and win curves exactly.
 
-<!-- NOTE: this appendix documents adsim v0.1 (crawl). Update the equations and tables when later versions change them, since chapters report results from specific versions. -->
+<!-- NOTE: the equations and tables document adsim v0.1; "Later Versions" lists additions through 0.9. Update both when later versions change them. -->
 
 ## Running the Simulator
 
@@ -34,6 +34,8 @@ The presets follow the parts of the book. Each adds markets, exchanges, and camp
 | Advertisers sharing non-attributed installs | None | Half | 70% |
 
 : Presets. {#tbl-e-presets tbl-colwidths="[28,24,24,24]"}
+
+Part IV's exercises use the walk preset at the tiny scale with ad revenue, so each runs in minutes on a laptop; its market has 22 campaigns, the walk preset's 16 and six Ad ROAS campaigns. The run preset is there for scaling them up.
 
 Scales multiply the number of devices: `tiny` has 2,000, `laptop` 20,000, `medium` 200,000, and `large` 2 million, which is meant for Spark. The app catalog grows more slowly than the device count, with the square root of the scale.
 
@@ -185,11 +187,7 @@ These tables are what a DSP sees. Times are milliseconds since the epoch, in UTC
 
 : Log tables. {#tbl-e-logs tbl-colwidths="[22,78]"}
 
-The `bid_requests` table is a flattened view of each request, with the exchange's quirks left in: `country` is alpha-2 or alpha-3 depending on the exchange, the rewarded flag is in `rwdd` or `ext_rewarded`, and `bundle` may carry junk suffixes. A sample of full OpenRTB JSON requests is written alongside it as `bid_requests_sample.jsonl`. The `action` column in `bid_log` is `bid`, `ghost`, or `nobid`, and `reason` says why a request got no bid. In v0.1, the `creatives` table includes each creative's true quality, as a stand-in for a creative score the DSP would compute itself. A later version will replace it with a noisy estimate, so models can't read the truth directly.
-
-<!-- TODO (sim): replace creatives.quality in the logs with a noisy score before the walk models use creative features. -->
-
-<!-- TODO: once the bidder logs FeatureVectors (Ch 8), add the FeatureVector, DeviceProfile, and training table schemas here. -->
+The `bid_requests` table is a flattened view of each request, with the exchange's quirks left in: `country` is alpha-2 or alpha-3 depending on the exchange, the rewarded flag is in `rwdd` or `ext_rewarded`, and `bundle` may carry junk suffixes. A sample of full OpenRTB JSON requests is written alongside it as `bid_requests_sample.jsonl`. The `action` column in `bid_log` is `bid`, `ghost`, or `nobid`, and `reason` says why a request got no bid. The `creatives` table includes each creative's true quality, as a stand-in for a creative score the DSP would compute itself. No model in the book reads it: the campaign book the simulator pushes to a live bidder leaves it out, and so does the creative table in the Part IV dataset.
 
 ## Schemas: Ground Truth
 
@@ -209,6 +207,72 @@ The `bid_requests` table is a flattened view of each request, with the exchange'
 
 The truth tables join to the logs by `request_id` and `impression_id`. The `true_` columns in `requests` hold the values behind each request, before the exchange's quirks were applied, so the parser's output can be checked against them.
 
+## Schemas: The Reference DSP
+
+The simulator's tables are what the market produces. The reference DSP adds three records of its own: the FeatureVector it logs with every bid, the device profile it keeps for each device, and the training table it builds from its ledger.
+
+**The FeatureVector** (@sec-logging-at-bid-time) is one model-agnostic record of clean feature values per bid, at schema version 1. Its groups are maps from a feature name to a value, and a missing value is an absent key, never a zero.
+
+| Group | Type | Features |
+|---|---|---|
+| `schema_version` | Integer | 1. Fields are added, never repurposed |
+| `strings` | Name to string, lowercased | `exchange`, `publisher_app`, `placement`, `country`, `os`, `os_major`, `make`, `model`, `connection_type` (`wifi`, `cellular`, `ethernet`, or `other`) |
+| `numeric` | Name to number | `bidfloor`, `rewarded`, `interstitial`, `hour_of_day`, `device_known`; for known devices, `device_requests`, `seconds_since_first_seen`, `seconds_since_last_seen`, `our_imps_today`, `seconds_since_our_last_imp`, and, when nonzero, `device_prior_installs` and `device_prior_purchases` |
+| `sets` | Name to a sorted, deduplicated list | `apps_seen`: the publisher apps the device was seen in, up to 50 |
+| `lists` | Name to values with their ages in seconds | `recent_apps`: the device's latest app visits, up to 20, most recent first |
+| `lookup_versions` | Name to version | The versions of any lookup tables the features used |
+
+: The FeatureVector. {#tbl-e-fv tbl-colwidths="[18,24,58]"}
+
+Times are relative to the request, in seconds, and negative durations are clipped to zero. Next to the FeatureVector, each bid logs the **ad** it scored, as strings: `campaign`, `adv_app`, `goal`, `creative`, `creative_format`, `creative_length`, `creative_orientation`, and `creative_style`.
+
+**The device profile** (@sec-logging-at-bid-time and @sec-building-training-datasets) is what the bidder learned about each device from its own traffic. Features are built from a snapshot of the profile as it was before the request.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `known` | Boolean | Whether the bidder had seen the device before |
+| `first_seen_ms`, `last_seen_ms` | Integer | When the bidder first and last saw a request from the device |
+| `requests` | Integer | Requests seen from the device |
+| `last_imp_ms` | Integer | When the device last saw one of our ads, or 0 |
+| `imps_today` | Integer | Our impressions on the device so far today |
+| `installs`, `purchases` | Integer | Installs credited to us, and purchases after them, from postbacks received before the request |
+| `apps` | List of strings | Publisher apps the device was seen in, sorted, up to 50 |
+| `recent` | List of (`app`, `ts_ms`) | The latest app visits, most recent first, up to 20 |
+
+: The device profile snapshot. {#tbl-e-profile tbl-colwidths="[30,20,50]"}
+
+**The training table** (@sec-building-training-datasets) has one row per shown impression, built from the ledger: billing notices, joined to their bids, left joined to clicks and to install and purchase postbacks. Each build is versioned, partitioned by day, and has a manifest of its inputs, settings, and checks.
+
+| Columns | Meaning |
+|---|---|
+| `request_id`, `day`, `imp_ts_ms` | The impression and its day |
+| `exchange`, `placement`, `country`, `campaign_id`, `goal`, `creative_id`, `price_cpm` | The auction and the ad, for slicing |
+| `features`, `ad` | The logged FeatureVector and ad, as JSON |
+| `logged_p_click`, `logged_p_install_click`, `logged_model` | What the serving model predicted, and which model it was |
+| `device_prior_installs`, `device_prior_purchases` | Device history as of the bid, from postbacks received before it |
+| `logged_device_prior_installs` | The same count as the bidder logged it, for the parity check |
+| `click`, `install`, `install_click`, `install_view` | Labels: a click within the click window, and an install, through a click or a view |
+| `install_received_ts_ms` | When the install's postback arrived, or −1 |
+| `d7_revenue`, `d3_revenue` | Revenue from purchases and ad revenue postbacks within 7 days of the install, and within 3 days for Ad ROAS |
+| `click_final`, `install_final`, `d7_final`, `d3_final` | Whether each label's window had passed when the table was built |
+| `sample_weight` | 1 for kept positives and unsampled rows, or 1 divided by the sampling rate for sampled negatives |
+| `experiment`, `arm`, `device_hash` | The A/B test and arm, and a hash of the device, for intervals that resample devices |
+| `quarantine_device` | Whether the device's logged history may count quarantined postbacks |
+
+: The training table. {#tbl-e-training tbl-colwidths="[42,58]"}
+
+## Later Versions
+
+The equations above are version 0.1's, and later versions keep them. They add a live interface and scenarios, each for the chapters that need it:
+
+- **Live mode.** The simulated exchanges send every request to a bidder over HTTP, as OpenRTB 2.6 JSON in each exchange's dialect, with the simulated time in a header, and call the bid's notice URLs. A response slower than the request's `tmax` counts as a no-bid. With `--start-day auto`, each live run continues the market from the day after the bidder's latest, and postbacks that aren't due yet wait for the next run.
+- **Failure scenarios**, for one day of a run: `wrong-target` and `lost-billing` for @sec-operating-the-first-dsp, and `bad-labels` for @sec-operating-a-competitive-dsp, which credits us with false view-through installs.
+- **Market scenarios**, kept on for every run of the same market: `ad-roas` (version 0.4, @sec-value-prediction), where hypercasual games earn ad revenue and six Ad ROAS campaigns join the market; `uplift` (0.5, @sec-uplift-modeling), where heavy players find games on their own; and `full-share` (0.7, the Part IV dataset), where every advertiser shares its install data.
+- **Shift scenarios**, for one run: `traffic-surge` (0.6, @sec-pacing-with-reinforcement-learning), three times the requests for three hours, and `new-game` (0.8, @sec-retraining-and-real-time-learning), where a new hypercasual hit arrives at noon and the genre's advertised games get 40% of the installs they did before.
+- **Creative truth** (0.9, @sec-personalized-creative-selection). `python -m adsim.creative_truth` rebuilds the world of a Part IV dataset and writes the true click and install rates of every creative of the campaign for each impression from the first validation day on, so creative policies can be replayed with outcomes for creatives that weren't shown. It checks the rebuilt rates against the logged truth first.
+
+The repository's `code/sim/README.md` has each scenario's details.
+
 ## What the Simulator Leaves Out
 
-Version 0.1 covers what Part II needs. It doesn't yet have a live interface for a Go bidder, so the policy runs inside the simulation loop. Device state such as fatigue only builds within a day, and the profile features have to be built from the logs. It doesn't model ad revenue for ad-monetized games, iOS and ATT, SKAdNetwork postbacks, or click injection beyond the 10-second rejection rule. These are added as the chapters that need them are built, and each addition is recorded here with the version that introduced it.
+The simulator doesn't model iOS and ATT, SKAdNetwork postbacks, or click injection and click spamming beyond the 10-second rejection rule. A device's installs during a run don't change which apps it plays, its fatigue only builds within a day, and the profile features have to be built from the logs. The built-in policy loops in Python, so the medium and large scales are slow.

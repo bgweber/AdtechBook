@@ -555,11 +555,11 @@ Also built, without a drill: the pacing controller now starts each day at a gamm
 
 Part IV is in progress. Its exercises run on the smallest market, so each run takes a few minutes; every chapter leaves scaling up, more traffic and more days, to you. The code is complete and scales; the compute is yours.
 
-**The Deep models tab.** Chapters 25 to 29 also run from the console. With the bidder and trainer up (`docker compose up -d bidder trainer`), open the **Deep models** tab: it shows which datasets are in `out/`, has a **Run** button for each chapter's command, and shows each chapter's latest report, whether it ran from the tab or from a terminal. Its **embedding viewer** maps the vectors the chapters learned, colored by genre: the install-together vectors, the DCNv2's app embeddings (Chapter 26), the transformer's app table and its device states (Chapter 27). Pick a genre to highlight, and click an app to see its nearest neighbors. Run Chapters 25 to 27 first, so there's something to map.
+**The Deep models tab.** Chapters 25 to 29, 35, and 36 also run from the console. With the bidder and trainer up (`docker compose up -d bidder trainer`), open the **Deep models** tab: it shows which datasets are in `out/`, has a **Run** button for each chapter's command, and shows each chapter's latest report, whether it ran from the tab or from a terminal. Its **embedding viewer** maps the vectors the chapters learned, colored by genre: the install-together vectors, the DCNv2's app embeddings (Chapter 26), the transformer's app table and its device states (Chapter 27). Pick a genre to highlight, and click an app to see its nearest neighbors. Run Chapters 25 to 27 first, so there's something to map.
 
 ## The Part IV Dataset
 
-Chapters 25 to 29 share one dataset: a frozen snapshot of a simulated market, so each chapter's models train in minutes on the same rows. Get it one of two ways.
+Chapters 25 to 28, 35, and 36 share one dataset (Chapter 29 has its own): a frozen snapshot of a simulated market, so each chapter's models train in minutes on the same rows. Get it one of two ways.
 
 **Download it** (fastest, and the book's numbers): from the [releases](https://github.com/bgweber/AdtechBook/releases), download `part4-dataset.zip` and unzip it into `out/`, so the files are in `out/snapshot/`.
 
@@ -800,6 +800,36 @@ It builds a simulator from the campaign's logged bids on the normal day and the 
 ![Pacing policies compared on the surge day](images/ch34-console-rlpace.png)
 
 **Scaling up is yours.** A week of training days, a richer state or a small network for the learned policy, MPC in the bidder against PI in a budget-split A/B test, and a policy from the logged-auction simulator tested against the companion simulator itself.
+
+## Chapter 35: Learned Campaign Selection
+
+On the Part IV dataset, one command scores every eligible campaign with the full pipeline (LightGBM and each campaign's goal) on 25,000 sampled requests, trains a two-tower bid predictor to rank like it, and compares retrieval methods (about half a minute, on the CPU):
+
+```bash
+docker compose run --rm --no-deps trainer select --snapshot /out/snapshot
+```
+
+Or click **Run** on the Chapter 35 card of the console's Deep models tab. The output has recall at k against the full ranking's winner, and value recall, for the bid predictor, the walk candidate cap, install-affinity retrieval, the two merged, and random; recall by segment; and where each method ranks campaign 9, which starts after the training days. In ours, the predictor and the walk cap were close overall, 99% against 97% recall at 2, because the Ad ROAS campaigns won 96% of the auctions, but when a CPC campaign was the winner, the cap found it 3% of the time and the predictor 94%.
+
+**Scaling up is yours.** A market with hundreds of campaigns, offline and online tests of the selection policy, and serving the towers in the bidder.
+
+## Chapter 36: Personalized Creative Selection
+
+Chapter 36 needs the market's true rates for every creative, not just the one shown, so the Part IV dataset includes a creative truth table (`creative_truth.parquet`, with `creatives.parquet`). If your `out/snapshot/` came from an earlier download, or you built it yourself, either download `part4-dataset.zip` again, or add the table to your snapshot (about a minute; it rebuilds the simulated world from the dataset's seed and checks it against the logged rates):
+
+```bash
+docker compose run --rm --no-deps --entrypoint python sim -m adsim.creative_truth --snapshot /out/snapshot
+```
+
+Then replay the validation and test days with five creative policies: random, per-campaign Thompson sampling, personalized Thompson sampling over the creative's style and format and the device's creative history, the best fixed creative in hindsight, and the oracle (about a minute, on the CPU):
+
+```bash
+docker compose run --rm --no-deps trainer creatives --snapshot /out/snapshot
+```
+
+Or click **Run** on the Chapter 36 card of the console's Deep models tab. The output has expected installs for each policy, its share of the oracle's gain, how often it showed each campaign's new creative on the test days, and its installs as a share of the oracle's by how much history the device had; `out/creatives/personalized_weights.csv` has the personalized model's weights. In ours, per-campaign sampling captured 14% of the oracle's gain and personalized sampling 28%, about the same as the best fixed creative in hindsight, and the gap was all on devices with 20 or more logged impressions.
+
+**Scaling up is yours.** Longer creative histories, creative and device towers in place of the hand-built features, more creatives per campaign, fatigue, and delayed installs.
 
 ## Running without Docker
 
