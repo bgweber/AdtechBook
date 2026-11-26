@@ -22,8 +22,8 @@ You can read the whole book here at no cost, or
 [download the free EPUB](https://github.com/bgweber/AdtechBook/releases/latest) for your e-reader. The EPUB's equations need a
 reader with math (MathML) support, such as Apple Books, Thorium Reader, or
 Calibre. Kindle doesn't support it and shows the equations garbled, so on
-Kindle, read the chapters with equations here instead. A **paperback**
-edition is coming soon on Amazon.
+Kindle, read the chapters with equations here instead. The
+[**paperback**](https://www.amazon.com/dp/B0HSX91M9W) is available on Amazon.
 :::
 :::
 

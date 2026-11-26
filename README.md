@@ -10,7 +10,7 @@ Python pipelines that train, validate, and publish its models.
 
 **Read it:** [free online edition](https://bgweber.github.io/AdtechBook/) ·
 [free EPUB](https://github.com/bgweber/AdtechBook/releases/latest) ·
-paperback coming soon
+[paperback on Amazon](https://www.amazon.com/dp/B0HSX91M9W)
 
 The EPUB's equations need a reader with math (MathML) support, such as Apple
 Books, Thorium Reader, or Calibre. Kindle doesn't support it and shows the
@@ -256,62 +256,3 @@ The chapters have no code cells that run when the book renders: the
 companion code runs on its own, with the commands in `WALKTHROUGH.md`.
 `execute: freeze: auto` in `_quarto.yml` is there for any that are added
 later; it saves their results in `_freeze/`, and CI reuses them.
-
-## Publishing
-
-One set of [Quarto](https://quarto.org) files builds three editions:
-
-| Edition | Output | When it builds |
-|---|---|---|
-| Free web edition | HTML on GitHub Pages | Every push to `main` |
-| Paperback | KDP 7" x 10" black-and-white interior PDF | Version tags (`v*`) or a manual run |
-| Free ebook | Reflowable EPUB 3, a free download from each GitHub release | Version tags (`v*`) or a manual run |
-
-**Web edition.** Enable GitHub Pages once: *Settings > Pages > Source:
-GitHub Actions*. After that, every push to `main` deploys the site.
-
-**Paperback and free ebook.** Tag a release:
-
-```bash
-git tag v1.0.0
-```
-
-```bash
-git push origin v1.0.0
-```
-
-The workflow attaches the PDF and EPUB to the GitHub release for that tag.
-Upload the PDF as the KDP paperback interior. The EPUB is not sold on
-KDP: it stays on the GitHub release as a free download, which the web
-edition links to. Kindle shows its equations garbled (no MathML support),
-so the README and the home page point Kindle readers to the web edition.
-The EPUB's cover is added by `scripts/polish_epub.py`, not Quarto's
-`epub-cover-image`, whose SVG cover page made Kindle Previewer's conversion
-fail. You can also run the workflow manually from the
-*Actions* tab and download the files from the run's artifacts.
-
-## Releases
-
-- `main` is the online book. It changes whenever a chapter or the code changes.
-- A git tag (`v1.0.0`, `v1.1.0`, ...) marks each print edition and its free EPUB.
-  Readers of a printed copy can check out that tag to get the text and code
-  that match their book.
-- Each tag's release notes record the simulator version it was built and
-  tested with (for example, `adsim 0.9`).
-- The Part IV datasets are assets of their own release,
-  [`part4-data`](https://github.com/bgweber/AdtechBook/releases/tag/part4-data),
-  so they don't change with each print edition. Its notes record the
-  simulator versions that built them.
-- Print comes first. Lock the PDF with a KDP proof copy before building the
-  EPUB: during print work, build only the PDF and web editions
-  (`quarto render --to pdf`, `quarto preview`). Then build the EPUB once
-  (`quarto render --to epub`), open it in Kindle Previewer, and check tables,
-  equations, figures, and long code lines. Kindle Previewer's conversion is
-  CPU-heavy for this book, so don't rebuild the EPUB for every change.
-
-## Before the print release
-
-- Once the paperback is live on Amazon, add its product page link back in
-  four places: the "Read it" line at the top of this README, the "Read it
-  free" box in `index.qmd`, and the sidebar and footer in
-  `_quarto.yml`. Until then they say the paperback is coming soon.
