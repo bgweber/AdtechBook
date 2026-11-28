@@ -4,6 +4,13 @@ body {
   line-height: 1.4;
 }
 
+/* Lining figures: some reader fonts default to old-style digits, which make
+   numbers in equations (1000, 0.02) look like small caps. */
+body, math, math * {
+  font-variant-numeric: lining-nums;
+  font-feature-settings: "lnum" 1;
+}
+
 h1, h2, h3 {
   page-break-after: avoid;
 }
