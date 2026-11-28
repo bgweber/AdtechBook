@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use this book or its code, please cite it as below."
+title: "Machine Learning in Mobile AdTech: From Foundations to the Frontier of Demand Side Platforms"
+type: software
+authors:
+  - family-names: Weber
+    given-names: Ben G
+version: 1.0.0
+date-released: 2026-11-26
+url: "https://bgweber.github.io/AdtechBook/"
+repository-code: "https://github.com/bgweber/AdtechBook"
+license:
+  - CC-BY-NC-SA-4.0
+  - MIT
+keywords:
+  - machine learning
+  - advertising technology
+  - real-time bidding
+  - demand-side platform
+  - OpenRTB
+  - mobile advertising
+  - user acquisition
+  - bid shading
+  - simulator
+preferred-citation:
+  type: book
+  title: "Machine Learning in Mobile AdTech: From Foundations to the Frontier of Demand Side Platforms"
+  authors:
+    - family-names: Weber
+      given-names: Ben G
+  year: 2026
+  publisher:
+    name: Independently published
+  isbn: "979-8144378116"
+  url: "https://bgweber.github.io/AdtechBook/"

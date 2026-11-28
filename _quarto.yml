@@ -1,6 +1,12 @@
 project:
   type: book
   output-dir: _book
+  # The social preview image for link cards (open-graph and twitter-card
+  # below). Listed here so it's copied to the site even though no page shows it.
+  resources:
+    - images/cover-front.jpg
+    # Google Search Console ownership check; keep it to stay verified.
+    - google58a75ab2ceb25d26.html
   # Turns the EPUB into a native ebook: part pages, contents, copyright page.
   post-render:
     - scripts/polish_epub.py
@@ -19,6 +25,15 @@ book:
   site-url: https://bgweber.github.io/AdtechBook/
   repo-url: https://github.com/bgweber/AdtechBook
   search: true
+  # Site-wide defaults for search snippets and link previews.
+  description: >-
+    A free, open-source book on machine learning for mobile demand-side
+    platforms (DSPs) and real-time bidding: click and install models, win-rate
+    models and bid shading, pacing, incrementality, and deep learning, with a
+    simulated ad market and a Go bidder you can run on a laptop.
+  image: images/cover-front.jpg
+  open-graph: true
+  twitter-card: true
   chapters:
     - index.qmd
     - preface.qmd
